@@ -144,7 +144,7 @@ The [shared top-bar contract](browser-ui/README.md#shared-top-bar) owns title sl
 Search, common controls and responsive header ordering. Root bindings remain host-owned.
 
 - **Rail:** one fixed list, identical on every page: Home,
-  Colab, Remote, Ops, Digest, any other module Remote's
+  Colab, Design, Remote, Digest, any other module Remote's
   [composed shell](../contracts/remote-channel-v1.md#module-descriptions-and-composed-shell)
   describes (in its order), and TMT settings at the bottom. A module the composed shell does not describe keeps its place, dimmed in
   the disabled text colour with its reason as the tooltip (not paired, or not
@@ -326,7 +326,7 @@ write the same search edit as the query chips; plural memberships wrap inside a 
 The shared dialog owns its header rule, width and scrim.
 
 As the global search (#4841) the same dialog is titled Search TMT, lists labelled groups in one
-scrollable list (Navigation, then Colab, then each module's own, such as Ops and Remote) with a
+scrollable list (Navigation, then Colab, then each module's own, such as Digest and Remote) with a
 quiet heading each, and grows to about six rows before it scrolls, capped by the viewport. The
 project picker is labelled Colab: it and the author filter scope only the Colab group. A group with
 no admitted data shows no heading and no row, and one active option moves across the groups. The

@@ -101,13 +101,6 @@ const answer: ShellAnswer = {
       settings: [],
       needsYou: 1,
     },
-    {
-      extension: 'ops',
-      rail: { label: 'Ops', icon: 'users', path: `${origin}/ops/`, order: 300 },
-      menu: [],
-      settings: [],
-      needsYou: 0,
-    },
   ],
 };
 

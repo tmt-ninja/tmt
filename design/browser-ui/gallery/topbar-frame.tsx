@@ -46,7 +46,6 @@ const identities: Record<
   'colab-settings': { prefix: 'Colab / ', current: 'Settings' },
   remote: { current: 'Remote' },
   'remote-members': { prefix: 'Remote / This machine / ', current: 'Members' },
-  ops: { prefix: 'Ops / ', current: 'Agents' },
   digest: { current: 'Digest' },
   settings: { prefix: 'TMT settings / ', current: 'General' },
   reader: { prefix: 'tmt / ', current: 'Weekly plan', author: 'by Ben' },
@@ -97,10 +96,6 @@ const destinations = [
   ['remote', 'Remote'],
   ['devices', 'Remote devices'],
   ['remote-settings', 'Remote settings'],
-  ['agents', 'Ops agents'],
-  ['squads', 'Ops squads'],
-  ['timers', 'Ops timers'],
-  ['ops-settings', 'Ops settings'],
   ['digest', 'Digest'],
   ['settings', 'TMT settings'],
 ] as const;
@@ -116,7 +111,6 @@ const view: ShellView = {
         href: '/remote/',
         current: false,
       },
-      { id: 'ops', label: 'Ops', icon: 'users', href: '/ops/', current: false },
       { id: 'digest', label: 'Digest', icon: 'chart-column', href: '/digest/', current: false },
     ],
     bottom: [

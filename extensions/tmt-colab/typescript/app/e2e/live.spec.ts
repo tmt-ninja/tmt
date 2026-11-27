@@ -2880,8 +2880,8 @@ test('the global search reads the pages from a document that is not Colab’s an
   await page.route('**/src/main.tsx', (route) =>
     route.fulfill({ contentType: 'text/javascript', body: '' }),
   );
-  // An Ops page, with a fragment and a query that are not Colab's.
-  await page.goto('/ops/?tab=agents#agents');
+  // A Digest page, with a fragment and a query that are not Colab's.
+  await page.goto('/digest/?window=week#summary');
   const before = await page.evaluate(() => ({ href: location.href, length: history.length }));
   await page.evaluate(
     async ({ path, mount }) => (await import(/* @vite-ignore */ path)).mount(mount),

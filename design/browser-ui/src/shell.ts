@@ -251,7 +251,6 @@ const RAIL: readonly { id: string; label: string; icon: ShellIcon; path: string 
   // Design is Colab's extra module, a peer beside it (#5873).
   { id: 'design', label: 'Design', icon: 'palette', path: '/colab/design/' },
   { id: 'remote', label: 'Remote', icon: 'monitor-smartphone', path: '/remote/' },
-  { id: 'ops', label: 'Ops', icon: 'users', path: '/ops/' },
   { id: 'digest', label: 'Digest', icon: 'chart-column', path: '/digest/' },
 ];
 /**
@@ -262,10 +261,10 @@ const RAIL: readonly { id: string; label: string; icon: ShellIcon; path: string 
 export const shellModuleKey = (module: Pick<ShellModule, 'extension' | 'module'>) =>
   module.module ? `${module.extension}:${module.module}` : module.extension;
 /** Served by the TMT host itself, so always reachable from the rail. */
-const HOST_SERVED = new Set(['remote', 'ops', 'digest']);
+const HOST_SERVED = new Set(['remote', 'digest']);
 
 /**
- * Home, the fixed modules (Colab, Design, Remote, Ops, Digest), any other described module in Remote's
+ * Home, the fixed modules (Colab, Design, Remote, Digest), any other described module in Remote's
  * order, then TMT settings at the bottom. Colab is available
  * when the answer describes it or it hosts the page; without an answer (not paired) it is dimmed.
  * The current item is the host's module, else the longest matching path.

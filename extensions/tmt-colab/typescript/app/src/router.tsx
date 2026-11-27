@@ -4622,7 +4622,7 @@ function OpenPage({
   );
 }
 /**
- * Colab's history inside the TMT web app. Another route's address (`/ops`, Home) is never Colab's
+ * Colab's history inside the TMT web app. Another route's address (`/digest`, Home) is never Colab's
  * location: the router keeps the last Colab one, so a module kept while another route shows never
  * loads, unloads or rewrites a page for that address (#5954).
  */

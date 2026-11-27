@@ -166,11 +166,9 @@ test('host route transition releases the old module action and installs one comm
   await page.getByRole('button', { name: 'Search TMT', exact: true }).click();
   await page
     .getByRole('dialog', { name: 'Search TMT', exact: true })
-    .getByRole('button', { name: 'Ops agents', exact: true })
+    .getByRole('button', { name: 'Digest', exact: true })
     .click();
-  await expect(
-    page.getByRole('heading', { level: 1, name: 'Ops agents', exact: true }),
-  ).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Digest', exact: true })).toBeVisible();
   await expect(page.locator('.tmt-ui-topbar')).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Module action', exact: true })).toHaveCount(1);
   await page.getByRole('button', { name: 'Module action', exact: true }).click();
@@ -454,7 +452,6 @@ const routeTitles = [
   ['colab-settings', 'Settings'],
   ['remote', 'Remote'],
   ['remote-members', 'Members'],
-  ['ops', 'Agents'],
   ['digest', 'Digest'],
   ['settings', 'General'],
   ['reader', 'Weekly plan'],

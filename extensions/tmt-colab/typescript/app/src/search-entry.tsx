@@ -1,6 +1,6 @@
 /**
  * The global search's Colab half (#4841): the one quick switcher, mounted by a host that is not a
- * Colab route (the TMT shell on Ops, Digest, Remote or Settings). The host's bar owns the one
+ * Colab route (the TMT shell on Digest, Remote or Settings). The host's bar owns the one
  * Command/Ctrl+K listener and calls `open`; the switcher adds none. Page data, project and author
  * filtering, ranking and navigation of a page stay Colab's; every other group comes from the
  * registry the host passes, as the snapshots its providers already hold.

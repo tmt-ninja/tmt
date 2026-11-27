@@ -39,21 +39,20 @@ const remote: ShellModule = {
 };
 const answer: ShellAnswer = { version: 1, modules: [colab, remote] };
 
-it('orders Home, Colab, Design, Remote, Ops, Digest, then TMT settings at the bottom', () => {
+it('orders Home, Colab, Design, Remote, Digest, then TMT settings at the bottom', () => {
   const rail = shellRail(answer, { origin, href: `${origin}/` });
   expect(rail.main.map((item) => [item.id, item.href, item.current])).toEqual([
     ['home', `${origin}/`, true],
     ['colab', `${origin}/r/abc/x/colab/`, false],
     ['design', `${origin}/colab/design/`, false],
     ['remote', `${origin}/remote/`, false],
-    ['ops', `${origin}/ops/`, false],
     ['digest', `${origin}/digest/`, false],
   ]);
   expect(
-    shellRail(answer, { origin, href: `${origin}/ops/` })
+    shellRail(answer, { origin, href: `${origin}/digest/` })
       .main.filter((item) => item.current)
       .map((item) => item.id),
-  ).toEqual(['ops']);
+  ).toEqual(['digest']);
   expect(rail.main[0]!.count).toEqual({ text: '3', needsYou: true });
   // Design is a peer rail module (#5866); the product rail has no Search.
   expect(rail.main.find((item) => item.id === 'design')?.icon).toBe('palette');
@@ -77,15 +76,7 @@ it('marks the longest matching module, or the host-named one, and settings on /s
 });
 
 it('shows the same rail items on every route, with or without an answer, whatever the host', () => {
-  const routes = [
-    '/',
-    '/colab/',
-    '/remote/',
-    '/remote/settings',
-    '/ops/',
-    '/digest/',
-    '/settings/',
-  ];
+  const routes = ['/', '/colab/', '/remote/', '/remote/settings', '/digest/', '/settings/'];
   const hosts = [undefined, colab, remote];
   const shape = (rail: ReturnType<typeof shellRail>) =>
     [...rail.main, ...rail.bottom].map((item) => [item.id, item.label, item.icon]);
@@ -94,7 +85,6 @@ it('shows the same rail items on every route, with or without an answer, whateve
     ['colab', 'Colab', 'file-text'],
     ['design', 'Design', 'palette'],
     ['remote', 'Remote', 'monitor-smartphone'],
-    ['ops', 'Ops', 'users'],
     ['digest', 'Digest', 'chart-column'],
     ['settings', 'TMT settings', 'settings'],
   ];
@@ -147,7 +137,6 @@ it("keeps an extension's extra module beside its primary, by the longest path (#
     ['colab', `${origin}/r/abc/x/colab/`],
     ['design', `${origin}/r/abc/design/`],
     ['remote', `${origin}/remote/`],
-    ['ops', `${origin}/ops/`],
     ['digest', `${origin}/digest/`],
     ['remote:lab', `${origin}/remote/lab/`],
   ]);
@@ -252,12 +241,12 @@ it('selects one visible row: a current child while its parent is open, else the 
     const entry = (id: string, extra: Partial<ShellMenuItem> = {}): ShellMenuItem => ({
       id,
       label: id,
-      href: `/ops/${id}`,
+      href: `/colab/projects/${id}`,
       current: id === current,
       ...extra,
     });
     return {
-      title: 'Ops',
+      title: 'Colab',
       groups: [
         {
           items: [

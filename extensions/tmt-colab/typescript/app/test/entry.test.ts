@@ -41,7 +41,7 @@ it('names the paired mount a module script was loaded from, and nothing else', (
   for (const other of [
     // The dev server, another module's script, another origin, a script outside any mount.
     `${door}/src/colab-module.tsx`,
-    `${door}/r/abcdefghijklmnop/x/ops/assets/colab-module.js`,
+    `${door}/r/abcdefghijklmnop/x/digest/assets/colab-module.js`,
     `https://other.test/r/abcdefghijklmnop/x/colab/assets/colab-module.js`,
     `${door}/assets/colab-module.js`,
     `${door}/r/abcdefghijklmnop/x/colab/assets/deep/colab-module.js`,
