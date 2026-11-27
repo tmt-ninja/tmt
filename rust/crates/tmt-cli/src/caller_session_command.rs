@@ -127,7 +127,11 @@ pub(super) fn complete_binding(binding: &tmt_core::binding::Binding) -> Result<(
     // An explicit bind is synchronous lifecycle admission, not the optional
     // post-output discovery attempt. Keep that optional 500 ms budget separate.
     let allowance = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS);
-    let result = verified_observation(provider, Instant::now() + allowance, Some(binding));
+    let deadline = Instant::now() + allowance;
+    let result = at_deadline(
+        verified_observation(provider, deadline, Some(binding)),
+        deadline,
+    );
     if let Err(layer) = result {
         debug_refusal(layer);
     }
@@ -317,7 +321,7 @@ fn external_host_bindings(
 
 pub fn worker(provider: &str, budget_ms: Option<u64>) -> u8 {
     let deadline = Instant::now() + Duration::from_millis(budget_ms.unwrap_or(0)).min(BUDGET);
-    let result = verified_observation(provider, deadline, None);
+    let result = at_deadline(verified_observation(provider, deadline, None), deadline);
     if let Err(layer) = result {
         // Private supervisor evidence is always captured, never forwarded as
         // default diagnostics. Cache hits retain the original refusing layer.
@@ -438,6 +442,22 @@ fn verified_observation(
         return Err("stale-commit");
     }
     closed
+}
+
+/// A refusal returned once the allowance has run out is the budget: every
+/// probe still running at the deadline fails, so the layer it landed in
+/// (`native-admission`, `main-provider`, `storage`) proved nothing (#6014).
+pub(crate) fn at_deadline(
+    result: Result<(), &'static str>,
+    deadline: Instant,
+) -> Result<(), &'static str> {
+    result.map_err(|layer| {
+        if Instant::now() >= deadline {
+            "budget"
+        } else {
+            layer
+        }
+    })
 }
 
 /// Only a hook connection's spent writer allowance is the budget; any other

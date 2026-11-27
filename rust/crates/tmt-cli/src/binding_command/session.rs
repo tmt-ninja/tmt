@@ -66,15 +66,13 @@ pub(super) fn complete(result: &BoundIdentity) -> Completion {
     {
         return completion;
     }
-    let reason = current.session.start_refusal.as_ref().map_or(
-        match attempted {
-            Err("budget") => "the bounded session-verification allowance was exhausted",
-            Err("binding") => "the verified caller is not this target binding",
-            Err("storage" | "stale-commit") => "the verified session could not be committed",
-            _ => "TMT could not verify the provider's session ID in this pane",
-        },
-        |refusal| refusal.reason.explanation(),
-    );
+    let reason = current
+        .session
+        .start_refusal
+        .as_ref()
+        .map_or(unrecorded_reason(attempted), |refusal| {
+            refusal.reason.explanation()
+        });
     completion.warning = Some(Warning {
         reason: format!("The pane is bound, but the provider session was not recorded: {reason}"),
         fix: if stored.preferences.remembered.is_some() {
@@ -90,6 +88,16 @@ pub(super) fn complete(result: &BoundIdentity) -> Completion {
     completion
 }
 
+/// Why an explicit bind's own verification recorded no session.
+fn unrecorded_reason(attempted: Result<(), &str>) -> &'static str {
+    match attempted {
+        Err("budget") => "the bounded session-verification allowance was exhausted",
+        Err("binding") => "the verified caller is not this target binding",
+        Err("storage" | "stale-commit") => "the verified session could not be committed",
+        _ => "TMT could not verify the provider's session ID in this pane",
+    }
+}
+
 #[cfg(test)]
 pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
     crate::cli_style_tests::HintSpec::core(
@@ -103,3 +111,41 @@ pub(crate) const PRINTED_HINTS: &[crate::cli_style_tests::HintSpec] = &[
         &[],
     ),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::unrecorded_reason;
+    use crate::caller_session_command::at_deadline;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_refusal_after_the_deadline_names_the_exhausted_allowance() {
+        let spent = Instant::now();
+        for layer in [
+            "native-admission",
+            "main-provider",
+            "storage",
+            "stale-commit",
+        ] {
+            let attempted = at_deadline(Err(layer), spent);
+            assert_eq!(attempted, Err("budget"));
+            assert_eq!(
+                unrecorded_reason(attempted),
+                "the bounded session-verification allowance was exhausted"
+            );
+        }
+        assert_eq!(at_deadline(Ok(()), spent), Ok(()));
+    }
+
+    #[test]
+    fn a_refusal_before_the_deadline_keeps_its_layer() {
+        let open = Instant::now() + Duration::from_secs(60);
+        for layer in ["native-admission", "main-provider", "binding", "storage"] {
+            assert_eq!(at_deadline(Err(layer), open), Err(layer));
+        }
+        assert_eq!(
+            unrecorded_reason(at_deadline(Err("main-provider"), open)),
+            "TMT could not verify the provider's session ID in this pane"
+        );
+    }
+}
