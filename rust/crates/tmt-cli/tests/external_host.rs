@@ -33,6 +33,8 @@ mod passthrough;
 mod resume_new;
 #[path = "external_host/run_exit.rs"]
 mod run_exit;
+#[path = "external_host/runner_stall.rs"]
+mod runner_stall;
 #[path = "external_host/sampling.rs"]
 mod sampling;
 #[path = "external_host/self_bind.rs"]
