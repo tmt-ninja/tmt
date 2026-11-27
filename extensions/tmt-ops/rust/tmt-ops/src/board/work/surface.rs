@@ -767,7 +767,6 @@ fn inspector_line(frame: &mut Frame, area: Rect, y: &mut u16, line: Line<'static
 fn paint_inspector(
     frame: &mut Frame,
     app: &App,
-    state: &super::State,
     list: &List,
     item: &Item,
     area: Rect,
@@ -777,6 +776,7 @@ fn paint_inspector(
     if area.is_empty() {
         return;
     }
+    let state = &app.work;
     let look = app.look();
     let number = item.number.as_deref().unwrap_or(&item.title);
     let area = paint_pane_box(
@@ -1470,7 +1470,6 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         paint_inspector(
             frame,
             app,
-            state,
             list,
             item,
             Rect::new(right_x, area.y + top, right_w, body_h),
