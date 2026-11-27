@@ -1258,8 +1258,8 @@ const workTabs = [
 function WorkTabs() {
   const router = useRouter();
   const selected = useRouterState({
-    select: ({ resolvedLocation, location }) =>
-      (resolvedLocation ?? location).pathname === WORK_LIST_PATH ? 'list' : 'home',
+    select: ({ matches }) =>
+      matches.some(({ routeId }) => routeId === WORK_LIST_PATH) ? 'list' : 'home',
   });
   return (
     <div className="colab-work-tabs" data-work-view={selected}>

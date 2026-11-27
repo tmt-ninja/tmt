@@ -528,12 +528,12 @@ test('Work List keeps the page list and applies an old /all link’s search', as
   await mount(page, 'few', `/all?project=${encodeURIComponent(JSON.stringify(['design']))}`);
   await expect(titles(page)).toHaveText(['Alpha plan', 'Beta review']);
   const hash = new URL(page.url()).hash;
-  expect(hash).toMatch(/^#\/\?/);
+  expect(hash).toMatch(/^#\/work\/list\?/);
   expect(hash).toContain('project');
-  // Search it cannot read is dropped and the address is the plain home.
+  // Invalid search is dropped and the address is the plain Work List.
   await mount(page, 'few', '/all?project=design&q=123');
   await expect(titles(page)).toHaveCount(4);
-  expect(new URL(page.url()).hash).toBe('#/');
+  expect(new URL(page.url()).hash).toBe('#/work/list');
 });
 
 test('the Needs you tab keeps the pages waiting on the viewer, combines with a project and survives reload', async ({

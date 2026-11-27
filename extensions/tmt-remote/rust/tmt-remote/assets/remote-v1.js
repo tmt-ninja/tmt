@@ -7077,7 +7077,7 @@ function startShellHost(root, routes, options = {}) {
 		}
 		return {
 			rail,
-			menu
+			menu: rail.main.some((item) => item.id === "home" && item.current) ? void 0 : menu
 		};
 	};
 	const controls = mountShell(root, view(), (id, href) => {

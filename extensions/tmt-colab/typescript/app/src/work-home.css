@@ -28,6 +28,7 @@
     padding: var(--tmt-ui-ref-space-4) var(--tmt-ui-ref-space-4) 0;
   }
   .colab-work-tabs[data-work-view='home'] > .tmt-ui-tabs > .tmt-ui-tabs-header {
+    max-width: min(calc(100% - 2 * var(--tmt-ui-page-compact-padding-inline)), 1120px);
     padding-inline: 16px;
   }
 }
@@ -38,7 +39,7 @@
   box-sizing: border-box;
   max-width: 1120px;
   margin: 0 auto;
-  padding: 36px 40px 64px;
+  padding: 18px 40px 64px;
   color: var(--tmt-ui-color-text);
 }
 .work-home-head {

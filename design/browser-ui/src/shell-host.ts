@@ -389,7 +389,9 @@ export function startShellHost(
       const route = routes.find((candidate) => candidate.rail === item.id);
       if (route && route !== current?.route) item.href = lastLocation.get(route.id) ?? item.href;
     }
-    return { rail, menu };
+    // The folded module menu must not take aria-current from Home.
+    const homeCurrent = rail.main.some((item) => item.id === 'home' && item.current);
+    return { rail, menu: homeCurrent ? undefined : menu };
   };
   const controls: ShellControls = mountShell(
     root,
