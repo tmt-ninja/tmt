@@ -32,7 +32,35 @@ beforeAll(() => {
     writeExecutable(target, `#!/bin/sh\n${body}\n`, 0o755);
   };
   // All privileged and host-package operations are isolated fakes.
-  tool('grep', 'printf "%s\\n" /etc/apt/sources.list.d/google-chrome.list');
+  const sourceFixtures = path.join(root, 'sources.list.d');
+  mkdirSync(sourceFixtures);
+  writeFileSync(
+    path.join(sourceFixtures, 'google-chrome.list'),
+    'deb https://dl.google.com/linux/chrome/deb/ stable main\n'
+  );
+  writeFileSync(
+    path.join(sourceFixtures, 'microsoft-prod.sources'),
+    'Types: deb\nURIs: https://packages.microsoft.com/ubuntu/24.04/prod\n'
+  );
+  writeFileSync(
+    path.join(sourceFixtures, 'ubuntu.sources'),
+    'Types: deb\nURIs: https://archive.ubuntu.com/ubuntu/\n'
+  );
+  writeFileSync(
+    path.join(sourceFixtures, 'lookalike.list'),
+    'deb https://packagesXmicrosoftXcom/ stable main\n'
+  );
+  // Run the real match against private files, never the runner's apt sources.
+  writeExecutable(
+    path.join(bin, 'grep'),
+    `#!/bin/bash
+args=()
+for arg; do
+  case "$arg" in /etc/apt/sources.list.d/*) ;; *) args+=("$arg");; esac
+done
+/usr/bin/grep "\${args[@]}" "${sourceFixtures}"/* | /usr/bin/sed 's|.*/|/etc/apt/sources.list.d/|'
+`
+  );
   tool('sudo', 'printf "%s\\n" "$*" >> "$LOG_DIR/sudo"; exec "$@"');
   tool('rm', 'printf "%s\\n" "$*" >> "$LOG_DIR/removals"');
   tool(
@@ -471,13 +499,17 @@ describe('apt-install composite action', () => {
     expect(result.stderr).toContain('attempt 3 of 3 with status 13');
   });
 
-  it('removes Chrome sources and preserves package arguments with bounded update, download and unpack', () => {
+  it('removes Chrome and Microsoft sources before the bounded Ubuntu package install', () => {
     const { result, lines } = run();
     expect(result.status).toBe(0);
-    expect(lines('removals')).toEqual(['-f /etc/apt/sources.list.d/google-chrome.list']);
+    expect(lines('removals')).toEqual([
+      '-f /etc/apt/sources.list.d/google-chrome.list',
+      '-f /etc/apt/sources.list.d/microsoft-prod.sources',
+    ]);
     expect(lines('apt')).toEqual([update, download, unpack]);
     expect(lines('sudo')).toEqual([
       'rm -f /etc/apt/sources.list.d/google-chrome.list',
+      'rm -f /etc/apt/sources.list.d/microsoft-prod.sources',
       `timeout --verbose --kill-after=10s 60s apt-get ${update}`,
       `timeout --verbose --kill-after=10s 120s apt-get ${download}`,
       `timeout --verbose --kill-after=10s 240s apt-get ${unpack}`,
