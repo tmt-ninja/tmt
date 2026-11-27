@@ -119,10 +119,13 @@ impl<R: CommandRunner> Drivers<R> {
         &self,
         host: HostName,
         ids: &mut I,
+        outer_deadline: Option<Instant>,
     ) -> Result<(), HostError> {
         if self.server.get().is_some() {
             return Ok(());
         }
+        let cap = Instant::now() + Duration::from_secs(3);
+        let deadline = outer_deadline.unwrap_or(cap).min(cap);
         if HostKind::External(host) == HostKind::pty() {
             let selected = self
                 .caller()
@@ -143,12 +146,12 @@ impl<R: CommandRunner> Drivers<R> {
                     &socket,
                     &pane,
                     ids,
-                    Instant::now() + Duration::from_secs(3),
+                    deadline,
                 )?);
             }
             return Ok(());
         }
-        let Some((socket, observed)) = self.caller_server(host)? else {
+        let Some((socket, observed)) = self.caller_server(host, deadline)? else {
             return Ok(());
         };
         let server_id = ids
@@ -178,11 +181,11 @@ impl<R: CommandRunner> Drivers<R> {
     fn caller_server(
         &self,
         host: HostName,
+        deadline: Instant,
     ) -> Result<Option<(String, ProcessIncarnation)>, HostError> {
         let Some(process) = self.open(host) else {
             return Err(HostError::Unavailable(host.as_str().to_owned()));
         };
-        let deadline = Instant::now() + Duration::from_secs(3);
         let answer = process
             .call::<ServerResponse>(
                 ServerRequest {
@@ -211,7 +214,7 @@ impl<R: CommandRunner> Drivers<R> {
             return Ok(None);
         };
         Ok(self
-            .caller_server(host)?
+            .caller_server(host, Instant::now() + Duration::from_secs(3))?
             .filter(|(socket, _)| *socket == caller.socket)
             .map(|(socket, observed)| {
                 server_view(

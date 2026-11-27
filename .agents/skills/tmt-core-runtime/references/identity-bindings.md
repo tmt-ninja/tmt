@@ -614,8 +614,9 @@ pane ([list detected panes](../../../../contracts/identity-status-v1.md#list-det
   tmux and external caller's owner on one pinned ancestry, with approved drivers and recorded
   server IDs; two external hosts refuse; [rule](hosts-drivers.md)), so an external
   caller it cannot verify is that failure line, not a silent success; a turn end stays
-  silent. Hook
-  storage writer admission outside Stop waits at most 500 ms within the supplied remaining worker deadline,
+  silent. External caller discovery and server-incarnation verification use the earlier of
+  the hook's absolute deadline and each operation's existing cap.
+  Hook storage writer admission outside Stop waits at most 500 ms within the supplied remaining worker deadline,
   reserving 100 ms for commit and context completion; budget exhaustion keeps the
   unavailable-context behavior.
 - With its provisioned queue, Stop durably enqueues capture without taking the Core writer;

@@ -1096,6 +1096,7 @@ fn observed_hook_pane<R: CommandRunner + Clone>(
         runner.clone(),
         tmt_adapters::host::external::approved(),
         &mut tmt_adapters::storage::RecordedHostServers::new(&paths.database),
+        deadline,
     )
     .map_err(|_| CallerProbeFailure::Host)?;
     let Some(pane) = panes

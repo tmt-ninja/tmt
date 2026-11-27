@@ -1035,7 +1035,7 @@ mod through_the_driver {
         );
         let drivers = drivers(&installed);
         let mut ids = Ids::default();
-        drivers.resolve_server(fake(), &mut ids).unwrap();
+        drivers.resolve_server(fake(), &mut ids, None).unwrap();
         // Core's start token is the identity; the driver's startTime is advisory.
         assert_eq!(ids.0, [(SOCKET.to_owned(), pid, start.clone())]);
         assert_eq!(drivers.resolved(), Some(&server(pid, &start)));
@@ -1154,7 +1154,7 @@ mod through_the_driver {
         ids: &mut impl HostServerIds,
     ) -> Result<crate::host::Host<R>, HostError> {
         with_caller(pane, env, process_id, second, |environment, records| {
-            crate::host::Host::for_verified_caller(environment, runner, records, ids)
+            crate::host::Host::for_verified_caller(environment, runner, records, ids, soon())
         })
     }
 
@@ -1300,6 +1300,7 @@ mod through_the_driver {
                 Nested { pane: None },
                 Vec::new(),
                 &mut Ids::default(),
+                soon(),
             )
             .unwrap();
             assert_eq!(host.primary, HostKind::Tmux);

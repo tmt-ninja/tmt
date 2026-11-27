@@ -88,6 +88,12 @@ use tmt_core::{
 /// (`pid-2`), marker (`marker-2`) and agent name (`agentname-2`).
 const DRIVER: &str = r#"#!/bin/sh
 d=$(dirname "$0")
+if [ -f "$d/hook-clock" ]; then
+  . "$d/hook-clock"
+  case "$3" in
+    caller|server|snapshot) op=$3; stamp "$op" enter; trap 'stamp "$op" return' 0 ;;
+  esac
+fi
 echo "$3" >> "$d/calls"
 echo $$ >> "$d/pids"
 input=$(cat)
@@ -2265,6 +2271,8 @@ impl SteppedProvider {
                  i=0; while :; do w=0
                    while [ ! -e \"$1/$i.json\" ] && [ ! -e \"$1/$i.args\" ] && [ ! -e \"$1/stop\" ] && [ $w -lt 600 ]; do sleep 0.05; w=$((w+1)); done
                    if [ -e \"$1/$i.json\" ]; then
+                     d=\"$1/../driver\"
+                     if [ -f \"$d/hook-clock\" ]; then . \"$d/hook-clock\"; stamp hook enter; fi
                      (if [ -e \"$1/$i.env\" ]; then while IFS= read -r v; do export \"$v\"; done < \"$1/$i.env\"; fi
                       if [ -e \"$1/$i.digest\" ]; then
                         exec \"$0\" __digest-hook \"$2\" --discover-launch < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
@@ -2272,7 +2280,9 @@ impl SteppedProvider {
                         exec \"$0\" __hook \"$2\" --activity-only < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
                       else
                         exec \"$0\" __hook \"$2\" < \"$1/$i.json\" > \"$1/$i.out\" 2> \"$1/$i.err\"
-                      fi); echo $? > \"$1/$i.status\"
+                      fi); status=$?
+                     if [ -f \"$d/hook-clock\" ]; then stamp hook return; fi
+                     echo \"$status\" > \"$1/$i.status\"
                    elif [ -e \"$1/$i.args\" ]; then
                      (t=\"$0\"; s=\"$1/$i\"; set --
                       while IFS= read -r a; do set -- \"$@\" \"$a\"; done < \"$s.args\"
@@ -3678,6 +3688,18 @@ fn agy_first_prompt_admission_resume_turn_started_and_session_start_first() {
                     fs::write(&unavailable, "").unwrap();
                 }
 
+                let timing = fixture.root.join("driver/hook-timing");
+                let clock = fixture.root.join("driver/hook-clock");
+                // The same monotonic clock timestamps the stepped hook and its driver
+                // processes. On Linux both the clock read and trace write are shell builtins.
+                fs::write(&clock, r#"stamp() {
+  if [ -r /proc/uptime ]; then
+    read -r now _ < /proc/uptime
+  else
+    now=$(/usr/bin/perl -MTime::HiRes=clock_gettime,CLOCK_MONOTONIC -e 'print clock_gettime(CLOCK_MONOTONIC)' 2>/dev/null) || return 0
+  fi
+  printf '%s %s %s %s\n' "$now" "$$" "$1" "$2" >> "$d/hook-timing"
+}"#).unwrap();
                 let (status, stdout, stderr) = peer.hook_command(
                     serde_json::json!({
                         "hookEventName": "PreInvocation",
@@ -3688,13 +3710,21 @@ fn agy_first_prompt_admission_resume_turn_started_and_session_start_first() {
                     }),
                     &[],
                 );
+                fs::remove_file(clock).unwrap();
                 let hook_diagnostic = || {
+                    use std::io::{BufRead, BufReader, Read};
+                    let trace = fs::File::open(&timing).and_then(|file| {
+                        BufReader::new(file.take(4096))
+                            .lines()
+                            .take(32)
+                            .collect::<Result<Vec<_>, _>>()
+                    });
                     let calls = fixture.calls();
                     let hook_calls: Vec<_> = calls.iter().skip(calls_before).take(16).collect();
                     let stdout = stdout.chars().take(4096).collect::<String>();
                     let stderr = stderr.chars().take(4096).collect::<String>();
                     format!(
-                        "agy PreInvocation(1) after launcher={} and provider={pid} reached Running: exit={status}, stdout={stdout:?}, stderr={stderr:?}, driver calls={hook_calls:?}, prior session={before:#}",
+                        "agy PreInvocation(1) after launcher={} and provider={pid} reached Running: exit={status}, stdout={stdout:?}, stderr={stderr:?}, driver calls={hook_calls:?}, monotonic seconds / pid / op / boundary={trace:?}, prior session={before:#}",
                         peer.child.id()
                     )
                 };
