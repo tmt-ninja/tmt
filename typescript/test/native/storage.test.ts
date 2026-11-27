@@ -181,6 +181,7 @@ function expectNativeSchema(
     { version: 97, name: 'retain standalone terminal command results' },
     { version: 98, name: 'bound channel receipt evidence to its attempt deadline' },
     { version: 99, name: 'widen driver_state cap from 1024 to 4096 bytes' },
+    { version: 100, name: 'retain person-marked reply intent and pins' },
   ];
   expect(migrated.migrations.slice(8)).toEqual(additions);
   expect(migrated.tables.map(({ name }) => name)).toEqual(
@@ -664,6 +665,10 @@ function expectNativeSchema(
       // Schema 93: only a thread reply names its root.
       thread_root_request_id: null,
       receipt_deadline_ms: null,
+      // Schema 100: historical attempts were never marked to keep.
+      keep_reply: 0,
+      keep_removed: 0,
+      kept_capture_sequence: null,
     }))
   );
   expect(newAttempts.columns.map(({ name }) => name)).toContain('route_kind');
@@ -679,6 +684,7 @@ function expectNativeSchema(
     ['remote_sender_name', 'TEXT'],
     ['thread_root_request_id', 'TEXT'],
     ['receipt_deadline_ms', 'INTEGER'],
+    ['kept_capture_sequence', 'INTEGER'],
   ]) {
     expect(newAttempts.columns.find((column) => column.name === name)).toMatchObject({
       name,
@@ -695,6 +701,15 @@ function expectNativeSchema(
     dflt_value: "'not_attempted'",
     pk: 0,
   });
+  for (const name of ['keep_reply', 'keep_removed']) {
+    expect(newAttempts.columns.find((column) => column.name === name)).toMatchObject({
+      name,
+      type: 'INTEGER',
+      notnull: 1,
+      dflt_value: '0',
+      pk: 0,
+    });
+  }
   for (const name of [
     'request_attempts_room_recipient_attention',
     'request_attempts_room_response_attention',
@@ -703,6 +718,8 @@ function expectNativeSchema(
     'request_history_room',
     'request_history_originator_results',
     'request_thread_root',
+    'request_attempts_kept',
+    'request_attempts_kept_capture',
   ]) {
     expect(newAttempts.indexes.some((index) => index.name === name)).toBe(true);
   }
