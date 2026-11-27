@@ -173,7 +173,12 @@ it('never shows rows the provider did not admit', () => {
 it('admits only routes of this origin and well-formed items', () => {
   const route = (href: string) =>
     searchSnapshotProblem({ state: 'ready', items: [item('a', { href })] });
-  for (const href of ['/', '/colab/p/abc', '/digest/#summary', '/settings/?section=modules#modules'])
+  for (const href of [
+    '/',
+    '/colab/p/abc',
+    '/digest/#summary',
+    '/settings/?section=modules#modules',
+  ])
     expect(route(href), href).toBeUndefined();
   for (const href of [
     '',
