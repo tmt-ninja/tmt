@@ -1309,7 +1309,7 @@ fn output_boundary(command: &str, action: Option<&str>) -> Option<OpsOutput> {
         | (
             "checklist",
             Some(
-                "ls" | "counts" | "events" | "show" | "add" | "done" | "create" | "edit" | "assign"
+                "ls" | "events" | "show" | "add" | "done" | "create" | "edit" | "assign"
                 | "unassign" | "complete" | "reopen" | "archive" | "restore" | "delete" | "reorder",
             ),
         ) => Paired,
@@ -1557,6 +1557,7 @@ mod tests {
             }
         }
         walk(&grammar(), None);
+        assert_eq!(output_boundary("checklist", Some("counts")), None);
     }
 
     #[test]
