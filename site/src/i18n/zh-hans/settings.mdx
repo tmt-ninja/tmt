@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: af4b76a8007ffdfcaef8a213063d2ab1ca6981cb
+sourceRevision: 8ebeb12ce2a45ce41c3cd9d4a15e0ab2eb9cf7b5
 title: 设置与故障排查
 ---
 
@@ -138,4 +138,4 @@ tmt 自己的技能（包括官方 extension 的）始终优先：安装或升�
 - `TIMEOUT` 只会结束你的等待。之后可用 `tmt result` 获取回复；参见 [`tmt talk` 和 `tmt reply`](/working#tmt-talk-and-tmt-reply)。
 - `DELIVERY_UNCERTAIN` 表示文本可能已到达窗格。先用 `tmt check` 查看，再作决定；参见[投递细节](/working#delivery-details)。
 - `DELIVERY_AWAITING_APPROVAL` 表示 agent 正在等待用户批准，因此没有发送任何内容。请求仍在队列中。等 agent 继续运行后再重试，绝不要通过向它的窗格输入内容来绕过批准；参见[投递细节](/working#delivery-details)。
-- `CHANNEL_NOT_READY`、`CHANNEL_UNREACHABLE` 和 `CHANNEL_ENROLLMENT_ENDED` 来自 Claude 的[消息通道](/drivers/claude-code#message-channel)：没有发送，也没有粘贴任何内容。
+- `CHANNEL_NOT_READY`、`CHANNEL_UNREACHABLE` 和 `CHANNEL_ENROLLMENT_ENDED` 表示[消息通道](/drivers/claude-code#message-channel)尚未就绪、无法连接或已经结束：没有发送，也没有粘贴任何内容。这些错误不限于 Claude。

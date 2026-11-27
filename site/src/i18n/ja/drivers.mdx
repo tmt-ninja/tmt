@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 7562d817ff0365804de2b071f0af8bba0a24533d
+sourceRevision: 7e9669fa226feb574074eceafa8e7e1645de9ea8
 title: driver
 ---
 
@@ -36,6 +36,8 @@ $ tmt setup                      # optional: connect every agent found, after yo
 
 Pi にも組み込み runtime driver があります。`tmt run <name> pi` は、対応する TMT skill を会話に読み込む `/tmt` と `/tmt-inbox` コマンドを含め、起動ごとに連携機能を渡します。通常の Pi 起動で使う場合は、`tmt install pi` がプレビューと同意を経てユーザー拡張を提供します。どちらも Pi の `settings.json` を編集しません。
 
+対話型 Pi 1.6.1 は、実験的 channel 設定が有効なら `tmt run --channel <name> pi` も使えます。Pi の処理中は通常のリクエストが follow-up キューで待ち、urgent リクエストは steering を使います。配信の確認はキューへの追加時ではなく、Pi がそのメッセージそのものを開始した時です。確認がタイムアウトしたら、再送を判断する前にリクエストを調べ、receipt-bound の返信を待ってください。
+
 Cursor Agent には `cursor-agent` による基本的な組み込み検出があり、専用の対話型プロセスから呼び出し元を識別できます。lifecycle hook、使用量カウンター、正確な会話の再開にはまだ対応していません。プロセスの証拠が曖昧な場合は識別を拒否し、汎用の `agent` 実行ファイルを Cursor として認識しません。
 
 <Mdx.h3 id="herdr-ships-with-tmt-approved-on-first-use">Herdr：tmt に同梱、初回使用時に承認</Mdx.h3>
@@ -60,6 +62,8 @@ tmt を更新しても承認は引き継がれます。新版の driver が追�
 どちらも `tmt ls --json` と `tmt identity show --json` に表示されます。[Ops](/extensions/squad) の列にコンテキストのサイズを表示することもできます。保存するのはトークン数だけで、会話は保存しません。この hook によって、ターン終了時に `session.activity` を idle に戻すこともできます。hook がなければ、tmt は応答がないことから idle を推測しません。
 
 数値は費用ではなく、トークン数として読みます。進行中のストリーミングではなく、完了したリクエストを示し、1 ターン遅れることもあります。各カウンターは最初の読み取りから始まり、それ以前の履歴は数えません。カウンターがない場合は取得不能を意味し、ゼロではありません。使用ペースを計算するツールは、最初の読み取り、`epoch` の変更、`gap` が true の場合、またはカウンターが減った場合に、新しい基準値から計算する必要があります。
+
+agy の `no-token-source` は、transcript と hook のペイロードにトークンカウンターがなかったことを示します。この理由が付く合計0は未観測データであり、使用量ゼロの実測ではありません。
 
 <Mdx.h3 id="more-drivers">
   {

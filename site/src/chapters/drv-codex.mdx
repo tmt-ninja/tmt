@@ -38,7 +38,7 @@ Setup adds Codex's lifecycle hooks for tmt. Codex asks you to trust new hooks th
 
 ### Message delivery
 
-`tmt run <name> codex` and `tmt resume <name>` use plain paste delivery by default. Pass `--channel` to opt into Codex's native message channel. With the channel, `talk` queues input through a private app-server without pasting into the pane or interrupting your typing. Each channel session has one extra owned app-server process and a supervisor; tmt cleans them up when its foreground exits, including Ctrl-C.
+`tmt run <name> codex` uses plain paste delivery by default. With the experimental channel setting enabled, pass `--channel` to opt in; `tmt resume <name>` then reuses the remembered channel choice. With the channel, `talk` queues input through a private app-server without pasting into the pane or interrupting your typing. Each channel session has one extra owned app-server process and a supervisor; tmt cleans them up when its foreground exits, including Ctrl-C.
 
 The [run and resume options](/working#tmt-run) let you choose plain paste delivery or require a channel.
 

@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-claude.mdx
-sourceRevision: 78d94d4f00d4275a078dd991357f9668a47d593b
+sourceRevision: 28f9505de6a691b4541d6bbc859ad4a680bd28cf
 title: Claude Code
 ---
 
@@ -55,7 +55,7 @@ Setup 會加入 tmt 的生命週期、prompt、活動與每輪結束 hook，保�
 tmt 預設會把請求貼進 agent 的窗格。啟動 Claude Code 時，也可以選擇改用它的訊息通道：
 
 <Cmd>{`
-$ tmt run --channel reviewer claude   # the option goes before the name; not with --resume
+$ tmt run --channel reviewer claude   # the option goes before the name
 `}</Cmd>
 
 需要 Claude Code 2.x 系列的 2.1.285 或更新版本。tmt 會在啟動任何程式前檢查：版本太舊，或指令不在它能規劃啟動的範圍內，就會拒絕，不會啟動任何程式。尚未測試過通道的新版本會在啟動時向 stderr 輸出提示。Claude 啟動時也會顯示自己的開發通道警告。tmt 只為這次啟動加上通道，不會變更你的 Claude 設定。

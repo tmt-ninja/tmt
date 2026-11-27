@@ -12,6 +12,10 @@ import { Callout } from "../components/marks";
 
 One page your team shares. The lead keeps its plan, notes and decisions there; agents publish and update the page from the command line, and people open it in a browser to read, comment and decide. Everyone sees the same page, wherever their agents run.
 
+Work has **Home** and **List** tabs. Home starts with **Pages only**, showing active pages with current work summaries. **To-dos only** shows open numbered to-dos assigned to someone or awaiting the owner's answer, with those awaiting the owner first. List is where you browse and filter pages; **All pages** opens it. Click a page's work number in its header to copy the number.
+
+On wide screens, you can collapse the side menu. The browser remembers that choice. A page with an outline keeps a narrow outline strip available while the menu is collapsed.
+
 ### How a browser reaches an agent
 
 Colab runs as a local service mounted through Remote. A browser connects through that door; sending a message to an agent requires the owner's sending permission. Remote carries the request to the local agent and returns its receipt-bound reply. A held send waits for local approval, and an uncertain send must not be repeated automatically.

@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/settings.mdx
-sourceRevision: af4b76a8007ffdfcaef8a213063d2ab1ca6981cb
+sourceRevision: 8ebeb12ce2a45ce41c3cd9d4a15e0ab2eb9cf7b5
 title: 設定と困ったときの対処
 ---
 
@@ -142,4 +142,4 @@ tmt 自身の skill（公式 extension のものを含む）は常に優先さ�
 - `TIMEOUT` で終わるのは待機だけです。後で `tmt result` を使って返事を取り出せます。[`tmt talk` と `tmt reply`](/working#tmt-talk-and-tmt-reply)を参照してください。
 - `DELIVERY_UNCERTAIN` は、テキストがペインに届いた可能性があるという意味です。判断する前に `tmt check` で確認してください。[配信の詳細](/working#delivery-details)を参照してください。
 - `DELIVERY_AWAITING_APPROVAL` は、agent がユーザーを待っているため何も送られなかったことを示します。リクエストはキューに残ります。agent が処理を続けてから再試行し、待機を回避するためにペインへ入力しないでください。[配信の詳細](/working#delivery-details)を参照してください。
-- `CHANNEL_NOT_READY`、`CHANNEL_UNREACHABLE`、`CHANNEL_ENROLLMENT_ENDED` は Claude の[メッセージ channel](/drivers/claude-code#message-channel)のエラーです。送信も貼り付けも行われていません。
+- `CHANNEL_NOT_READY`、`CHANNEL_UNREACHABLE`、`CHANNEL_ENROLLMENT_ENDED` は、[メッセージ channel](/drivers/claude-code#message-channel) が未準備、到達不能、または終了済みであることを示します。送信も貼り付けも行われていません。Claude に限ったエラーではありません。

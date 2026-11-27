@@ -59,11 +59,15 @@ Read the footer and `?` for the keys available on the selected target. Your conf
 
 In **Work**, press `p` to select a project, `d` to choose the Done period and `c` to show recent completions. Enter opens the selected page when its link is available. In a selected project, `m` lets you move eligible numbered work after confirmation. If the order changed elsewhere, the board shows the current order without retrying your move. Work requires Colab 0.1.0-alpha.478 or later; ordering requires alpha.481 or later.
 
+Press `t` on a work item whose owner resolves to a squad member to open Talk over Work. Esc returns to Work; Tab opens the full conversation.
+
 ### Talk without losing your place
 
 Enter sends from the composer. Alt+Enter or Ctrl+J inserts a newline; Shift+Enter also works when the terminal reports enhanced keys. Esc leaves the editor with its draft kept. You can switch views without losing a draft, but restarting the board clears it.
 
 Reading older output pauses follow. **Jump to latest** or End returns to the newest messages. Replies and pane output are labeled separately. If delivery is uncertain, inspect the request before sending again.
+
+Submit `!command` in Talk to run a shell command in that member's verified directory. `!!` is an alias. Output appears live in **Run command** and is never attached to the next message. A command's **Run…** action in the transcript opens the same window with the command filled in; review the target before running it.
 
 When a member has a waiting provider form, **◆ form** marks it. Press `f` or choose **Answer form** to answer a complete form that Core supports. Only people answer these forms. Truncated, stale or terminal-only forms stay read-only; use the member's terminal for terminal-only answers. Check an unconfirmed send there before doing anything else; Ops never resends it.
 
@@ -73,7 +77,7 @@ Each room has a checklist, and each member can have a separate conversation chec
 
 Select a member and press **C** for Checklist. In a chat editor, **Ctrl+L** opens that list while keeping your draft and caret; Esc returns to the editor. Links and todos appear with their authors and ages. Archived items are hidden.
 
-Type `#` in Talk to choose an item from that member's Checklist; Enter or Tab inserts its reference. From Checklist, `r` quotes the selected item into Talk. A resolved reference in the conversation offers **Open in checklist**.
+Type `#` in Talk to search Colab Work numbers and titles alongside that member's Checklist. Enter inserts a work number such as `#TUI-12`; the agent receives its number and title. Select a known work number in the conversation and press Enter to open it in Colab or copy it. Checklist references still offer **Open in checklist**, and `r` in Checklist quotes the selected item into Talk.
 
 <Code>{`
 Checklist · builder
@@ -115,6 +119,8 @@ The Agents tree has one **TOK** column. Its **Range** cycles through 5m, 10m, 1h
 Digest's **Est. ctx avoided** is an estimate of context input avoided by batching, not measured billed tokens, turns or money saved. Its range is separate from the Agents token window. Read coverage alongside any total.
 
 The Digest **Saved** detail also shows settled message and batch counts for its selected range. Partial or stale coverage is marked alongside those counts.
+
+Digest's browser page adds allowance runway, **Usage share** by model and seat, and usage trends. Runway projects recent readings toward the reset; it is not a guarantee. API-equivalent costs use dated list prices for uncached input, cache reads, cache writes and output. Missing prices stay unavailable and incomplete estimates are labeled as lower bounds. These figures are separate from subscription allowance and your bill. `tmt digest usage report --since 7d --json` reads the report from the command line.
 
 ### Make it yours
 

@@ -48,7 +48,7 @@ If a session ends for a reason tmt doesn't recognize, tmt doesn't count that as 
 By default tmt delivers a request by pasting it into the agent's pane. For Claude Code you can opt in to its message channel instead, when you start it:
 
 <Cmd>{`
-$ tmt run --channel reviewer claude   # the option goes before the name; not with --resume
+$ tmt run --channel reviewer claude   # the option goes before the name
 `}</Cmd>
 
 It needs Claude Code 2.1.285 or newer in the 2.x line. tmt checks before it starts anything: an older version, or a command it can't plan around, is refused and nothing is launched. A newer build that the channel hasn't been tried on starts with a notice on stderr. Claude shows its own warning about development channels when it starts. tmt adds the channel to this one launch and changes none of your Claude settings.

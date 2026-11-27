@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-codex.mdx
-sourceRevision: 5c5c865c0cf4b8f251be2fc2f985be67c156ca02
+sourceRevision: a9588953e21ee609bce31af964fc7a428451a034
 title: Codex
 ---
 
@@ -45,7 +45,7 @@ setup 为 tmt 添加 Codex 的生命周期钩子。Codex 首次使用新钩子�
 
 <Mdx.h3 id="message-delivery">消息投递</Mdx.h3>
 
-`tmt run <name> codex` 和 `tmt resume <name>` 默认使用普通粘贴投递。添加 `--channel` 可选择 Codex 原生消息通道。使用通道时，`talk` 通过专用 app-server 将输入加入队列，不会向窗格粘贴，也不会打断你的输入。每个通道会话都会额外拥有一个 app-server 进程和一个监督进程；tmt 前台进程退出时会清理它们，包括按下 Ctrl-C 的情况。
+`tmt run <name> codex` 默认使用普通粘贴投递。启用实验性通道设置并指定 `--channel` 后可使用通道；之后的 `tmt resume <name>` 会沿用记住的通道选择。使用通道时，`talk` 通过专用 app-server 将输入加入队列，不会向窗格粘贴，也不会打断你的输入。每个通道会话都会额外拥有一个 app-server 进程和一个监督进程；tmt 前台进程退出时会清理它们，包括按下 Ctrl-C 的情况。
 
 通过 [run 和 resume 选项](/working#tmt-run)，你可以选择普通粘贴投递，或要求使用通道。
 

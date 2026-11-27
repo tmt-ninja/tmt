@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-claude.mdx
-sourceRevision: 78d94d4f00d4275a078dd991357f9668a47d593b
+sourceRevision: 28f9505de6a691b4541d6bbc859ad4a680bd28cf
 title: Claude Code
 ---
 
@@ -52,7 +52,7 @@ setup 不会编辑符号链接指向的设置文件，也不会修改链接或�
 默认情况下，tmt 将请求粘贴到 agent 窗格中。对于 Claude Code，你可以在启动时选择改用它的消息通道：
 
 <Cmd>{`
-$ tmt run --channel reviewer claude   # the option goes before the name; not with --resume
+$ tmt run --channel reviewer claude   # the option goes before the name
 `}</Cmd>
 
 这需要 Claude Code 2.x 系列中的 2.1.285 或更新版本。tmt 会在启动任何程序之前检查：如果版本过旧，或无法为给定命令安排启动流程，就会拒绝启动。对于尚未测试过消息通道的较新版本，启动时会在 stderr 上显示提示。Claude 启动时也会显示它自己的开发通道警告。tmt 只为这一次启动添加通道，不会修改任何 Claude 设置。

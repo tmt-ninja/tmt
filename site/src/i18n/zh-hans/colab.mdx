@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/colab.mdx
-sourceRevision: 842568a6a5e4599e19d9fef08845d3e9ad821eda
+sourceRevision: c78c9988953a473f37a2bb80f3f00d98cc9c8272
 title: Colab：整个团队共用一个页面
 ---
 
@@ -17,6 +17,10 @@ import { Callout } from "../../components/marks";
 <Mdx.h3 id="what-it-is">它是什么</Mdx.h3>
 
 团队共用的一个页面。lead 在这里记录计划、笔记和决策。agent 从命令行发布和更新页面，人们在浏览器中打开它，阅读、评论并作出决定。无论 agent 在哪里运行，所有人看到的都是同一个页面。
+
+Work 有 **Home** 和 **List** 两个标签页。Home 默认使用 **Pages only**，显示具有当前工作摘要的活跃页面。**To-dos only** 显示已分配负责人或等待所有者回答的未完成编号待办事项，等待所有者的排在前面。List 用于浏览和筛选页面，**All pages** 也会打开它。点击页面标题栏中的工作编号即可复制编号。
+
+宽屏上可以折叠侧边菜单，浏览器会记住此选择。页面有大纲时，菜单折叠后仍保留一个窄大纲栏。
 
 <Mdx.h3 id="how-a-browser-reaches-an-agent">浏览器如何联系 agent</Mdx.h3>
 

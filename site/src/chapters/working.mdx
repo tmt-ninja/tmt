@@ -13,7 +13,7 @@ $ tmt run reviewer claude --model sonnet   # name this pane and start Claude Cod
 $ tmt run reviewer                         # later: start the remembered agent
 `}</Cmd>
 
-Codex and Claude use paste unless you pass `--channel`. `--no-channel` selects plain paste delivery for one launch, and `--channel` requires a channel or fails. The flags conflict and go before the name. A channel pane never falls back to paste; [Codex's delivery guide](/drivers/codex#message-delivery) explains channel setup and its current limitations.
+Codex, Claude and Pi use paste by default. With `experimental.channel=true` in global configuration, `--channel` requires a channel or fails. `--no-channel` selects plain paste delivery for one launch. The flags conflict and go before the name. A channel pane never falls back to paste; [Codex's delivery guide](/drivers/codex#message-delivery) explains its setup and current limitations.
 
 You can also start first and name later. `tmt run claude` starts the agent at once under a temporary name such as `claude-12ab34cd56ef`, and prints one line saying how to rename it. From the agent's shell tool, `tmt name reviewer` gives it its real name and keeps the same conversation. Naming doesn't save the name: add `-s` to `tmt name` or `tmt run` for that. Naming never merges two identities, so if one is already called `claude`, `tmt run claude` refuses. Use `tmt run claude claude` to launch that one, or `tmt run reviewer claude` for another name.
 
@@ -28,7 +28,7 @@ $ tmt resume --forget reviewer  # drop the remembered conversation
 
 tmt only remembers what a driver reports through the agent's hooks. `/clear` or a new session replaces it, and switching an identity to another agent program drops the old one. Removing the identity deletes it too. If the conversation no longer exists, tmt says so and doesn't start a fresh one behind your back. Start fresh on purpose with `tmt run reviewer`. You pick the pane: tmt doesn't reopen your tmux layout. `tmt run --resume <name>` still works as an alias.
 
-Exact resume takes the same channel flags. Codex uses plain resume by default; `--channel` attaches to the exact remembered thread and never starts a fresh one.
+With the experimental channel setting enabled, exact resume reuses the last admitted launch's channel choice. `--channel` or `--no-channel` changes that choice for the resumed session. Turning the setting off uses paste without erasing the remembered choice. Codex's channel attaches to the exact remembered thread and never starts a fresh one.
 
 When a resume fails before the agent confirms the session, tmt marks it stale and won't try it again until you decide: `tmt resume --retry reviewer` tries once more, and `--forget` drops it. Ctrl-C never marks a session stale.
 
@@ -119,6 +119,8 @@ $ tmt result req_9ba4…                   # just the reply
 `}</Cmd>
 
 `ack` needs the revision that `x` or `x show` printed, so an acknowledgement can't hide a reply you haven't seen. Reading never marks anything, never cancels the work and never extends how long a request is kept: 90 days for new requests, unless you change `exchange.retentionDays`.
+
+A person can keep an answer by starting a direct terminal prompt with `⚑` or `/keep`, followed by a question. This needs a provider that reports both the prompt and its final answer. Kept answers remain until the person removes the keep; ordinary history still has its own expiry. The limit is 64 kept or pending answers across agents. A marked receipt-bound request still gets an ordinary `tmt reply`.
 
 `tmt result` also takes a unique prefix of a request ID, at least 8 hex characters, with or without `req_`: `tmt result 82d3556e`. Past the first 8 characters, keep the ID's hyphens (`82d3556e-0`). When several requests match, it lists up to five full IDs and how many more match; use a longer prefix. An unknown prefix says no reply is available.
 

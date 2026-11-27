@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-codex.mdx
-sourceRevision: 5c5c865c0cf4b8f251be2fc2f985be67c156ca02
+sourceRevision: a9588953e21ee609bce31af964fc7a428451a034
 title: Codex
 ---
 
@@ -45,7 +45,7 @@ Setup 會為 tmt 加入 Codex 的生命週期 hook。Codex 第一次會詢問你
 
 <Mdx.h3 id="message-delivery">訊息傳送</Mdx.h3>
 
-`tmt run <name> codex` 和 `tmt resume <name>` 預設用一般的貼上方式傳送訊息。加上 `--channel` 才會使用 Codex 原生的訊息通道。使用通道時，`talk` 會透過私有 app-server 將輸入排入佇列，不會貼進窗格，也不會打斷你的輸入。每個通道 session 都會多啟動一個由 tmt 管理的 app-server 行程與一個 supervisor；前景程式結束時，包括按下 Ctrl-C，tmt 都會清理它們。
+`tmt run <name> codex` 預設使用一般貼上傳送。啟用實驗性通道設定並指定 `--channel` 後可使用通道；之後的 `tmt resume <name>` 會沿用記住的通道選擇。使用通道時，`talk` 會透過私有 app-server 將輸入排入佇列，不會貼進窗格，也不會打斷你的輸入。每個通道 session 都會多啟動一個由 tmt 管理的 app-server 行程與一個 supervisor；前景程式結束時，包括按下 Ctrl-C，tmt 都會清理它們。
 
 [啟動與恢復的選項](/working#tmt-run)讓你選擇一般貼上傳送，或要求使用通道。
 
