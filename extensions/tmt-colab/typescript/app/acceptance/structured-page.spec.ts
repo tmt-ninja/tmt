@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import { recordBlocksResults } from './harness/blocks-results.js';
 import { freePort, openChat, pairedMachine, revokeMachine, run } from './harness/ask.js';
@@ -16,6 +16,12 @@ test.afterEach(disposeActiveWorlds);
 /** The platform's key to the end of a block's text, past every line: a click puts the caret where
  * it lands (#6742), so a case that types at the end goes there first. */
 const textEnd = process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End';
+
+async function selectBlockByFocus(block: Locator) {
+  await block.focus();
+  await expect(block).toBeFocused();
+  await expect(block).toHaveAttribute('data-selected', '');
+}
 
 test('a phone block image viewer fits the viewport and its controls can be clicked', async () => {
   await withWorld(async (world) => {
@@ -70,6 +76,24 @@ test('a phone block image viewer fits the viewport and its controls can be click
       await expect(viewer).toBeHidden();
       await expect(opener).toBeFocused();
     }
+
+    const block = opener.locator('xpath=ancestor::*[@data-block-id][1]');
+    const viewer = page.getByRole('dialog', { name: 'Release sketch' });
+    await page.keyboard.press('Tab');
+    await selectBlockByFocus(block);
+    await opener.press('Space');
+    await expect(viewer).toBeVisible();
+    const zoom = viewer.getByRole('button', { name: 'Zoom in' });
+    await zoom.press('Space');
+    await expect(viewer.getByText('125%')).toBeVisible();
+    await zoom.press('Enter');
+    await expect.soft(viewer.getByText('150%')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(viewer).toBeHidden();
+
+    await selectBlockByFocus(block);
+    await opener.press('Enter');
+    await expect(viewer).toBeVisible();
   });
 });
 
@@ -117,7 +141,7 @@ test('the outline follows the live side menu on the same mounted block page', as
   });
 });
 
-test('Enter opens focused table column actions after escaping a cell edit', async () => {
+test('Enter opens table column actions and renames the column after escaping a cell edit', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
     const browser = await pairBrowser(world, 'table-menu-owner');
@@ -152,12 +176,12 @@ test('Enter opens focused table column actions after escaping a cell edit', asyn
     await actions.focus();
     await page.keyboard.press('Enter');
     const rename = page.getByRole('menuitem', { name: 'Rename', exact: true });
-    await expect(rename).toBeVisible();
-    await rename.click();
+    await expect(rename).toBeFocused();
+    await page.keyboard.press('Enter');
     const name = block.getByRole('textbox', { name: 'Column name' });
-    await expect(name).toBeVisible();
-    await name.fill('Status');
-    await name.press('Enter');
+    await expect(name).toBeFocused();
+    await page.keyboard.type('Status');
+    await page.keyboard.press('Enter');
     await expect
       .poll(() => {
         const listed = cli(['block', 'ls', created.pageId]).blocks;
@@ -167,6 +191,142 @@ test('Enter opens focused table column actions after escaping a cell edit', asyn
         };
       })
       .toEqual({ title: 'Status', content: 'Open now' });
+  });
+});
+
+test('keyboard activation stays on selected mockup controls', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'mockup-keyboard-owner');
+    const cli = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const created = cli(['page', 'create', '--title', 'Preview controls', '--no-open']);
+    const {
+      blockIds: [id],
+    } = cli([
+      'block',
+      'insert',
+      created.pageId,
+      '--type',
+      'mockup',
+      '--props',
+      JSON.stringify({ markup: '<p>Release sketch</p>', preset: '390' }),
+    ]);
+    const page = await browser.context.newPage();
+    await page.goto(new URL(created.path, door.origin).href);
+    const block = page.locator(`[data-block-id="${id}"]`);
+    await selectBlockByFocus(block);
+    const dark = block.getByRole('button', { name: 'Dark', exact: true });
+    await dark.press('Space');
+    await expect(dark).toHaveAttribute('aria-pressed', 'true');
+    const wide = block.getByRole('button', { name: '1440', exact: true });
+    await wide.press('Enter');
+    await expect(wide).toHaveAttribute('aria-pressed', 'true');
+    await expect(block).toHaveAttribute('data-selected', '');
+  });
+});
+
+test('keyboard activation of a selected block mention opens its destination', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'mention-keyboard-owner');
+    const cli = (args: string[], input?: string) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'], input));
+    const source = cli(['page', 'create', '--title', 'Mention source', '--no-open']);
+    const destination = cli(['page', 'create', '--title', 'Mention destination', '--no-open']);
+    const {
+      blockIds: [target],
+    } = cli([
+      'block',
+      'insert',
+      destination.pageId,
+      '--type',
+      'paragraph',
+      '--text',
+      'Release notes',
+    ]);
+    const id = crypto.randomUUID();
+    const label = 'Read release notes';
+    cli(
+      ['block', 'batch', source.pageId, '--file', '-'],
+      JSON.stringify([
+        { op: 'insert', id, type: 'paragraph', text: label },
+        {
+          op: 'text',
+          id,
+          format: {
+            from: 0,
+            to: label.length,
+            mark: 'block',
+            value: `${destination.pageId}/${target}`,
+          },
+        },
+      ]),
+    );
+    const page = await browser.context.newPage();
+    await page.goto(new URL(source.path, door.origin).href);
+    const block = page.locator(`[data-block-id="${id}"]`);
+    await selectBlockByFocus(block);
+    const link = block.getByRole('link', { name: label });
+    const sourceUrl = page.url();
+    await link.press('Space');
+    await expect(link).toBeFocused();
+    await expect(page).toHaveURL(sourceUrl);
+    await link.press('Enter');
+    await expect(page.locator(`[data-block-id="${target}"]`)).toBeInViewport();
+  });
+});
+
+test('keyboard activation of a selected to-do preserves checkbox behavior', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'todo-keyboard-owner');
+    const cli = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const created = cli(['page', 'create', '--title', 'Keyboard checklist', '--no-open']);
+    const {
+      blockIds: [id],
+    } = cli(['block', 'insert', created.pageId, '--type', 'todo', '--text', 'Tag the release']);
+    const page = await browser.context.newPage();
+    await page.goto(new URL(created.path, door.origin).href);
+    const block = page.locator(`[data-block-id="${id}"]`);
+    await selectBlockByFocus(block);
+    const checkbox = block.getByRole('checkbox', { name: 'Tag the release' });
+    await checkbox.press('Space');
+    await expect(checkbox).toBeChecked();
+    await checkbox.press('Enter');
+    await expect(checkbox).toBeFocused();
+    await expect(checkbox).toBeChecked();
+    await expect(block.locator('[contenteditable="true"]')).toHaveCount(0);
+    await checkbox.press('Space');
+    await expect(checkbox).not.toBeChecked();
+  });
+});
+
+test('keyboard entry and line breaks still work in a selected code block', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'code-keyboard-owner');
+    const cli = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const created = cli(['page', 'create', '--title', 'Keyboard code', '--no-open']);
+    const {
+      blockIds: [id],
+    } = cli(['block', 'insert', created.pageId, '--type', 'code', '--text', 'one']);
+    const page = await browser.context.newPage();
+    await page.goto(new URL(created.path, door.origin).href);
+    const block = page.locator(`[data-block-id="${id}"]`);
+    await selectBlockByFocus(block);
+    await page.keyboard.press('Enter');
+    const editor = block.locator('[contenteditable="true"]');
+    await expect(editor).toBeFocused();
+    await editor.press(textEnd);
+    await editor.press('Enter');
+    await page.keyboard.type('two words');
+    await editor.press('Escape');
+    await expect
+      .poll(() => cli(['block', 'get', created.pageId, id]).block.text?.s)
+      .toBe('one\ntwo words');
   });
 });
 
@@ -2382,9 +2542,15 @@ test('a changed answer keeps what was given: a choice added after a reload, a sh
 
     const choices = card(days, 'Which days work?');
     await expect(choices).toBeVisible({ timeout: 30_000 });
-    await choices.getByLabel('Monday', { exact: true }).check();
-    await choices.getByLabel('Friday', { exact: true }).check();
-    await choices.getByRole('button', { name: 'Send' }).click();
+    const question = page.locator(`[data-block-id="${days}"]`);
+    await selectBlockByFocus(question);
+    await page.keyboard.press('Enter');
+    const monday = choices.getByLabel('Monday', { exact: true });
+    await expect(monday).toBeFocused();
+    await page.keyboard.press('Space');
+    await expect(monday).toBeChecked();
+    await choices.getByLabel('Friday', { exact: true }).press('Space');
+    await choices.getByRole('button', { name: 'Send' }).press('Enter');
     await until(() => agent.received().length === 1, 'the first answer reached the agent');
     const words = card(note, 'Anything to bring?');
     await words.getByLabel('Your answer').fill('The release notes');
