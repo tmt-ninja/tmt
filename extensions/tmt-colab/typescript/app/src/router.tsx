@@ -200,6 +200,7 @@ import { SourceDraft } from './use-page-editor.js';
 import { PageSource } from './page-source.js';
 import { usePagePanels } from './use-page-panels.js';
 import { usePanelMode } from './panel-mode.js';
+import { useStructuredDiscussionLayout } from './structured-discussion-layout.js';
 import './panel-layout.css';
 import { useAnnotations } from './use-annotations.js';
 import { usePageRenderer } from './use-page-renderer.js';
@@ -2558,6 +2559,8 @@ function OpenPage({
   // A block page's text is its editor, in the parent document: a text selection in one block
   // offers the same Annotate control an HTML page's selection does, without Selection mode (#6611).
   const blockPage = view.pageType === 'blocks';
+  const workspace = useRef<HTMLDivElement>(null);
+  useStructuredDiscussionLayout(workspace, blockPage && panel === 'comments');
   useEffect(() => {
     if (!blockPage || !canSelect || selectionMode) return;
     let reported = false;
@@ -3776,7 +3779,7 @@ function OpenPage({
           <p>{text.warning}</p>
         </section>
       </BrowserDrawer>
-      <div className="workspace">
+      <div className="workspace" ref={workspace}>
         {workControls && (
           <>
             <MobileWorkTitle
