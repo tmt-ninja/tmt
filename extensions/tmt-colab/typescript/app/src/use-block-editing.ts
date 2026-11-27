@@ -1979,10 +1979,17 @@ export function useBlockEditing(
       if (event.key === 'Enter' && selection.anchor === selection.focus) {
         // The question card owns Enter, including when an answer control already has focus.
         if (treeRef.current.get(selection.focus)?.type === 'question') return false;
-        // Menu buttons own Enter both on the trigger and once a menu item has focus.
+        // Events from the block's controls (including its menus and viewer) reach this handler
+        // before their native activation. Enter on the block surface still enters its editor.
+        const target = event.target;
         if (
-          event.target instanceof Element &&
-          event.target.closest('button[aria-haspopup="menu"], [role="menu"] button')
+          target instanceof Element &&
+          (target.closest(
+            'button, a[href], input, textarea, select, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="listbox"], [role="option"], [role="slider"], [role="spinbutton"], [role="tab"], [role="textbox"], [role="treeitem"]',
+          ) ||
+            (target instanceof HTMLElement &&
+              target.isContentEditable &&
+              !target.closest('.tmt-block-editor-text')))
         )
           return false;
         // A table is entered at its first cell, or by adding its first row.
