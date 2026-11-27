@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drivers.mdx
-sourceRevision: 7562d817ff0365804de2b071f0af8bba0a24533d
+sourceRevision: 7e9669fa226feb574074eceafa8e7e1645de9ea8
 title: Driver
 ---
 
@@ -36,6 +36,8 @@ $ tmt setup                      # optional: connect every agent found, after yo
 
 Pi 也有内置 runtime driver。`tmt run <name> pi` 在每次启动时提供集成，包括将对应 TMT skill 载入对话的 `/tmt` 与 `/tmt-inbox` 命令。若要在普通 Pi 启动时使用，`tmt install pi` 会在预览并征得同意后提供用户扩展。两种方式都不会编辑 Pi 的 `settings.json`。
 
+启用实验性通道设置后，交互式 Pi 1.6.1 还支持 `tmt run --channel <name> pi`。Pi 工作时，普通请求进入 follow-up 队列，紧急请求使用 steering。只有 Pi 开始处理完全相同的消息时才确认送达，进入队列不算确认。如果确认超时，请先检查请求并等待绑定 receipt 的回复，再决定是否重发。
+
 Cursor Agent 已内置通过 `cursor-agent` 进行的基本检测，可从专用交互进程识别调用方。目前尚无生命周期钩子、用量计数器或精确恢复会话功能。进程证据不明确时会拒绝识别；通用的 `agent` 可执行文件不会被识别为 Cursor。
 
 <Mdx.h3 id="herdr-ships-with-tmt-approved-on-first-use">Herdr：随 tmt 提供，首次使用时批准</Mdx.h3>
@@ -60,6 +62,8 @@ tmt 升级后会保留批准。如果新版 driver 提出更多要求，下次�
 两者都会显示在 `tmt ls --json` 和 `tmt identity show --json` 中，[Ops](/extensions/squad) 的一列也可以显示上下文大小。只存储 token 数量，不存储会话内容。该钩子还会在每轮结束时让 `session.activity` 回到空闲状态；没有它，tmt 绝不会仅凭沉默就猜测 agent 已空闲。
 
 这些数字表示 token 数，不是费用。它们描述已完成的请求，而不是实时流式输出，可能落后一轮。每个计数器从首次读数开始，不会计入之前的历史。缺少计数器意味着数据不可用，绝不表示零。计算速率的工具应在首次读数、`epoch` 变化、`gap` 为 true 或计数器下降时建立新的基线。
+
+对于 agy，`no-token-source` 表示会话记录和 hook 载荷未提供 token 计数器。带有该原因的零总量是未覆盖的数据，不是实测的零用量。
 
 <Mdx.h3 id="more-drivers">
   更多 driver <Tag kind="planned" />

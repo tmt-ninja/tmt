@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/working.mdx
-sourceRevision: 0c9db822e3e4f88a052a20bf5c57d289dff59557
+sourceRevision: a536f23187f6270c21538f41cdf644bc1ce93fac
 title: 起動して、送り、返事を受け取る
 ---
 
@@ -22,7 +22,7 @@ $ tmt run reviewer claude --model sonnet   # name this pane and start Claude Cod
 $ tmt run reviewer                         # later: start the remembered agent
 `}</Cmd>
 
-Codex と Claude は、`--channel` を指定しない限り貼り付けで配信します。`--no-channel` はその起動に限って通常の貼り付けを選び、`--channel` は channel を必須にして、使えなければ失敗します。両方は同時に指定できず、名前の前に置きます。channel を使うペインは貼り付けに切り替わりません。設定方法と現在の制約は [Codex の配信ガイド](/drivers/codex#message-delivery)を参照してください。
+Codex、Claude、Pi は既定で貼り付けを使います。グローバル設定で `experimental.channel=true` にすると、`--channel` は channel を必須にし、使えなければ失敗します。`--no-channel` はその起動に限って通常の貼り付けを選びます。両方は同時に指定できず、名前の前に置きます。channel を使うペインは貼り付けに切り替わりません。[Codex の配信ガイド](/drivers/codex#message-delivery)で設定方法と現在の制約を説明しています。
 
 先に起動し、後から名前を付けることもできます。`tmt run claude` は `claude-12ab34cd56ef` のような一時的な名前で agent をすぐに起動し、名前の変更方法を1行で表示します。agent の shell ツールから `tmt name reviewer` を実行すると、同じ会話を保ったまま名前を付けられます。名前を付けるだけでは保存されません。保存するには `tmt name` または `tmt run` に `-s` を付けます。名前の変更で2つの identity が統合されることはないため、すでに `claude` という名前があれば `tmt run claude` は拒否されます。その identity を起動するには `tmt run claude claude`、別の名前なら `tmt run reviewer claude` を使います。
 
@@ -39,7 +39,7 @@ $ tmt resume --forget reviewer  # drop the remembered conversation
 
 tmt が覚えるのは、agent の hook を通して driver が報告した情報だけです。`/clear` や新しいセッションで置き換わり、identity を別の agent プログラムに切り替えると古い情報は消えます。identity を削除した場合も消えます。会話がもう存在しなければ、その旨を伝え、勝手に新しい会話を始めることはありません。新しく始めると決めたら `tmt run reviewer` を実行してください。ペインは自分で選びます。tmt は tmux のレイアウトを復元しません。`tmt run --resume <name>` も別名として使えます。
 
-元の会話を再開するときも、同じ channel フラグを使えます。Codex は既定で通常の再開を行い、`--channel` を指定すると記憶したスレッドそのものに接続します。新しいスレッドに置き換えることはありません。
+実験的 channel 設定が有効なら、元の会話の再開は最後に受理された起動の channel 選択を引き継ぎます。`--channel` または `--no-channel` で再開するセッションの選択を変更できます。設定を無効にすると、記憶した選択を消さずに貼り付けを使います。Codex の channel は記憶したスレッドそのものに接続し、新しいスレッドに置き換えません。
 
 agent がセッションを確認する前に再開に失敗すると、tmt はそのセッションを stale として記録し、ユーザーが判断するまで再試行しません。`tmt resume --retry reviewer` はもう一度試し、`--forget` は記憶したセッションを削除します。Ctrl-C で stale になることはありません。
 
@@ -132,6 +132,8 @@ $ tmt result req_9ba4…                   # just the reply
 `}</Cmd>
 
 `ack` には `x` または `x show` が表示した revision が必要なので、まだ見ていない返事を確認済みにして隠すことはありません。読むだけでは確認済みにならず、作業も取り消されず、保存期間も延びません。新しいリクエストの保存期間は、`exchange.retentionDays` を変えない限り90日です。
+
+人は端末に直接入力するプロンプトを `⚑` または `/keep` と質問で始めることで、回答を保持できます。プロンプトと最終回答の両方を報告する provider が必要です。保持した回答は人が保持を解除するまで残りますが、通常の履歴には元の保存期限が適用されます。保持済みと回答待ちを合わせて、全 agent で64件までです。保持マーク付きの receipt-bound リクエストにも、通常どおり `tmt reply` で答えます。
 
 `tmt result` には、リクエスト ID を一意に特定できる先頭部分も指定できます。16進数で8文字以上が必要で、`req_` は省略できます。例は `tmt result 82d3556e` です。8文字より先まで指定するときは、ID のハイフンを残します（`82d3556e-0`）。複数のリクエストに一致すると、完全な ID を最大5件と残りの件数を表示します。より長い先頭部分を指定してください。一致しなければ、返事がないと通知します。
 

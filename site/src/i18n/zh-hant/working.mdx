@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/working.mdx
-sourceRevision: 0c9db822e3e4f88a052a20bf5c57d289dff59557
+sourceRevision: a536f23187f6270c21538f41cdf644bc1ce93fac
 title: 啟動、傳送與取得回覆
 ---
 
@@ -22,7 +22,7 @@ $ tmt run reviewer claude --model sonnet   # name this pane and start Claude Cod
 $ tmt run reviewer                         # later: start the remembered agent
 `}</Cmd>
 
-Codex 與 Claude 預設以貼上傳送，除非指定 `--channel`。`--no-channel` 為單次啟動選擇一般貼上；`--channel` 則要求使用通道，無法使用就失敗。兩個旗標互斥，且要放在名稱前。使用通道的窗格不會退回貼上；[Codex 傳送指南](/drivers/codex#message-delivery)說明了通道設定與目前限制。
+Codex、Claude 與 Pi 預設使用貼上傳送。在全域設定中啟用 `experimental.channel=true` 後，`--channel` 要求使用通道，無法使用就失敗。`--no-channel` 為單次啟動選擇一般貼上。兩個旗標互斥，且要放在名稱前。使用通道的窗格不會退回貼上；[Codex 傳送指南](/drivers/codex#message-delivery)說明了其設定與目前限制。
 
 你也可以先啟動、再命名。`tmt run claude` 會立即以暫時名稱（例如 `claude-12ab34cd56ef`）啟動 agent，並顯示一行改名方法。從 agent 的 shell 工具執行 `tmt name reviewer`，就能給它正式名稱並保留同一段對話。命名不等於儲存名稱；要儲存請在 `tmt name` 或 `tmt run` 加上 `-s`。命名不會合併兩個 identity，因此若已有名稱為 `claude` 的 identity，`tmt run claude` 會拒絕。使用 `tmt run claude claude` 啟動既有 identity，或用 `tmt run reviewer claude` 指定另一個名稱。
 
@@ -39,7 +39,7 @@ $ tmt resume --forget reviewer  # drop the remembered conversation
 
 tmt 只記住 driver 透過 agent hook 回報的資訊。`/clear` 或新的 session 會取代記錄，identity 切換到另一個 agent 程式時也會丟棄舊記錄。移除 identity 同樣會刪除。若對話已不存在，tmt 會明說，不會背著你開始新對話。確定要重新開始時，使用 `tmt run reviewer`。窗格由你選擇：tmt 不會恢復 tmux 版面。`tmt run --resume <name>` 仍可作為別名使用。
 
-精確恢復也支援相同的通道旗標。Codex 預設使用一般恢復；`--channel` 會連上記住的確切 thread，不會另開新 thread。
+啟用實驗性通道設定時，精確恢復會沿用上次獲准啟動時的通道選擇。`--channel` 或 `--no-channel` 可變更恢復會話所用的選擇。關閉該設定會使用貼上，但不會清除記住的選擇。Codex 的通道會連上記住的確切 thread，不會另開新 thread。
 
 若在 agent 確認 session 前恢復失敗，tmt 會標記為 stale，等你決定才再試：`tmt resume --retry reviewer` 再試一次，`--forget` 則丟棄記錄。Ctrl-C 不會將 session 標成 stale。
 
@@ -131,6 +131,8 @@ $ tmt result req_9ba4…                   # just the reply
 `}</Cmd>
 
 `ack` 需要 `x` 或 `x show` 顯示的 revision，因此確認處理不會隱藏你沒看過的回覆。讀取不會標記任何內容、取消工作或延長保留時間：新請求預設保留 90 天，除非修改 `exchange.retentionDays`。
+
+使用者可在直接輸入終端機的提示開頭加上 `⚑` 或 `/keep`，再寫問題，以保留答案。這需要 provider 能回報提示與最終答案。保留的答案會一直留到使用者取消保留，一般歷史紀錄仍依原期限到期。所有 agent 合計最多保留 64 個已回答或待回答項目。帶有標記且綁定 receipt 的請求仍使用一般 `tmt reply` 回答。
 
 `tmt result` 也接受能唯一識別請求 ID 的前綴，至少 8 個十六進位字元，可帶或不帶 `req_`，例如 `tmt result 82d3556e`。超過前 8 個字元時，保留 ID 的連字號（`82d3556e-0`）。符合多個請求時，會列出最多五個完整 ID 與其餘符合數量；請改用更長的前綴。未知前綴會顯示沒有可用回覆。
 

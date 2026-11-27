@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-codex.mdx
-sourceRevision: 5c5c865c0cf4b8f251be2fc2f985be67c156ca02
+sourceRevision: a9588953e21ee609bce31af964fc7a428451a034
 title: Codex：スレッドを識別する
 ---
 
@@ -46,7 +46,7 @@ setup は tmt 用の lifecycle hook を Codex に追加します。初回は Cod
 
 <Mdx.h3 id="message-delivery">メッセージの配信</Mdx.h3>
 
-`tmt run <name> codex` と `tmt resume <name>` は、既定で通常の貼り付けを使います。Codex のネイティブなメッセージ channel を使うには `--channel` を指定します。channel では `talk` が専用の app-server を通して入力をキューに入れるため、ペインに貼り付けず、ユーザーの入力も中断しません。channel の各セッションには、tmt が管理する追加の app-server プロセスと supervisor が1つずつ付きます。Ctrl-C を含め、フォアグラウンドの処理が終了したときに tmt が片付けます。
+`tmt run <name> codex` は既定で通常の貼り付けを使います。実験的 channel 設定を有効にして `--channel` を指定すると、channel を使えます。その後の `tmt resume <name>` は記憶した channel の選択を引き継ぎます。channel では `talk` が専用の app-server を通して入力をキューに入れるため、ペインに貼り付けず、ユーザーの入力も中断しません。channel の各セッションには、tmt が管理する追加の app-server プロセスと supervisor が1つずつ付きます。Ctrl-C を含め、フォアグラウンドの処理が終了したときに tmt が片付けます。
 
 [run と resume のオプション](/working#tmt-run)で、通常の貼り付けを選ぶか、channel を必須にするか指定できます。
 

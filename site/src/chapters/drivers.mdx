@@ -29,6 +29,8 @@ Without setup, every agent still works: tmt talks to it through its pane. `tmt s
 
 Pi also has a built-in runtime driver. `tmt run <name> pi` supplies its per-launch integration, including `/tmt` and `/tmt-inbox` commands that load the corresponding TMT skill into the conversation. For ordinary Pi launches, `tmt install pi` offers a user extension after preview and consent. Neither path edits Pi's `settings.json`.
 
+Interactive Pi 1.6.1 also supports `tmt run --channel <name> pi` when the experimental channel setting is enabled. While Pi is working, ordinary requests wait in its follow-up queue and urgent requests use steering. Delivery is confirmed only when Pi starts that exact message, not when it enters the queue. If confirmation times out, inspect the request and wait for its receipt-bound reply before deciding whether to resend.
+
 Cursor Agent has basic built-in detection through `cursor-agent` and can identify a caller from a dedicated interactive process. It does not yet have lifecycle hooks, usage counters or exact resume. Ambiguous process evidence is refused; the generic `agent` executable is not recognized as Cursor.
 
 ### Herdr: ships with tmt, approved on first use
@@ -53,6 +55,8 @@ The approval carries over when tmt upgrades. If a new release's driver asks for 
 Both show in `tmt ls --json` and `tmt identity show --json`, and an [Ops](/extensions/squad) column can show the context size. Only token counts are stored, never the conversation. The hook also lets `session.activity` return to idle when a turn ends; without it, tmt never guesses idle from silence.
 
 Read the numbers as tokens, not cost. They describe completed requests, not live streaming, and can lag a turn behind. Each counter starts at its first reading and never counts earlier history. A missing counter means unavailable, never zero. A tool that works out rates should start a new baseline on the first reading, when `epoch` changes, when `gap` is true or when a counter goes down.
+
+For agy, `no-token-source` means its transcript and hook payloads supplied no token counters. A zero total with that reason is uncovered data, not measured zero usage.
 
 ### More drivers <Tag kind="planned" />
 

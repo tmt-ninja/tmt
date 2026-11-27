@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/squad.mdx
-sourceRevision: 77a50857f882b2be4b83150ad72ca479503c9181
+sourceRevision: 70f2cf154cd581848a21770679f00b6f37b15258
 title: Ops：lead、成员与工作区
 ---
 
@@ -63,11 +63,15 @@ Common pool            │ Message to builder
 
 在 **Work** 中，按 `p` 选择项目、`d` 选择 Done 的时间范围、`c` 显示最近完成的工作。有链接时，Enter 会打开所选页面。在选定项目中，`m` 可移动符合条件的编号工作，确认后才会执行。若其他地方已更改顺序，看板会显示当前顺序，不会重试移动。Work 需要 Colab 0.1.0-alpha.478 或更新版本；排序需要 alpha.481 或更新版本。
 
+当工作项的负责人能解析为 squad 成员时，按 `t` 可在 Work 上方打开 Talk。Esc 返回 Work；Tab 打开完整对话。
+
 <Mdx.h3 id="talk-without-losing-your-place">对话不中断工作位置</Mdx.h3>
 
 在输入框按 Enter 发送消息。Alt+Enter 或 Ctrl+J 插入换行；终端支持增强按键回报时，也可用 Shift+Enter。Esc 离开编辑器并保留草稿。切换视图不会丢失草稿，但重启看板会清除草稿。
 
 阅读较早的输出会暂停自动跟随。**Jump to latest** 或 End 可回到最新消息。回复与窗格输出会分别标注。若送达状态不确定，请先检查请求再决定是否重发。
+
+在 Talk 提交 `!command`，可在该成员已验证的目录中运行 shell 命令。`!!` 是别名。输出实时显示在 **Run command** 中，绝不会附加到下一条消息。对话记录中命令的 **Run…** 操作会打开同一窗口并填入命令；执行前请检查目标。
 
 成员有待回答的提供方表单时，会显示 **◆ form**。按 `f` 或选择 **Answer form**，可回答 Core 支持的完整表单。只有人可以回答这些表单。被截断、过时或只能在终端回答的表单保持只读；终端专用表单请到成员的终端回答。发送未获确认时，请先在该终端检查；Ops 不会重发。
 
@@ -77,7 +81,7 @@ Common pool            │ Message to builder
 
 选择成员并按 **C** 打开 Checklist。在聊天编辑器中，**Ctrl+L** 打开该清单并保留草稿和光标位置；Esc 返回编辑器。链接和待办事项会显示作者及经过时间。已归档的项目会隐藏。
 
-在 Talk 输入 `#` 可从该成员的 Checklist 选择项目，按 Enter 或 Tab 插入引用。在 Checklist 按 `r` 可将所选项目引用到 Talk。对话中可解析的引用会提供 **Open in checklist**。
+在 Talk 输入 `#`，可搜索 Colab Work 的编号和标题，以及该成员的 Checklist。Enter 插入如 `#TUI-12` 的工作编号，agent 会收到编号和标题。在对话中选中已知工作编号并按 Enter，可在 Colab 打开它或复制编号。Checklist 引用仍提供 **Open in checklist**，在 Checklist 按 `r` 可将所选项目引用到 Talk。
 
 <Code>{`
 Checklist · builder
@@ -117,6 +121,8 @@ Agents 树状列表只有一个 **TOK** 列。**Range** 依次切换 5m、10m、
 Digest 的 **Est. ctx avoided** 是通过批处理省下多少上下文输入的估计，不是实测的计费 token、轮次或金额节省。它的范围与 Agents 的 token 时间窗独立。读取任何总量时，都要一起看覆盖范围。
 
 Digest 的 **Saved** 详情也会显示所选时间范围内已结算的消息数和批次数。覆盖不完整或数据过时会在旁边标明。
+
+Digest 的浏览器页面提供额度可持续时间预测、按模型和 seat 划分的 **Usage share**，以及用量趋势。预测根据近期读数推算到重置时间，并非保证。API 等价费用使用带生效日期的标价，分别计算未缓存输入、缓存读取、缓存写入和输出。缺少价格的数据保持不可用，不完整的估算会标为下限。这些数字与订阅额度及账单不同。运行 `tmt digest usage report --since 7d --json` 可从命令行读取报告。
 
 <Mdx.h3 id="make-it-yours">按你的方式配置</Mdx.h3>
 

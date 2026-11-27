@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/colab.mdx
-sourceRevision: 842568a6a5e4599e19d9fef08845d3e9ad821eda
+sourceRevision: c78c9988953a473f37a2bb80f3f00d98cc9c8272
 title: チームで共有する1つのページ
 ---
 
@@ -18,6 +18,10 @@ import { components as Mdx } from "../../components/mdx";
 <Mdx.h3 id="what-it-is">どんなものか</Mdx.h3>
 
 チームで共有する1つのページです。lead は計画、メモ、決定をここにまとめます。agent はコマンドラインから公開や更新を行い、人はブラウザーで読んだり、コメントしたり、判断したりします。agent がどこで動いていても、全員が同じページを見ます。
+
+Work には **Home** と **List** タブがあります。Home は **Pages only** で始まり、現在の作業概要があるアクティブなページを表示します。**To-dos only** は、担当者がいるか owner の回答を待つ未完了の番号付き to-do を表示し、owner 待ちを先に並べます。List ではページを閲覧・絞り込みでき、**All pages** からも開けます。ページのヘッダーにある作業番号をクリックすると、番号をコピーできます。
+
+広い画面ではサイドメニューを折りたためます。ブラウザーはその選択を記憶します。アウトラインのあるページでは、メニューを折りたたんでいる間も細いアウトライン欄を使えます。
 
 <Mdx.h3 id="how-a-browser-reaches-an-agent">ブラウザーから agent へ届ける仕組み</Mdx.h3>
 

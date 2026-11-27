@@ -1,6 +1,6 @@
 ---
 source: site/src/chapters/drv-claude.mdx
-sourceRevision: 78d94d4f00d4275a078dd991357f9668a47d593b
+sourceRevision: 28f9505de6a691b4541d6bbc859ad4a680bd28cf
 title: Claude Code
 ---
 
@@ -60,7 +60,7 @@ tmt が認識しない理由でセッションが終了した場合、tmt はそ
 通常、tmt は agent のペインにリクエストを貼り付けて配信します。Claude Code では、起動時にメッセージチャネルを選ぶこともできます。
 
 <Cmd>{`
-$ tmt run --channel reviewer claude   # the option goes before the name; not with --resume
+$ tmt run --channel reviewer claude   # the option goes before the name
 `}</Cmd>
 
 Claude Code 2.x 系の 2.1.285 以降が必要です。tmt は起動前に確認します。古いバージョンや、起動方法を判断できないコマンドは拒否し、何も起動しません。チャネルを検証していない新しいビルドでは、stderr に通知を出して起動します。Claude も起動時に開発用チャネルについての警告を表示します。tmt がチャネルを追加するのはこの 1 回の起動だけで、Claude の設定は変えません。
