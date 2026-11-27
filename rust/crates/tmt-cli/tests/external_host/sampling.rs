@@ -177,6 +177,10 @@ struct Sampling {
 
 impl Sampling {
     fn start(name: &str) -> Self {
+        Self::start_with_debug(name, false)
+    }
+
+    fn start_with_debug(name: &str, debug: bool) -> Self {
         register();
         let fixture = Fixture::new(name);
         let server = HostServer::start(&fixture);
@@ -231,21 +235,22 @@ impl Sampling {
             touch ready
             trap 'touch acked; exit 3' TERM HUP
             while [ ! -f release ]; do sleep 0.05; done; exit 7";
-        let mut run = Launched::start(
-            &fixture,
-            fixture.command_in(
-                Some("f1"),
-                &[
-                    "run",
-                    "--no-channel",
-                    "worker",
-                    claude.to_str().unwrap(),
-                    "-c",
-                    provider,
-                    tmt,
-                ],
-            ),
+        let mut command = fixture.command_in(
+            Some("f1"),
+            &[
+                "run",
+                "--no-channel",
+                "worker",
+                claude.to_str().unwrap(),
+                "-c",
+                provider,
+                tmt,
+            ],
         );
+        if debug {
+            command.env("TMT_SAMPLE_DEBUG", "1");
+        }
+        let mut run = Launched::start(&fixture, command);
         run.adopt("agent.pid", false);
         let ready = fixture.root.join("ready");
         wait_until("the provider's start and prompt hooks", || ready.exists());
@@ -491,11 +496,12 @@ impl Sampling {
 
     /// Lets the provider exit, reaps the run, stops the server, and checks
     /// that no fixture process is left.
-    fn finish(mut self) {
+    fn finish(mut self) -> String {
         let run = self.run.take().unwrap();
-        run.finish();
+        let (_, stderr) = run.finish();
         self.server.stop();
         assert_fixture_processes_gone(&self.fixture, &self.snapshots());
+        stderr
     }
 }
 
@@ -653,7 +659,7 @@ fn a_direct_sampler_is_stopped_and_reaped_when_its_attempt_fails() {
 /// Without the gate, the run's own tick samples the external host too.
 #[test]
 fn the_runs_own_tick_samples_an_approved_external_host() {
-    let sampling = Sampling::start("sampling-tick");
+    let sampling = Sampling::start_with_debug("sampling-tick", true);
     let since = sampling.snapshots().len();
     fs::remove_file(sampling.fixture.root.join("driver/gate")).unwrap();
     sampling.append("msg_fixture0002");
@@ -675,7 +681,13 @@ fn the_runs_own_tick_samples_an_approved_external_host() {
         "{:?}",
         sampling.snapshots()
     );
-    sampling.finish();
+    let stderr = sampling.finish();
+    assert!(stderr.contains("tmt: sampler wait admitted"), "{stderr}");
+    assert!(stderr.contains("tmt: sampler tick at "), "{stderr}");
+    assert!(
+        stderr.contains("tmt: sampler counter committed"),
+        "{stderr}"
+    );
 }
 
 /// Once its driver approval is removed, the sampler makes no consumption

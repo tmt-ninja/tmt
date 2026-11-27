@@ -361,6 +361,7 @@ for (const provider of providers) {
         `HOME=${home}`,
         `TMT_HOME=${fixture.globalDir}`,
         `TMT_TEST_HOOK_TRACE=${trace}`,
+        'TMT_SAMPLE_DEBUG=1',
         ...(provider.name === 'claude' ? ['TMT_HOOK_DEBUG=1'] : []),
         fixture.executables.cli.executable,
         ...fixture.executables.cli.args,
