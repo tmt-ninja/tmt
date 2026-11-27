@@ -4,8 +4,13 @@
   "workflows": {
     "native-release.yml": {
       "plan": {
-        "steps": ["uses:actions/checkout@v4", "uses:actions/setup-node@v4", "id:plan"],
-        "sha256": "54c21fa5fafa1c21df7bc41dcd6bbbf786550237945c878b075fd7e68c58ed4e",
+        "steps": [
+          "uses:actions/checkout@v4",
+          "uses:actions/setup-node@v4",
+          "id:plan",
+          "name:Park the draft missing from the catalogue"
+        ],
+        "sha256": "eefd4d0888c8514cd3c7500b1719f3cc97ac0b93562c9e8020c445e9800cfc6a",
         "releaseOnly": "Preparation and draft/recovery admission are main-only: this job resolves live draft and release state that cannot exist before publication. Tagless preparation itself runs after merge through the main-push and nightly release rehearsals, which skip this planning."
       },
       "bundle": {
@@ -1135,6 +1140,26 @@
           },
           "coverage": "policy",
           "tests": ["typescript/test/tooling/release-publish.test.ts"]
+        }
+      ]
+    },
+    "6800": {
+      "release": {
+        "workflow": "native-release.yml",
+        "job": "plan",
+        "step": "id:plan"
+      },
+      "preMerge": [
+        {
+          "workflow": "ci.yml",
+          "job": "unit-tooling",
+          "selection": {
+            "kind": "ci-scope",
+            "output": "native_scope",
+            "value": "full"
+          },
+          "coverage": "policy",
+          "tests": ["typescript/test/tooling/plan-release-builds.test.ts"]
         }
       ]
     }

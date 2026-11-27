@@ -208,6 +208,10 @@ export function attachBundle({ api, product, tag, directory, sleep = () => {} })
 export function recordFailure({ api, tag, runUrl, sha, jobs, now = new Date() }) {
   const release = findDraft(api.listReleases(), tag);
   if (hasAsset(release, BUNDLE_ASSET)) return { recorded: false };
+  return writeFailure({ api, release, tag, runUrl, sha, jobs, now });
+}
+
+function writeFailure({ api, release, tag, runUrl, sha, jobs, now }) {
   const directory = mkdtempSync(path.join(os.tmpdir(), 'release-failure-'));
   try {
     const file = path.join(directory, FAILURE_ASSET);
@@ -223,6 +227,24 @@ export function recordFailure({ api, tag, runUrl, sha, jobs, now = new Date() })
     rmSync(directory, { recursive: true, force: true });
   }
   return { recorded: true };
+}
+
+/** An exhausted plan cannot use the stale list to decide where to attach its failure. */
+function recordPlanFailure({ api, tag, runUrl }) {
+  const release = requireDraft(api.readRelease(tag), tag);
+  const sha = release.target_commitish;
+  if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error(`Draft ${tag} has no exact target commit.`);
+  if ([BUNDLE_ASSET, HOLD_ASSET, FAILURE_ASSET].some((name) => hasAsset(release, name)))
+    return { recorded: false };
+  return writeFailure({
+    api,
+    release,
+    tag,
+    runUrl,
+    sha,
+    jobs: ['Plan the draft releases to build or publish'],
+    now: new Date(),
+  });
 }
 
 /**
@@ -420,9 +442,17 @@ function main(argv) {
         ? `Recorded the failure on ${values.tag}.\n`
         : `${values.tag} is complete; nothing recorded.\n`
     );
+  } else if (command === 'record-plan-failure') {
+    if (!values['run-url']) throw new Error('record-plan-failure needs --run-url.');
+    const { recorded } = recordPlanFailure({ api, tag: values.tag, runUrl: values['run-url'] });
+    process.stderr.write(
+      recorded
+        ? `Recorded the planning failure on ${values.tag}.\n`
+        : `Draft ${values.tag} already has a release marker; nothing recorded.\n`
+    );
   } else {
     throw new Error(
-      'Usage: release-draft-assets.mjs <check|attach|record-failure> --tag <tag> ...'
+      'Usage: release-draft-assets.mjs <check|attach|record-failure|record-plan-failure> --tag <tag> ...'
     );
   }
 }

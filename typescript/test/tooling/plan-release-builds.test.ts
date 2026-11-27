@@ -1,10 +1,11 @@
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vite-plus/test';
 import { runWithNonblockingStdin } from '../support/nonblocking-stdin.js';
+import { writeExecutable } from '../support/executable-fixture.mjs';
 import {
   BUNDLE_ASSET,
   FAILURE_ASSET,
@@ -17,6 +18,9 @@ import {
 
 const script = fileURLToPath(new URL('../../scripts/plan-release-builds.mjs', import.meta.url));
 const componentMap = fileURLToPath(new URL('../../../.github/components.json', import.meta.url));
+const draftAssetsScript = fileURLToPath(
+  new URL('../../scripts/release-draft-assets.mjs', import.meta.url)
+);
 
 const sha = (digit: string) => digit.repeat(40);
 
@@ -37,6 +41,155 @@ function draft(
 }
 
 const tags = (plan: { builds: readonly { tag: string }[] }) => plan.builds.map(({ tag }) => tag);
+
+describe('#6800 allocated draft catalogue visibility', () => {
+  const tag = 'tmt-remote-v0.1.0-alpha.315';
+  const selected = { ...draft(tag, '2'), id: 42 };
+  const runUrl = 'https://github.com/example/tmt/actions/runs/123';
+
+  function withFakeGh(
+    lists: readonly unknown[],
+    exact: typeof selected | null,
+    check: (fixture: {
+      plan: () => SpawnSyncReturns<string>;
+      park: () => SpawnSyncReturns<string>;
+      events: () => string[];
+      outputs: () => string;
+      marker: () => unknown;
+    }) => void
+  ) {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'tmt-allocated-draft-'));
+    try {
+      for (const file of ['events', 'outputs', 'delays']) writeFileSync(path.join(dir, file), '');
+      writeFileSync(path.join(dir, 'fixture.json'), JSON.stringify({ lists, exact }));
+      writeExecutable(
+        path.join(dir, 'gh'),
+        `#!/usr/bin/env node
+const fs = require('node:fs');
+const dir = process.env.TEST_DIR;
+const args = process.argv.slice(2);
+const fixture = JSON.parse(fs.readFileSync(dir + '/fixture.json', 'utf8'));
+const events = dir + '/events';
+const record = event => fs.appendFileSync(events, event + '\\n');
+if (args.includes('--slurp')) {
+  const reads = fs.readFileSync(events, 'utf8').split('\\n').filter(event => event === 'list');
+  record('list');
+  const rows = fixture.lists[reads.length];
+  if (rows === 'bad-read') { process.stderr.write('HTTP 403'); process.exit(1); }
+  if (rows === undefined) throw new Error('Unexpected additional catalogue read');
+  process.stdout.write(JSON.stringify([rows]));
+} else if (args[1] === 'graphql') {
+  record('exact-tag');
+  const release = fixture.exact ? { databaseId: fixture.exact.id, tagName: fixture.exact.tag_name } : null;
+  process.stdout.write(JSON.stringify({ data: { repository: { release } } }));
+} else if (args[1] === 'repos/example/tmt/releases/42' && args.includes('GET')) {
+  record('exact-id');
+  process.stdout.write(JSON.stringify(fixture.exact));
+} else if (args.includes('https://uploads.github.com/repos/example/tmt/releases/42/assets?name=verification-failed.json')) {
+  record('upload');
+  fs.copyFileSync(args[args.indexOf('--input') + 1], dir + '/marker');
+} else throw new Error('Unexpected fake gh args: ' + args.join(' '));
+`,
+        0o700
+      );
+      const run = (args: string[]) =>
+        spawnSync(process.execPath, args, {
+          encoding: 'utf8',
+          timeout: 5000,
+          env: {
+            ...process.env,
+            PATH: [dir, path.dirname(process.execPath), process.env.PATH].join(path.delimiter),
+            TEST_DIR: dir,
+            GITHUB_OUTPUT: path.join(dir, 'outputs'),
+            GITHUB_STEP_SUMMARY: '',
+            GITHUB_REPOSITORY: 'example/tmt',
+          },
+        });
+      const noWait =
+        "data:text/javascript,import{appendFileSync}from'node:fs';Atomics.wait=(_a,_b,_c,ms)=>appendFileSync(process.env.TEST_DIR+'/delays',String(ms)+'\\n')";
+      check({
+        plan: () =>
+          run(['--import', noWait, script, '--github', '--product', 'remote', '--tag', tag]),
+        park: () =>
+          run([draftAssetsScript, 'record-plan-failure', '--tag', tag, '--run-url', runUrl]),
+        events: () => [
+          ...readFileSync(path.join(dir, 'events'), 'utf8').trim().split('\n'),
+          ...readFileSync(path.join(dir, 'delays'), 'utf8').trim().split('\n').filter(Boolean),
+        ],
+        outputs: () => readFileSync(path.join(dir, 'outputs'), 'utf8'),
+        marker: () => JSON.parse(readFileSync(path.join(dir, 'marker'), 'utf8')),
+      });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }
+
+  it('plans the draft when it appears on a later list read', () => {
+    withFakeGh([[], [], [selected]], null, ({ plan, outputs, events }) => {
+      const result = plan();
+      expect(result.status, result.stderr).toBe(0);
+      expect(outputs()).toBe(
+        `matrix={"include":[{"tag":"${tag}","sha":"${sha('2')}"}]}\nany=true\n`
+      );
+      expect(events()).toEqual(['list', 'list', 'list', '3000', '3000']);
+    });
+  });
+
+  it('fails closed after five re-reads and parks only the independently verified draft', () => {
+    withFakeGh(
+      Array.from({ length: 6 }, () => []),
+      selected,
+      ({ plan, park, outputs, events, marker }) => {
+        const result = plan();
+        expect(result.status).toBe(1);
+        expect(result.stderr).toContain('not a draft release');
+        expect(outputs()).toBe('draft_missing=true\n');
+        const recovery = park();
+        expect(recovery.status, recovery.stderr).toBe(0);
+        expect(events()).toEqual([
+          ...Array(6).fill('list'),
+          'exact-tag',
+          'exact-id',
+          'upload',
+          ...Array(5).fill('3000'),
+        ]);
+        expect(marker()).toMatchObject({
+          tag,
+          sha: sha('2'),
+          runUrl,
+          failedJobs: ['Plan the draft releases to build or publish'],
+        });
+      }
+    );
+  });
+
+  it.each([
+    { name: 'published tag', first: [{ ...selected, draft: false }] },
+    { name: 'list API error', first: 'bad-read' },
+  ])('does not re-read or emit a recovery request for $name', ({ first }) => {
+    withFakeGh([first], null, ({ plan, outputs, events }) => {
+      expect(plan().status).toBe(1);
+      expect(outputs()).toBe('');
+      expect(events()).toEqual(['list']);
+    });
+  });
+
+  it.each([BUNDLE_ASSET, HOLD_ASSET, FAILURE_ASSET])('preserves an existing %s marker', (name) => {
+    const existing = { ...selected, assets: [{ id: 101, name }] };
+    withFakeGh([], existing, ({ park, events }) => {
+      const result = park();
+      expect(result.status, result.stderr).toBe(0);
+      expect(events()).toEqual(['exact-tag', 'exact-id']);
+    });
+  });
+
+  it('refuses to park a draft when exact discovery finds no release', () => {
+    withFakeGh([], null, ({ park, events }) => {
+      expect(park().status).toBe(1);
+      expect(events()).toEqual(['exact-tag']);
+    });
+  });
+});
 
 describe('release build plan', () => {
   it('reads a multi-megabyte catalogue after EAGAIN on a real non-blocking pipe', () => {
