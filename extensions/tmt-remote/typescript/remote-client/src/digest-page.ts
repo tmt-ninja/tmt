@@ -8,6 +8,7 @@ import { compactCount, createSeriesChart, topLayers } from '@tmt/browser-ui/char
 import { pageLoading } from './page-loading.js';
 import {
   createDigestSource,
+  pricingVersion,
   providerRecords,
   USAGE_RANGES,
   type DigestReport,
@@ -23,6 +24,9 @@ import {
   providerLabel,
   observedAgo,
   modelShares,
+  modelCostShares,
+  costEstimate,
+  usdText,
   ranking,
   rankRows,
   resetsIn,
@@ -519,21 +523,16 @@ function providerUsageCard(doc: UsageDocument): HTMLElement {
       b.totals.input + b.totals.output - (a.totals.input + a.totals.output) ||
       a.driver.localeCompare(b.driver),
   );
-  const money = new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 6,
-  });
+  const estimateLabel = 'Input cost estimate (list price)';
   const grid = table(
-    ['Provider', 'Input', 'Output', 'Cached input', 'Input cost estimate (list price)', 'Coverage'],
+    ['Provider', 'Input', 'Output', 'Cached input', estimateLabel, 'Coverage'],
     rows.map((row) => {
       const name = el('span', undefined, providerLabel(row.driver));
       name.title = row.driver;
       const cost = el(
         'span',
         row.inputCost ? ui.tableMono : undefined,
-        row.inputCost ? money.format(row.inputCost.usdMicros / 1_000_000) : 'Unavailable',
+        row.inputCost ? usdText(row.inputCost.usdMicros) : 'Unavailable',
       );
       if (!row.inputCost)
         cost.append(
@@ -547,7 +546,7 @@ function providerUsageCard(doc: UsageDocument): HTMLElement {
         ? `Partial (${row.partialSeats} ${row.partialSeats === 1 ? 'seat' : 'seats'})`
         : 'Recorded';
       const compact = el('span', ui.tableCompactMeta);
-      compact.append('Input estimate: ', cost.cloneNode(true), ` · ${coverage}`);
+      compact.append(`${estimateLabel}: `, cost.cloneNode(true), ` · ${coverage}`);
       name.append(compact);
       return [
         name,
@@ -569,11 +568,10 @@ function providerUsageCard(doc: UsageDocument): HTMLElement {
   scroll.setAttribute('role', 'region');
   scroll.setAttribute('aria-label', 'Provider usage table');
   scroll.append(grid);
-  const version = doc.pricing?.version;
   const note = el(
     'p',
     'usage-note',
-    `Input cost estimate (list price). Input only, treated as uncached; cached input is included once. Output is not priced. Pricing table: ${typeof version === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(version) ? version : 'unavailable'}. Incomplete records are lower bounds.`,
+    `Input cost estimate (list price). Input only, treated as uncached; cached input is included once. Output is not priced. Pricing table: ${pricingVersion(doc.pricing) ?? 'unavailable'}. Incomplete records are lower bounds.`,
   );
   note.append(remainder);
   return card('digest-provider-usage', 'Provider usage', [scroll, note]);
@@ -731,11 +729,11 @@ function mixText(seat: SeatMix): string | undefined {
   return parts.length ? parts.join(' · ') : undefined;
 }
 
-/** #6751 C: token share by model and by seat, with the cached-input ratio. */
+/** #6751 C: token and cost shares by model, token share by seat, and the cached-input ratio. */
 function sharesCard(doc: UsageDocument): HTMLElement {
   const id = 'digest-shares';
   const title = 'Usage share';
-  const subtitle = 'Tokens in this range, by model and by seat.';
+  const subtitle = 'Tokens by model and by seat. Cost estimates use standard list prices.';
   const seats = seatMix(doc).filter((seat) => seat.tokens > 0);
   if (!seats.length)
     return card(id, title, [el('p', 'usage-note', 'No token observations in this range.')], {
@@ -745,18 +743,35 @@ function sharesCard(doc: UsageDocument): HTMLElement {
   const byModel = el('div', 'digest-share-group');
   byModel.id = 'digest-shares-models';
   byModel.append(el('h3', 'digest-share-title', 'By model'));
+  const costs = modelCostShares(doc, shares.models);
+  const modelMeter = (model: (typeof shares.models)[number], tone: number) => {
+    const row = costs.rows.get(model.model);
+    const cost = row?.cost ? costEstimate(row.cost) : 'No price';
+    const percent = row?.share == null ? '' : ` · ${row.share}% of priced cost`;
+    return shareMeter(
+      model.model,
+      model.share,
+      tone,
+      `${model.tokens.toLocaleString('en-US')} tokens · ${cost}${percent}`,
+    );
+  };
   shares.models
     .slice(0, MODELS_KEPT)
-    .forEach((model, at) => byModel.append(shareMeter(model.model, model.share, at % 7)));
+    .forEach((model, at) => byModel.append(modelMeter(model, at % 7)));
   const restModels = shares.models.slice(MODELS_KEPT);
-  if (restModels.length)
-    byModel.append(
-      shareMeter(
-        `Other (${restModels.length} ${restModels.length === 1 ? 'model' : 'models'})`,
-        shareSum(restModels),
-        OTHER_STEP,
+  if (restModels.length) {
+    const rest = el('details');
+    const count = restModels.length;
+    rest.append(
+      el(
+        'summary',
+        undefined,
+        `Other (${count} ${count === 1 ? 'model' : 'models'}): ${shareSum(restModels)}% of tokens`,
       ),
+      ...restModels.map((model) => modelMeter(model, OTHER_STEP)),
     );
+    byModel.append(rest);
+  }
   if (shares.unattributed)
     byModel.append(
       shareMeter(
@@ -788,12 +803,15 @@ function sharesCard(doc: UsageDocument): HTMLElement {
         seatLabel(seat.name, seat.partial),
         seat.share,
         hue.get(seat.id) ?? OTHER_STEP,
-        mixText(seat),
+        [`${seat.tokens.toLocaleString('en-US')} tokens`, mixText(seat)]
+          .filter(Boolean)
+          .join(' · '),
       ),
     );
   const restSeats = seats.slice(SERIES_KEPT);
   if (restSeats.length)
     bySeat.append(shareMeter(`Other (${restSeats.length} seats)`, shareSum(restSeats), OTHER_STEP));
+  bySeat.append(el('p', 'usage-note', 'Per-seat cost needs seat-level quotes in the report.'));
   const groups = el('div', 'digest-share-groups');
   groups.append(byModel, bySeat);
   const notes: HTMLElement[] = [];
@@ -801,18 +819,18 @@ function sharesCard(doc: UsageDocument): HTMLElement {
     notes.push(el('p', 'usage-note', '* Partial: some of this range has no data for the seat.'));
   if (doc.usage.unavailable.length)
     notes.push(el('p', 'usage-note', 'Unavailable seats are not included in these shares.'));
-  // Ben asked for tokens and cost (#6751 C); cost waits for output and cache prices (#6855).
-  const price = el(
-    'p',
-    'usage-note digest-share-cost',
-    "Shares are of tokens, input plus output. Cost needs each model's output and cached-input prices, which the price table does not have yet (",
-  );
-  const issue = el('a', undefined, '#6855');
-  issue.href = 'https://github.com/tmt-ninja/tmt/issues/6855';
-  issue.target = '_blank';
-  issue.rel = 'noreferrer';
-  price.append(issue, ').');
-  notes.push(price);
+  const excluded = [
+    ...costs.excluded,
+    ...(shares.unattributed ? ['tokens with no recorded model'] : []),
+  ];
+  const costNotes = [
+    costs.hasDenominator
+      ? 'Cost shares use only priced models.'
+      : 'Cost shares are unavailable without a positive priced total.',
+    excluded.length ? `Excluded: ${excluded.join(', ')}.` : '',
+    costs.hasFloors ? 'Cost shares include lower-bound estimates.' : '',
+  ];
+  notes.push(el('p', 'usage-note digest-share-cost', costNotes.filter(Boolean).join(' ')));
   return card(id, title, [groups, ...notes], { subtitle });
 }
 

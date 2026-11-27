@@ -4,11 +4,12 @@
  * it is never turned into a zero here.
  */
 import type { Layer, SeriesChartOptions } from '@tmt/browser-ui/chart';
-import { isLimitAccount, providerRecords } from './digest-source.js';
+import { isLimitAccount, modelQuotes, providerRecords } from './digest-source.js';
 import type {
   LimitHistory,
   LimitWindow,
   SavingsDocument,
+  UsageCost,
   UsageDocument,
   UsagePoint,
   UsageSeat,
@@ -610,8 +611,7 @@ export interface ModelShares {
   partial: boolean;
 }
 
-/** #6751 C: token share by model over every seat, with the cached-input ratio. On tokens only:
- * a cost weighting waits for a price row for every model, never an estimate. */
+/** #6751 C: token share by model over every seat, with the cached-input ratio. */
 export function modelShares(doc: UsageDocument): ModelShares {
   const byModel = new Map<string, { totals: UsageTotals; seats: number }>();
   let rest = NONE;
@@ -643,6 +643,28 @@ export function modelShares(doc: UsageDocument): ModelShares {
     unattributed: tokensOf(rest) > 0 ? { ...shareOf(rest), seats: restSeats } : null,
     cachedRatio: cachedRatio(all),
     partial: doc.usage.seats.some((seat) => !seat.coverage.complete),
+  };
+}
+
+/** Shares are based on the report's priced models, including any estimates marked as floors. */
+export function modelCostShares(doc: UsageDocument, models: readonly ModelShare[]) {
+  const quotes = modelQuotes(doc);
+  const rows = models.map(({ model }) => ({ model, cost: quotes.get(model) ?? null }));
+  const pricedTotal = rows.reduce((total, { cost }) => total + (cost?.usdMicros ?? 0), 0);
+  const hasDenominator = Number.isSafeInteger(pricedTotal) && pricedTotal > 0;
+  return {
+    rows: new Map(
+      rows.map(({ model, cost }) => [
+        model,
+        {
+          cost,
+          share: cost && hasDenominator ? percentOf(cost.usdMicros, pricedTotal) : null,
+        },
+      ]),
+    ),
+    excluded: rows.filter(({ cost }) => cost === null).map(({ model }) => model),
+    hasFloors: rows.some(({ cost }) => cost?.lowerBound),
+    hasDenominator,
   };
 }
 
@@ -831,16 +853,22 @@ export function durationText(ms: number): string {
   return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`;
 }
 
-/** US dollars from micro-dollars: cents from a dollar up, four places below it; a negative is
- * Digest adding wake-ups. */
+/** Format the reported micro-dollars exactly so a floor never rounds up. */
 export function usdText(micros: number): string {
   if (micros < 0) return `−${usdText(-micros)}`;
-  const dollars = micros / 1_000_000;
-  const text = dollars.toLocaleString('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: dollars >= 1 ? 2 : 4,
-  });
-  return `$${text}`;
+  const dollars = Math.floor(micros / 1_000_000).toLocaleString('en-US');
+  const cents = String(micros % 1_000_000)
+    .padStart(6, '0')
+    .replace(/0+$/, '')
+    .padEnd(2, '0');
+  return `$${dollars}.${cents}`;
+}
+
+export function costEstimate({ usdMicros, lowerBound }: UsageCost): string {
+  if (!lowerBound) return usdText(usdMicros);
+  return usdMicros < 0
+    ? `at least ${usdText(-usdMicros)} in added cost`
+    : `at least ${usdText(usdMicros)}`;
 }
 
 /** Why the report could not estimate the avoided cost, in plain words; an unknown reason as is. */
@@ -893,9 +921,14 @@ function avoidedCost(doc: SavingsDocument): { value: string; note: string | null
   );
   if (cost.usdMicros === null)
     return { value: UNKNOWN, note: `Cost unknown: ${why || reasonWords(cost.reason)}.` };
+  if (!doc.pricing || cost.lowerBound === null)
+    return {
+      value: UNKNOWN,
+      note: 'Cost unknown: this report does not identify a pricing v2 estimate.',
+    };
   const members = cost.covered.length + cost.unpriced.length;
   return {
-    value: usdText(cost.usdMicros),
+    value: costEstimate({ usdMicros: cost.usdMicros, lowerBound: cost.lowerBound }),
     note: cost.unpriced.length
       ? `Covers ${cost.covered.length} of ${members} members; ${why}.`
       : null,
@@ -925,7 +958,7 @@ export function savingsView(doc: SavingsDocument): SavingsView {
       { label: 'Wake-ups saved (measured)', value: figure(total.measuredSaved) },
       { label: 'Upper bound', value: figure(total.turnsSaved) },
       { label: 'Messages delivered', value: messages },
-      { label: 'Avoided cost (estimate)', value: cost.value },
+      { label: 'Avoided cost (list price estimate)', value: cost.value },
     ],
     costNote: cost.note,
     rows: [...doc.members]

@@ -40,7 +40,15 @@ test('provider usage renders native records independently of prices and allowanc
   ).toBeVisible();
   await expect(card).toContainText('A recorded model has no list price.');
   await expect(card).toContainText('Input cost estimate (list price)');
-  await expect(card).toContainText('2026-11-15');
+  await expect(card).toContainText('2026-11-27');
+  const shares = page.locator('#digest-shares');
+  const modelRows = shares.locator('#digest-shares-models .digest-share');
+  await expect(modelRows.filter({ hasText: 'gpt-6-astra' })).toContainText(
+    '2,300 tokens · at least $0.026 · 66.1% of priced cost',
+  );
+  await expect(shares.locator('.digest-share-cost')).toContainText('Excluded: future-model.');
+  await shares.getByText(/^Other \(1 model\):/).press('Enter');
+  await expect(modelRows.filter({ hasText: 'future-model' })).toContainText('No price');
   // Every provider with recorded usage has an allowance card (#6751 A); agy reports no window, so
   // its card says so beside its usage, with no meter and never 0%.
   const agyCard = page.locator('#digest-provider-agy');
@@ -85,6 +93,17 @@ test('provider usage renders native records independently of prices and allowanc
         );
         await expect(agy.locator('td').last()).toHaveCSS('font-family', bodyFont);
         await expect(agy.locator('td').last()).toHaveCSS('white-space', 'nowrap');
+      }
+      const dir = process.env.DIGEST_CAPTURE_DIR;
+      if (dir) {
+        for (const [key, panel] of [
+          ['providers', card],
+          ['shares', shares],
+        ] as const)
+          await panel.screenshot({
+            path: path.join(dir, `pricing-v2-${key}-${width}-${colorScheme}.png`),
+            animations: 'disabled',
+          });
       }
       const file = info.outputPath(`provider-usage-${width}-${colorScheme}.png`);
       await page.screenshot({ path: file, fullPage: true, animations: 'disabled' });
@@ -667,7 +686,7 @@ test('usage share names each model and seat, keeps what no model covers apart an
   const seats = page.locator('#digest-shares-seats .digest-share');
   await expect(seats).toHaveCount(6);
   await expect(seats.filter({ hasText: 'night-1' }).locator('.digest-share-detail')).toHaveText(
-    /^gpt-6\.2-sol 60(\.\d)?% · gpt-6\.2-astra 15(\.\d)?% · no model 25(\.\d)?%$/,
+    /tokens · gpt-6\.2-sol 60(\.\d)?% · gpt-6\.2-astra 15(\.\d)?% · no model 25(\.\d)?%$/,
   );
   // A seat keeps the hue the token chart and its legend draw it in.
   const legend = page.locator('#digest-ranking tbody tr').first();
@@ -679,15 +698,19 @@ test('usage share names each model and seat, keeps what no model covers apart an
   expect(await colour(seats.first().locator('.tmt-ui-meter-fill'))).toBe(
     await colour(legend.locator('.tmt-ui-status-tile-dot')),
   );
-  // Cost waits for output and cache prices in the price table, and says where that is tracked.
-  const cost = page.locator('#digest-shares .digest-share-cost');
-  await expect(cost).toHaveText(
-    "Shares are of tokens, input plus output. Cost needs each model's output and cached-input prices, which the price table does not have yet (#6855).",
+  await expect(models.locator('.digest-share').filter({ hasText: 'gpt-6.2-sol' })).toContainText(
+    'at least $0.70 · 35% of priced cost',
   );
-  await expect(cost.getByRole('link', { name: '#6855', exact: true })).toHaveAttribute(
-    'href',
-    'https://github.com/tmt-ninja/tmt/issues/6855',
+  await expect(
+    models.locator('.digest-share').filter({ hasText: 'claude-fable-5-2' }),
+  ).toContainText('No price');
+  await expect(page.locator('#digest-shares .digest-share-cost')).toHaveText(
+    'Cost shares use only priced models. Excluded: claude-fable-5-2, tokens with no recorded model. Cost shares include lower-bound estimates.',
   );
+  await expect(page.locator('#digest-shares-seats')).toContainText(
+    'Per-seat cost needs seat-level quotes in the report.',
+  );
+  await expect(page.locator('#digest-shares-seats')).not.toContainText('No price');
   // A large team folds the rest into one row; a Digest without attribution has no model to name.
   await open(page, '?seats=24', { width: 1440, height: 900 });
   await expect(seats).toHaveCount(7);
@@ -762,6 +785,7 @@ for (const [label, query] of [
   ['savings-mixed', '?savings=mixed'],
   ['savings-unpriced', '?savings=unpriced'],
   ['savings-older', '?savings=older'],
+  ['savings-floor', '?savings=floor'],
 ] as const)
   for (const scheme of ['light', 'dark'] as const)
     for (const width of [1440, 390])
@@ -769,7 +793,12 @@ for (const [label, query] of [
         const dir = process.env.DIGEST_CAPTURE_DIR;
         test.skip(!dir, 'captures only when DIGEST_CAPTURE_DIR is set');
         await page.emulateMedia({ colorScheme: scheme });
-        const errors = await openShell(page, { width, height: 900 }, query);
+        const size = { width, height: 900 };
+        const errors =
+          label === 'savings-floor'
+            ? await open(page, query, size)
+            : await openShell(page, size, query);
+        await expect(page.locator('#digest-savings')).toBeVisible();
         if (label.endsWith('-30d')) {
           await page.locator('#usage-ranges [data-range="30d"]').click();
           await expect(page.locator('#digest-savings')).toContainText('release-train');
@@ -1090,7 +1119,7 @@ test('what Digest saved follows the range and shows the figures the report gave 
     'Wake-ups saved (measured)',
     'Upper bound',
     'Messages delivered',
-    'Avoided cost (estimate)',
+    'Avoided cost (list price estimate)',
   ]);
   const delivered = card.locator('.tmt-ui-status-tile-value').nth(2);
   // The sample's five members over a day: 78 messages in 31 deliveries.
@@ -1100,7 +1129,9 @@ test('what Digest saved follows the range and shows the figures the report gave 
   await expect(card.locator('.tmt-ui-status-tile-value, td', { hasText: 'Unknown' })).toHaveCount(
     0,
   );
-  await expect(card).toContainText('price table 2026-11-15 (built-in)');
+  await expect(card).toContainText('price table 2026-11-27 (built-in)');
+  await open(page, '?savings=floor');
+  await expect(card.locator('.tmt-ui-status-tile-value').last()).toHaveText('at least $0.559');
   // The page's range switch is the card's: a week reads the week's report.
   await page.locator('#usage-ranges [data-range="7d"]').click();
   await expect(delivered).toHaveText('546 in 206');

@@ -6,7 +6,7 @@
  */
 import { mockDocument, mockSavings, type MockShape } from '../src/digest-mock.js';
 import { savingsFromAnswer, type DigestSource } from '../src/digest-source.js';
-export { USAGE_RANGES, providerRecords } from '../src/digest-source.js';
+export { USAGE_RANGES, pricingVersion, providerRecords } from '../src/digest-source.js';
 
 export function sampleShape(search = location.search): MockShape {
   const params = new URLSearchParams(search);
@@ -88,6 +88,7 @@ const sampleSource: DigestSource = {
               saved === 'partial' || saved === 'mixed' || saved === 'unpriced' ? saved : 'whole',
             ),
           };
+    if (saved === 'floor' && savings.document) savings.document.total.avoidedCost.lowerBound = true;
     // `?savings=long`: long member names and large figures, where the table and tiles break first.
     if (saved === 'long' && savings.document) {
       const keys = ['messages', 'deliveries', 'turnsSaved', 'measuredSaved'] as const;

@@ -4,6 +4,9 @@ import {
   allowanceFromAnswers,
   createDigestSource,
   limitHistoryFrom,
+  modelQuotes,
+  providerRecords,
+  type UsageDocument,
   readSavings,
   reportFromAnswers,
   savingsFromAnswer,
@@ -38,6 +41,44 @@ it('turns the digest vector into the page report, keeping the document as it cam
   expect(report.document).toMatchObject({ since: '7d', observedAtMs: 1792635300000 });
   // No kept samples is the owner's answer, not an empty history: the chart is simply left out.
   expect(report.document!.limitHistory).toBeUndefined();
+});
+
+it('accepts native v2 reported costs and preserves token records when cost evidence is invalid', () => {
+  const native = JSON.parse(
+    readFileSync(
+      new URL('../../../../tmt-digest/contracts/vectors/usage-report-v1.json', import.meta.url),
+      'utf8',
+    ),
+  ).cases[1].expected as UsageDocument;
+  expect(providerRecords(native)?.find((row) => row.driver === 'agy')?.inputCost).toEqual({
+    usdMicros: 150,
+  });
+  expect(modelQuotes(native).get('gpt-6-astra')).toEqual({ usdMicros: 26_000, lowerBound: true });
+  expect(modelQuotes(native).get('future-model')).toBeNull();
+  const first = native.usage.models![0]!;
+  const valid = { ...first, cost: { usdMicros: 0, lowerBound: false } };
+  const report = (...rows: NonNullable<UsageDocument['usage']['models']>) => ({
+    ...native,
+    usage: { ...native.usage, models: rows },
+  });
+  expect(modelQuotes(report(valid)).get(first.modelId)).toEqual(valid.cost);
+  for (const malformed of [
+    { ...valid, cost: { usdMicros: -1, lowerBound: false } },
+    { ...valid, cost: { usdMicros: Number.MAX_SAFE_INTEGER + 1, lowerBound: false } },
+    { ...valid, cost: { usdMicros: 42, lowerBound: 'false' } as never },
+    { ...valid, costUnavailable: ['no_price'] },
+  ])
+    expect(modelQuotes(report(malformed)).get(first.modelId)).toBeNull();
+  expect(modelQuotes(report(valid, valid)).get(first.modelId)).toBeNull();
+  for (const basis of ['standard-base-input', 'unknown']) {
+    const unsupported = { ...native, pricing: { ...native.pricing!, basis } };
+    expect(modelQuotes(unsupported).size).toBe(0);
+    expect(providerRecords(unsupported)?.find((row) => row.driver === 'agy')).toMatchObject({
+      totals: { input: 100 },
+      inputCost: null,
+      costUnavailable: ['pricing_unavailable'],
+    });
+  }
 });
 
 it('says one plain sentence for each way the digest read is unavailable', () => {
@@ -280,6 +321,7 @@ it('reads what Digest saved from the shared vector: figures, plain names, the pr
         delay: { median: 15000, p90: 40000, max: 40000 },
         avoidedCost: {
           usdMicros: null,
+          lowerBound: null,
           reason: 'wake_turns_unavailable',
           covered: null,
           unpriced: null,
@@ -294,12 +336,13 @@ it('reads what Digest saved from the shared vector: figures, plain names, the pr
       delay: null,
       avoidedCost: {
         usdMicros: null,
+        lowerBound: null,
         reason: 'wake_turns_unavailable',
         covered: [],
         unpriced: [],
       },
     },
-    pricing: { version: '2026-11-15', asOf: '2026-11-15', origin: 'built-in' },
+    pricing: { version: '2026-11-27', asOf: '2026-11-27', origin: 'built-in' },
   });
 });
 
@@ -333,7 +376,13 @@ it('shows a bad count as unknown and never coerces it; a negative measured savin
       turnsSaved: null,
       measuredSaved: -2,
       delay: null,
-      avoidedCost: { usdMicros: null, reason: null, covered: null, unpriced: null },
+      avoidedCost: {
+        usdMicros: null,
+        lowerBound: null,
+        reason: null,
+        covered: null,
+        unpriced: null,
+      },
     },
   ]);
   expect(report.document!.total.messages).toBeNull();
