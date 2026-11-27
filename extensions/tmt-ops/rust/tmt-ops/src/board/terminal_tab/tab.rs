@@ -81,6 +81,13 @@ pub(in crate::board) struct View {
     pub screen: Option<Arc<Screenful>>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InputNotice {
+    Waiting,
+    NotSent,
+    Unconfirmed,
+}
+
 struct Seen {
     located: Located,
     at_ms: u64,
@@ -92,6 +99,7 @@ struct Open {
     identity: String,
     address: Address,
     epoch: u64,
+    attempt: u32,
     view: View,
     /// The window this viewer last gave the terminal.
     window: Option<Size>,
@@ -107,6 +115,7 @@ pub(in crate::board) struct Tab {
     connect: Option<Connect>,
     open: Option<Open>,
     epoch: u64,
+    input_notice: Option<(String, InputNotice)>,
     /// Where the last frame drew the screen, which is the size the program is given.
     area: Cell<Option<Rect>>,
     /// Where the last frame put the real cursor for the program.
@@ -220,6 +229,9 @@ impl Tab {
 
     /// `identity` fills the board; core is asked again first, since its program may have changed.
     pub(in crate::board) fn open_frame(&mut self, identity: &str) {
+        if self.framed.as_deref() != Some(identity) {
+            self.input_notice = None;
+        }
         self.framed = Some(identity.to_owned());
         self.dismissed = None;
         self.menu = None;
@@ -230,6 +242,7 @@ impl Tab {
     /// Back to the board: the stream is dropped on the next pass, which detaches it.
     pub(in crate::board) fn close_frame(&mut self) {
         self.framed = None;
+        self.input_notice = None;
         self.menu = None;
         self.hits.borrow_mut().clear();
         self.area.set(None);
@@ -328,6 +341,14 @@ impl Tab {
         if current == wanted {
             return false;
         }
+        if current.is_some()
+            || self
+                .input_notice
+                .as_ref()
+                .is_some_and(|(identity, _)| !wanted.is_some_and(|(wanted, _)| wanted == identity))
+        {
+            self.input_notice = None;
+        }
         self.open = None;
         if let (Some((identity, address)), Some(connect)) = (wanted, &self.connect) {
             self.epoch += 1;
@@ -335,6 +356,7 @@ impl Tab {
                 identity: identity.to_owned(),
                 address: address.clone(),
                 epoch: self.epoch,
+                attempt: 1,
                 view: View {
                     condition: Condition::Connecting { attempt: 1 },
                     screen: None,
@@ -415,6 +437,58 @@ impl Tab {
         }
     }
 
+    /// Send member input only for its current screen. Return whether feedback changed.
+    pub(in crate::board) fn send_member(
+        &mut self,
+        identity: &str,
+        encode: impl FnOnce(Modes) -> Option<Vec<u8>>,
+    ) -> bool {
+        let ready = self
+            .open
+            .as_ref()
+            .filter(|open| open.identity == identity && open.view.condition == Condition::Live);
+        let next = match ready {
+            Some(open) => {
+                let Some(bytes) = encode(self.modes()) else {
+                    return false;
+                };
+                if bytes.is_empty() {
+                    return false;
+                }
+                (!open.stream.input_at(open.attempt, &bytes)).then_some(InputNotice::NotSent)
+            }
+            None => Some(InputNotice::Waiting),
+        };
+        self.set_input_notice(identity, next)
+    }
+
+    fn set_input_notice(&mut self, identity: &str, notice: Option<InputNotice>) -> bool {
+        if self
+            .input_notice
+            .as_ref()
+            .filter(|(key, _)| key == identity)
+            .map(|(_, notice)| *notice)
+            == notice
+        {
+            return false;
+        }
+        self.input_notice = notice.map(|notice| (identity.to_owned(), notice));
+        true
+    }
+
+    pub(in crate::board) fn input_notice(&self, identity: &str) -> Option<&'static str> {
+        match self
+            .input_notice
+            .as_ref()
+            .filter(|(key, _)| key == identity)?
+            .1
+        {
+            InputNotice::Waiting => Some("Input not sent. Try again when ready."),
+            InputNotice::NotSent => Some("Input not sent."),
+            InputNotice::Unconfirmed => Some("Input unconfirmed."),
+        }
+    }
+
     /// The input modes the program has set on the screen last shown.
     pub(in crate::board) fn modes(&self) -> Modes {
         self.open
@@ -467,16 +541,28 @@ impl Tab {
         let identity = open.identity.clone();
         match event {
             StreamEvent::Connecting { attempt } => {
+                open.attempt = attempt;
                 open.view.condition = Condition::Connecting { attempt };
             }
             StreamEvent::Screen(screen) => {
                 open.view.screen = Some(screen);
                 open.view.condition = Condition::Live;
+                if let Some((key, notice @ InputNotice::Waiting)) = &mut self.input_notice
+                    && key == &identity
+                {
+                    *notice = InputNotice::NotSent;
+                }
             }
             StreamEvent::Exited(exit) => open.view.condition = Condition::Exited(exit),
             StreamEvent::Evicted(eviction) => open.view.condition = Condition::Evicted(eviction),
             StreamEvent::Refused(refusal) => open.view.condition = Condition::Refused(refusal),
             StreamEvent::Lost(reason) => open.view.condition = Condition::Lost(reason),
+            StreamEvent::InputNotSent => {
+                return self.set_input_notice(&identity, Some(InputNotice::NotSent));
+            }
+            StreamEvent::InputUnconfirmed => {
+                return self.set_input_notice(&identity, Some(InputNotice::Unconfirmed));
+            }
         }
         if matches!(open.view.condition, Condition::Exited(_)) || open.view.condition.ended() {
             self.recheck(&identity);

@@ -62,7 +62,7 @@ impl App {
                     return self.say("This terminal has ended; x removes it.");
                 }
                 if !self.can_type_in_terminal(row) {
-                    return self.say("Connecting…");
+                    return self.say("You can type when the terminal is ready.");
                 }
                 let id = row.id.clone();
                 self.terminals.set_typing(Some(&id));
@@ -180,8 +180,9 @@ impl App {
             return None;
         }
         self.typing_terminal()?;
-        self.terminal
-            .send(&paste_bytes(text, self.terminal.modes()));
+        if !text.is_empty() {
+            self.send_terminal_input(|modes| Some(paste_bytes(text, modes)));
+        }
         Some(Effect::None)
     }
 

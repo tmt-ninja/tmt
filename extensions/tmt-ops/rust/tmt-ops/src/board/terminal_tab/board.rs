@@ -622,12 +622,35 @@ impl App {
         Some(Effect::None)
     }
 
+    /// Member input is scoped to the framed or inline target. Standalone commands keep
+    /// their own input path through the stream.
+    pub(in crate::board) fn send_terminal_input(
+        &mut self,
+        encode: impl FnOnce(tmt_tui::components::terminal::Modes) -> Option<Vec<u8>>,
+    ) -> bool {
+        let identity = if let Some(identity) = self.terminal.framed() {
+            if self.standalone.framed_shell(Some(identity)).is_some() {
+                if let Some(bytes) = encode(self.terminal.modes()) {
+                    self.terminal.send(&bytes);
+                }
+                return false;
+            }
+            identity
+        } else {
+            let Some(identity) = self.terminals.typing() else {
+                return false;
+            };
+            identity
+        };
+        let identity = identity.to_owned();
+        self.terminal.send_member(&identity, encode)
+    }
+
     /// While the frame is up, a paste is the program's.
     pub(in crate::board) fn frame_paste(&mut self, text: &str) -> Option<Effect> {
         self.terminal.framed()?;
-        if self.frame_dialog().is_none() {
-            self.terminal
-                .send(&paste_bytes(text, self.terminal.modes()));
+        if self.frame_dialog().is_none() && !text.is_empty() {
+            self.send_terminal_input(|modes| Some(paste_bytes(text, modes)));
         }
         Some(Effect::None)
     }
