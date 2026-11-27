@@ -380,6 +380,8 @@ expired bodies. Input errors exit 1, input timeout is `RESPONSE_INPUT_TIMEOUT`
 (exit 4), and conflicts exit 5. Receipts, endpoints, and raw bodies are not
 echoed in acknowledgements.
 
+A ⚑-marked receipt-bound request uses ordinary `tmt reply`.
+
 ### Answering without a receipt
 
 When you were given a receipt, use `tmt reply` with it. When you were not, for

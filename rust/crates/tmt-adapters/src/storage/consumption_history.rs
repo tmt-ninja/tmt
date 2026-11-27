@@ -114,6 +114,7 @@ pub enum TurnBoundary<'a> {
     Started {
         turn: Option<&'a str>,
         prompt: &'a str,
+        keep_owner: Option<&'a str>,
     },
     /// An admitted turn start whose provider did not supply prompt text.
     StartedWithoutPrompt { turn: Option<&'a str> },
@@ -463,8 +464,12 @@ impl Storage {
                             started_at_most: Some(started_at_most),
                         });
                     }
-                    TurnBoundary::Started { turn, prompt } if transition => {
-                        super::requests::passthrough::bind(
+                    TurnBoundary::Started {
+                        turn,
+                        prompt,
+                        keep_owner,
+                    } if transition => {
+                        let bound = super::requests::passthrough::bind(
                             connection, id, session, turn, prompt, now,
                         )?;
                         if super::requests::turns::open(connection, id, now)? > 0 {
@@ -475,6 +480,14 @@ impl Storage {
                                 connection, binding, remembered, turn, now,
                             )?;
                             super::capture_batches::prompt_inputs(connection, id, &batch, now)?;
+                            if !bound
+                                && let Some(person) = keep_owner
+                                && super::requests::kept::has_keep_prefix(prompt)
+                            {
+                                super::requests::kept::mark_terminal(
+                                    connection, person, &batch, now,
+                                )?;
+                            }
                         }
                         // A prompt that carries a typed Digest checklist confirms it (#4858).
                         super::requests::confirm_digest_by_prompt(connection, id, prompt, now)?;
@@ -499,6 +512,11 @@ impl Storage {
                             ended_ms: now,
                             started_at_most: None,
                         });
+                        if retained.is_none()
+                            && let Some(batch) = super::capture_batches::current(connection, id)?
+                        {
+                            super::requests::kept::finish_terminal(connection, &batch)?;
+                        }
                         super::requests::passthrough::settle_turn(
                             connection,
                             id,

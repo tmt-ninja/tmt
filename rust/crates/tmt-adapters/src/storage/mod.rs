@@ -23,6 +23,10 @@ pub(crate) mod orchestration;
 mod profiles;
 mod provider_forms;
 mod requests;
+pub use requests::kept::has_keep_prefix;
+pub(crate) use requests::kept::{
+    Cursor as KeptReplyCursor, capture_sequence as kept_capture_sequence,
+};
 mod responses;
 mod room;
 mod room_roster;

@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tmt_adapters::{
-    config::ConfigPaths,
+    config::{ConfigFiles, ConfigPaths},
     host::{CallerEnvironment, Host, OperationOptions},
     process::{
         CommandRequest, CommandRunner, SupervisedProbeRunner, UnixCommandRunner,
@@ -1891,6 +1891,7 @@ fn observe_bound_lifecycle_event_with(
             let locator = fallback_locator();
             commit_observation_on_storage(
                 &mut storage,
+                &paths,
                 refreshed,
                 None,
                 None,
@@ -2791,7 +2792,11 @@ fn commit_main_event_turn_with(
         .map(|event| {
             let turn = event.event.turn.as_ref().map(ProviderSessionId::as_str);
             match prompt.as_deref() {
-                Some(prompt) => tmt_adapters::storage::TurnBoundary::Started { turn, prompt },
+                Some(prompt) => tmt_adapters::storage::TurnBoundary::Started {
+                    turn,
+                    prompt,
+                    keep_owner: None,
+                },
                 None => tmt_adapters::storage::TurnBoundary::StartedWithoutPrompt { turn },
             }
         });
@@ -2819,6 +2824,7 @@ fn commit_main_event_turn_with(
         let committed = match existing_storage {
             Some(storage) => commit_observation_on_storage(
                 storage,
+                paths,
                 stored,
                 next,
                 reading.map(|(_, reading)| reading),
@@ -2875,6 +2881,7 @@ struct ConsumptionReading {
 #[allow(clippy::too_many_arguments)]
 fn commit_observation_on_storage(
     storage: &mut Storage,
+    paths: &ConfigPaths,
     stored: &IdentityContextSnapshot,
     next: Option<tmt_core::binding::session::DriverState>,
     reading: Option<ConsumptionReading>,
@@ -2890,6 +2897,37 @@ fn commit_observation_on_storage(
     {
         remembered.state = Some(next);
     }
+    let keep_owner = match boundary {
+        Some(tmt_adapters::storage::TurnBoundary::Started { prompt, .. })
+            if tmt_adapters::storage::has_keep_prefix(prompt) =>
+        {
+            ConfigFiles {
+                paths: paths.clone(),
+            }
+            .load()
+            .ok()
+            .and_then(|config| {
+                tmt_adapters::api::configured_person(
+                    storage,
+                    &config.settings,
+                    tmt_adapters::user::login_name().as_deref(),
+                )
+                .ok()
+                .flatten()
+            })
+        }
+        _ => None,
+    };
+    let boundary = boundary.map(|boundary| match boundary {
+        tmt_adapters::storage::TurnBoundary::Started { turn, prompt, .. } => {
+            tmt_adapters::storage::TurnBoundary::Started {
+                turn,
+                prompt,
+                keep_owner: keep_owner.as_deref(),
+            }
+        }
+        other => other,
+    });
     storage
         .commit_runtime_observation(tmt_adapters::storage::RuntimeObservation {
             expected: stored,
@@ -2928,6 +2966,7 @@ fn commit_observation(
     let mut storage = Storage::open_hook(&paths.database, deadline).map_err(|_| ())?;
     let pending = commit_observation_on_storage(
         &mut storage,
+        paths,
         stored,
         next,
         reading,

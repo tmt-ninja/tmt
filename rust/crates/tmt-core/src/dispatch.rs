@@ -19,6 +19,8 @@ pub struct DispatchInput {
     /// What the recipient is handed. A passthrough is one request from a person to one
     /// identity, with no room, like `talk --passthrough`.
     pub mode: crate::request::digest::DeliveryMode,
+    /// Retain the first admitted final for the person who sends this exchange.
+    pub keep_reply: bool,
     /// The request this one replies to in a thread (#6407). Dispatch stores that
     /// request's thread root, so threads stay one level.
     pub parent_request_id: Option<String>,
@@ -64,6 +66,14 @@ impl DispatchInput {
         self.recipient_ids.sort();
         self.recipient_ids.dedup();
         if matches!(self.room, Some(DispatchRoom::Direct { .. })) && self.recipient_ids.len() != 1 {
+            return None;
+        }
+        if self.keep_reply
+            && (self.kind != crate::request::RequestKind::Request
+                || self.origin != crate::request::RequestOrigin::Person
+                || self.recipient_ids.len() != 1
+                || matches!(self.room, Some(DispatchRoom::Roster { .. })))
+        {
             return None;
         }
         if self.mode == crate::request::digest::DeliveryMode::Passthrough

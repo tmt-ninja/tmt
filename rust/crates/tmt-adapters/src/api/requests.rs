@@ -105,10 +105,13 @@ fn conversation(
 }
 
 pub(super) fn show_request(storage: &mut Storage, id: String) -> Result<Vec<u8>, Fault> {
-    RequestService::new(storage, wall_time_ms)
+    let detail = RequestService::new(storage, wall_time_ms)
         .request_detail(&id)
-        .map(|value| request_history::encode_history_detail(&value))
-        .map_err(request_error)
+        .map_err(request_error)?;
+    let marked = storage
+        .request_has_keep_mark(&id)
+        .map_err(|_| Fault::unavailable())?;
+    Ok(request_history::encode_history_detail(&detail, marked))
 }
 
 /// `requests.sendNow`: the caller named by the envelope sends one message now. The reply is
@@ -251,4 +254,98 @@ fn request_error(error: tmt_core::request::RequestError<StorageError>) -> Fault 
         }
         _ => Fault::unavailable(),
     }
+}
+
+#[derive(Debug)]
+pub enum KeptOperation {
+    List(KeptList),
+    Show(String),
+    Remove(String),
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct KeptList {
+    member_id: Option<String>,
+    before: Option<crate::storage::KeptReplyCursor>,
+    limit: Option<u32>,
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct KeptKey {
+    key: String,
+}
+
+fn valid_kept_key(key: &str) -> bool {
+    crate::request_runtime::valid_request_id(key)
+        || crate::storage::kept_capture_sequence(key).is_some()
+}
+
+pub(super) fn decode_kept(operation: &str, input: &[u8]) -> Result<KeptOperation, Fault> {
+    if operation == "keptReplies.list" {
+        let list: KeptList = serde_json::from_slice(input).map_err(|_| invalid())?;
+        if list
+            .member_id
+            .as_deref()
+            .is_some_and(|id| !tmt_core::dispatch::canonical_id(id))
+            || list.limit.is_some_and(|limit| !(1..=64).contains(&limit))
+            || list.before.as_ref().is_some_and(|cursor| {
+                !(1..=tmt_core::limits::MAX_JS_SAFE_INTEGER).contains(&cursor.at_ms)
+                    || !valid_kept_key(&cursor.key)
+            })
+        {
+            return Err(invalid());
+        }
+        return Ok(KeptOperation::List(list));
+    }
+    let KeptKey { key } = serde_json::from_slice(input).map_err(|_| invalid())?;
+    if !valid_kept_key(&key) {
+        return Err(invalid());
+    }
+    match operation {
+        "keptReplies.show" => Ok(KeptOperation::Show(key)),
+        "keptReplies.remove" => Ok(KeptOperation::Remove(key)),
+        _ => Err(invalid()),
+    }
+}
+
+pub(super) fn kept(
+    storage: &mut Storage,
+    settings: &Settings,
+    operation: KeptOperation,
+) -> Result<Vec<u8>, Fault> {
+    let person =
+        super::user::configured_person(storage, settings, crate::user::login_name().as_deref())?
+            .ok_or_else(Fault::unavailable)?;
+    let missing = || {
+        Fault::new(
+            "KEPT_REPLY_NOT_FOUND",
+            "This kept reply is no longer available.",
+        )
+    };
+    let value = match operation {
+        KeptOperation::List(input) => storage
+            .list_kept_replies(
+                &person,
+                input.member_id.as_deref(),
+                input.before.as_ref(),
+                input.limit.unwrap_or(32),
+            )
+            .map_err(|_| Fault::unavailable())?,
+        KeptOperation::Show(key) => storage
+            .show_kept_reply(&person, &key)
+            .map_err(|_| Fault::unavailable())?
+            .ok_or_else(missing)?,
+        KeptOperation::Remove(key) => {
+            if !storage
+                .remove_kept_reply(&person, &key)
+                .map_err(|_| Fault::unavailable())?
+            {
+                return Err(missing());
+            }
+            serde_json::json!({"key": key, "removed": true})
+        }
+    };
+    serde_json::to_vec(&value).map_err(|_| Fault::unavailable())
 }

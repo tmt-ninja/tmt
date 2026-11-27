@@ -482,6 +482,10 @@ const MIGRATIONS: &[Migration] = &[
         "widen driver_state cap from 1024 to 4096 bytes",
         "schema/099.sql"
     ),
+    migration!(
+        "retain person-marked reply intent and pins",
+        "schema/100.sql"
+    ),
 ];
 
 pub(super) fn apply(connection: &mut Connection) -> Result<(), StorageError> {

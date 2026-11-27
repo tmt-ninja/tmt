@@ -146,8 +146,18 @@ pub struct ConversationQuery {
     pub since: Option<ConversationSince>,
 }
 
+/// Keep projection for a marked outgoing exchange. Ordinary rows have none.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeepReplyState {
+    Pending,
+    Kept,
+    NotKept,
+    Removed,
+}
+
 /// A conversation row with the two counter values that last moved it.
 pub struct ConversationRecord {
+    pub keep_reply: Option<KeepReplyState>,
     pub history: HistoryRecord,
     /// The viewer-side and member-side revisions of this request.
     pub position: (u64, u64),
@@ -168,6 +178,7 @@ pub enum ConversationDirection {
 }
 
 pub struct ConversationSummary {
+    pub keep_reply: Option<KeepReplyState>,
     pub summary: HistorySummary,
     pub direction: ConversationDirection,
     pub position: (u64, u64),

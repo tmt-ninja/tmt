@@ -690,6 +690,34 @@ Only an admitted turn event (one that moved the verified session's state) binds 
 Provider session and turn ids stay local evidence. The capture is part of the request: it has
 the request's retention and goes with it.
 
+### Kept replies
+
+The configured person can mark a single-recipient local request to keep its
+answer. The keep intent lives on the exchange. Core pins the canonical final
+inside the transaction that commits it. A receipt-bound submission pins that
+request's own final. A passthrough pins only the verified provider final in the
+same admitted input batch with an unambiguous request link. A folded or
+unlinked capture, interruption, or turn without a final cannot pin a different
+answer. The ordinary request state still reports what happened to the request.
+
+The same person can start a direct terminal prompt with the exact token `⚑`
+or `/keep` followed by a nonempty question. The provider's admitted prompt is
+treated as the configured person's input, with the same trust as direct typing.
+The hook cannot identify who typed the prompt. The verified Stop captures and
+pins that batch's final. This requires a provider with an admitted prompt hook
+and verified final capture. The prompt text is unchanged, and a terminal mark
+that cannot be admitted adds no kept reply. A linked Talk dispatch uses its
+existing keep intent.
+
+The person's count limit is 64 kept or pending, across agents and capture
+sources. A mark that ends without an answer releases its slot. Kept finals are
+exempt from ordinary deletion until removal. Their original retention still
+governs ordinary history, including expiry, bounds and dropped coverage. No
+body is copied and no retention clock is renewed. Removing a keep neither
+acknowledges the exchange nor allows a replay to restore the keep.
+[Kept-reply operations](extension-api.md#kept-replies) read and remove exact
+pins, including those of retired agents.
+
 `x` commands select the originator's data with
 `--identity <name>` through the shared durable selector. Omission requires a
 verified caller identity; outside that context it fails rather than guessing.

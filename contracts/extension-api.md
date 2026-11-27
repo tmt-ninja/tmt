@@ -146,6 +146,9 @@ remain independent of storage access.
 | `changes.cursor`         | `{}`                                                                                                                                                                          | `cursor`: an opaque non-negative integer that changes whenever core's durable records change; `usage`: the same kind of integer for the usage sampler's records (see below)                                                                                                            |
 | `requests.list`          | `recipientId` and/or `roomId` (`roomId` alone: `since`), or `originatorId` + `view:"results"`/`"answers"`, or `view:"conversation"` + `memberId` (`since`); `limit`, `before` | `items`, `nextBefore` (room and conversation: also `changePosition`, `changedSince`; conversation: `viewerId`, `member`)                                                                                                                                                               |
 | `requests.show`          | `requestId`                                                                                                                                                                   | Request detail including retained prompt/final state; a passthrough adds its turn-output capture ([Passthrough](request-response-v1.md#passthrough))                                                                                                                                   |
+| `keptReplies.list`       | Optional `memberId`, `limit`, `before`                                                                                                                                        | `items`, `nextBefore` ([Kept replies](#kept-replies))                                                                                                                                                                                                                                  |
+| `keptReplies.show`       | `key`                                                                                                                                                                         | The exact retained reply ([Kept replies](#kept-replies))                                                                                                                                                                                                                               |
+| `keptReplies.remove`     | `key`                                                                                                                                                                         | `key`, `removed: true` ([Kept replies](#kept-replies))                                                                                                                                                                                                                                 |
 | `requests.sendNow`       | `requestId`; the envelope names the caller (originator or the user)                                                                                                           | `status` (`sent`/`already`), `requestId`, `state`; a refusal is a `SEND_NOW_*` or `DELIVERY_*` fault ([Send now](request-response-v1.md#send-now))                                                                                                                                     |
 | `requests.ack`           | `items`: 1–50 of `{requestId, revision}`; the envelope names the originator                                                                                                   | `items`: per request `{requestId, revision, status}`; `status` is `acknowledged`, `already`, `conflict` (with `current`) or `notFound`                                                                                                                                                 |
 | `workspace.capture`      | Empty object                                                                                                                                                                  | Bounded `attempted`, `published`, `skipped` counts and, when a record did not publish, a closed-token `reasons` count object for recorded sockets only (see [Workspace recovery](workspace-v1.md#capture-triggers-and-public-backstop))                                                |
@@ -163,7 +166,7 @@ remain independent of storage access.
 | `forms.list`             | optional `identityId` (canonical UUID)                                                                                                                                        | `forms`: the open provider forms, oldest first (see [below](#provider-forms))                                                                                                                                                                                                          |
 | `forms.answer`           | `formId`, `answer`                                                                                                                                                            | Sends a client's answer to an open form as the provider's captured keys, once; `{formId, delivered}` or a refusal (see [below](#provider-forms))                                                                                                                                       |
 | `dispatch.show`          | `operationId`                                                                                                                                                                 | Immutable acceptance receipt                                                                                                                                                                                                                                                           |
-| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`, `parentRequestId`                                                                        | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch)); a roster request wakes its recipients unreported                                                                                                                   |
+| `dispatch.create`        | `operationId`, `recipientIds`, `message`, optional `kind`, `origin`, `room`, `mode`, `parentRequestId`, `keepReply`                                                           | Acceptance receipt; optional independent `wake` on first direct request (see [Passthrough](#passthrough-dispatch)); a roster request wakes its recipients unreported                                                                                                                   |
 | `rooms.write`            | `roomId`, `room: {expectedRevision, name, memberIds}`                                                                                                                         | Room resource                                                                                                                                                                                                                                                                          |
 | `rooms.retire`           | `roomId`, `expectedRevision` (positive)                                                                                                                                       | Room resource (same shape as `rooms.write`); a repeat at the pre- or post-retirement revision is idempotent, any other stale revision is `ROOM_REVISION_CONFLICT`                                                                                                                      |
 | `rooms.roster`           | `room` (UUID or unique exact name), optional `metadataPrefix`                                                                                                                 | `room` resource and `members` with metadata and status                                                                                                                                                                                                                                 |
@@ -1601,6 +1604,18 @@ with the other value conflicts while an absent value keeps every earlier digest.
 `tmt talk`, `send`, `room send` and MCP always record a person. Like `sender`, the
 declaration is local attribution, not authentication.
 
+### Mark a reply to keep
+
+`dispatch.create.keepReply` is an optional Boolean for a single-recipient local
+request from the configured person, in request or passthrough mode. Sending
+a marked announcement, automation request, roster dispatch or multi-recipient
+request is invalid. An anonymous or other sender gets `KEEP_REPLY_NOT_ALLOWED`.
+Absent and false have the historical intent digest. True changes the digest;
+replaying the operation with a different mark conflicts. At the person's
+64 kept-or-pending limit, a fresh marked dispatch gets `KEEP_REPLY_LIMIT` before
+acceptance or wake. Removing a kept reply frees a slot. Ordinary dispatch is
+unaffected.
+
 ### Thread replies
 
 `dispatch.create.parentRequestId` (a request ID) posts a reply in a thread (#6407). Core
@@ -1924,6 +1939,11 @@ withdrawal does not move it yet. With `since`, `changedSince` is
 before in-scope requests left retention gives `changedSince:"unknown"`, never 0. A final
 that expires with time is a read-time state, not a change. The read uses one observation
 snapshot and never acknowledges, renews retention or runs housekeeping.
+
+A marked outbound conversation item has a `keepReply` state: `pending`,
+`kept`, `notKept` or `removed`. The field is absent on unmarked items.
+`notKept` means no final could be kept for that exchange. Exact
+`requests.show` includes `keepReply: true` for a marked exchange.
 
 A room's own history, `requests.list` with `roomId` alone, adds the conversation view's
 change fields with the same meaning and bounds (#6375): `changePosition` on the response,
@@ -2467,3 +2487,25 @@ whole span between them; otherwise the sum is partial and must not be shown as e
 A turn whose end was never admitted is closed unmeasured by the next turn start.
 Reasoning tokens are not in the usage record. Turns are kept 30 days after they end;
 history before schema 94 has none.
+
+## Kept replies
+
+`keptReplies.list`, `keptReplies.show` and `keptReplies.remove` use the
+configured-person admission of `requests.list` with `view:"conversation"`.
+The envelope names neither an identity nor an anonymous originator.
+A kept reply for a retired agent stays under that agent's UUID and remains
+available to its owner. A new identity with that name inherits nothing.
+
+List accepts an optional exact canonical `memberId`, `limit` from 1 through
+64 (default 32), and `before` as the prior page's `nextBefore`.
+Items are newest first by `(atMs,key)` and carry `key`, `memberId`, `source`
+(`request`, `passthrough` or `terminal`), `atMs`, and an excerpt of at most
+160 Unicode scalars. `nextBefore` is null or `{atMs,key}`. The kept key is the
+request ID for a dispatched request and an opaque capture key for direct typing.
+
+Show reads the item by `key` and returns `key`, `memberId`, `source`, `atMs`,
+`text`, and `truncated`. Remove by `key` drops only the keep and returns
+`{key,removed:true}`. Both return `KEPT_REPLY_NOT_FOUND` when that key is
+unavailable to the person. None of these operations acknowledges a message.
+The [request lifecycle](request-response-v1.md#kept-replies) defines what
+can be pinned and how long it stays.

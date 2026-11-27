@@ -221,6 +221,36 @@ pub(in crate::storage) fn settle_turn(
             let truncated = text.truncated() || kept.len() < text.text().len();
             // Read before the update takes them out of `bound`.
             let answered = bound_requests(db, in_turn, identity, session, turn)?;
+            // Only the exact batch bound by the observed prompt may pin its own final.
+            // Ordinary settlement still handles folded or ambiguous turns as before.
+            if let [(request, _)] = answered.as_slice() {
+                let writer_now = checked_i64(
+                    crate::request_runtime::wall_time_ms(),
+                    "Keep settlement time",
+                )?;
+                let floor = writer_now - tmt_core::retention::RESPONSE_ACCEPTANCE_WINDOW_MS as i64;
+                db.execute(
+                    "UPDATE request_attempts SET kept_capture_sequence=?2
+                     WHERE request_id=?1 AND keep_reply=1 AND keep_removed=0
+                       AND kept_capture_sequence IS NULL AND withdrawn_at_ms IS NULL
+                       AND (expires_at_ms>?3 OR prepared_at_ms>?4)
+                       AND EXISTS (
+                         SELECT 1 FROM capture_entries e
+                         JOIN capture_entries input ON input.batch_id=e.batch_id
+                         JOIN request_passthrough p ON p.request_id=input.request_id
+                         WHERE e.response_sequence=?2 AND e.kind='final'
+                           AND input.kind='input' AND input.source='incoming'
+                           AND input.request_id=request_attempts.request_id AND p.folded=0
+                       )",
+                    params![
+                        request,
+                        checked_i64(response, "Kept response key")?,
+                        writer_now,
+                        floor
+                    ],
+                )
+                .map_err(|error| classify(error, "Keep the bound passthrough final"))?;
+            }
             let changed = db
                 .execute(
                     &format!(

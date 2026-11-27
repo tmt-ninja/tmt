@@ -465,6 +465,16 @@ pub fn encode_conversation_page(
             ] {
                 value.insert(key.into(), full[key].clone());
             }
+            if let Some(keep_reply) = row.keep_reply {
+                use tmt_core::request::history::KeepReplyState;
+                let state = match keep_reply {
+                    KeepReplyState::Pending => "pending",
+                    KeepReplyState::Kept => "kept",
+                    KeepReplyState::NotKept => "notKept",
+                    KeepReplyState::Removed => "removed",
+                };
+                value.insert("keepReply".into(), json!(state));
+            }
             value.insert("preview".into(), json!(row.summary.preview));
             value.insert("replyCount".into(), json!(row.summary.reply_count));
             value.insert(
@@ -550,8 +560,11 @@ pub fn encode_answers_page(page: &AnswersPage) -> Vec<u8> {
     })).expect("serializable request answers")
 }
 
-pub fn encode_history_detail(detail: &HistoryDetail) -> Vec<u8> {
+pub fn encode_history_detail(detail: &HistoryDetail, marked: bool) -> Vec<u8> {
     let mut value = item_document(&detail.item, |body| Some(json!(body)));
+    if marked {
+        value["keepReply"] = json!(true);
+    }
     value["prompt"] = match &detail.prompt {
         RequestPrompt::Unavailable => json!({"status":"unavailable"}),
         RequestPrompt::Expired { expires_at_ms } => {

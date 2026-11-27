@@ -235,6 +235,19 @@ pub(super) fn conversation_sql(paged: bool) -> String {
     } else {
         "?3 IS NULL AND ?4 IS NULL"
     };
+    let floor = format!(
+        "(?6-{})",
+        tmt_core::retention::RESPONSE_ACCEPTANCE_WINDOW_MS
+    );
+    let pending = super::kept::request_pending("?6", &floor);
+    let keep_reply = format!(
+        "CASE
+        WHEN a.keep_reply=0 OR a.originator_identity_id IS NOT ?1 THEN 0
+        WHEN a.keep_removed=1 THEN 4
+        WHEN response.request_id IS NOT NULL OR a.kept_capture_sequence IS NOT NULL THEN 2
+        WHEN {pending} THEN 1
+        ELSE 3 END"
+    );
     let direction = |scope: &str| {
         history_select_with(
             "request_attempts AS a",
@@ -245,7 +258,10 @@ pub(super) fn conversation_sql(paged: bool) -> String {
             &format!(
                 "CASE WHEN response.response_expires_at_ms > ?6 THEN substr(CAST(response.body AS BLOB),1,{RESPONSE_PREVIEW_BYTES}) ELSE NULL END"
             ),
-            &format!("{}, {CONVERSATION_SIDES}", reply_count_column("?6")),
+            &format!(
+                "{}, {CONVERSATION_SIDES}, {keep_reply}",
+                reply_count_column("?6")
+            ),
         )
     };
     format!(
@@ -281,7 +297,16 @@ pub(super) fn list_conversation(
                 checked_now(now_ms, "Conversation retention cutoff")?
             ],
             |row| {
+                use tmt_core::request::history::KeepReplyState;
+                let keep_reply = match row.get::<_, u8>(rows::ATTEMPT_COLUMN_COUNT + 9)? {
+                    0 => None,
+                    1 => Some(KeepReplyState::Pending),
+                    2 => Some(KeepReplyState::Kept),
+                    3 => Some(KeepReplyState::NotKept),
+                    _ => Some(KeepReplyState::Removed),
+                };
                 Ok(ConversationRecord {
+                    keep_reply,
                     position: (
                         rows::u64_at(row, rows::ATTEMPT_COLUMN_COUNT + 7)?,
                         rows::u64_at(row, rows::ATTEMPT_COLUMN_COUNT + 8)?,

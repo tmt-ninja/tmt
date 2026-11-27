@@ -112,7 +112,7 @@ fn final_body(
         (SELECT p.request_id FROM request_passthrough p JOIN request_attempts a ON a.request_id=p.request_id
          WHERE p.answer_response=r.sequence AND a.retention_expires_at_ms>?3 ORDER BY p.delivered_at_ms,p.request_id LIMIT 1),
         (SELECT batch_id FROM capture_entries WHERE kind='final' AND response_sequence=r.sequence)
-        FROM recent_responses r WHERE r.identity_id=?1 AND r.sequence=?2 AND r.expires_ms>?3",params![identity,sequence as i64,now as i64],|row|{
+        FROM recent_responses r WHERE r.identity_id=?1 AND r.sequence=?2 AND r.ordinary_dropped=0 AND r.expires_ms>?3",params![identity,sequence as i64,now as i64],|row|{
         let mut value=json!({"responseId":response_id(sequence),"text":row.get::<_,String>(0)?,"endedMs":natural(row,1)?,"provider":row.get::<_,String>(2)?,"truncated":row.get::<_,bool>(3)?,"originalBytes":natural(row,5)?});
         for (index,name) in [(4,"sessionId"),(6,"requestId"),(7,"inputBatchId")] {
             if let Some(field)=row.get::<_,Option<String>>(index)? {value[name]=json!(field);}

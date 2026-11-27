@@ -182,7 +182,7 @@ fn history_wire_contains_only_public_metadata_and_exact_detail_text() {
             expires_at_ms: 3000,
         }),
     };
-    let value: Value = serde_json::from_slice(&encode_history_detail(&detail)).unwrap();
+    let value: Value = serde_json::from_slice(&encode_history_detail(&detail, false)).unwrap();
     assert_eq!(
         value["prompt"],
         json!({"status":"retained","message":"Question","messageBytes":8,"expiresAtMs":3000})

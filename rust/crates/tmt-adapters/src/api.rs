@@ -24,6 +24,7 @@ mod skills;
 mod terminal;
 mod timeline;
 mod user;
+pub use user::configured_person;
 
 use crate::{
     config::{ConfigFiles, ConfigPaths},
@@ -64,6 +65,9 @@ const OPS: &[&str] = &[
     "changes.cursor",
     "requests.list",
     "requests.show",
+    "keptReplies.list",
+    "keptReplies.show",
+    "keptReplies.remove",
     "requests.sendNow",
     "requests.ack",
     "responses.recent",
@@ -343,6 +347,7 @@ pub enum Request {
     ChangeCursor,
     History(ListQuery),
     Detail(String),
+    KeptReplies(requests::KeptOperation),
     /// Types one held or waiting message now; the envelope identity is the caller.
     SendNow {
         identity: Option<DispatchIdentity>,
@@ -532,6 +537,9 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         op if op.starts_with("digest.") => digest::decode(op, input)?,
         "requests.list" => Request::History(requests::decode_list(input)?),
         "requests.show" => Request::Detail(requests::decode_show(input)?),
+        "keptReplies.list" | "keptReplies.show" | "keptReplies.remove" => {
+            Request::KeptReplies(requests::decode_kept(&wire.operation, input)?)
+        }
         "requests.sendNow" => Request::SendNow {
             identity: wire.identity.map(DispatchIdentity::Explicit),
             request_id: requests::decode_show(input)?,
@@ -760,6 +768,7 @@ impl Session {
                 | Request::SendNow { .. }
                 | Request::UserIdentity
                 | Request::UserPerson
+                | Request::KeptReplies(_)
                 | Request::History(crate::request_history::ListQuery::Conversation(_))
         ) || matches!(&request, Request::Digest(operation) if matches!(**operation, digest::Operation::Flush { .. }))
         {
@@ -914,6 +923,11 @@ impl Session {
             Request::HookAck(hook) => identity_hooks::ack(storage, hook),
             Request::History(query) => requests::list_history(storage, query, settings.as_ref()),
             Request::Detail(id) => requests::show_request(storage, id),
+            Request::KeptReplies(operation) => requests::kept(
+                storage,
+                settings.as_ref().expect("kept reply settings"),
+                operation,
+            ),
             Request::SendNow {
                 identity: selector,
                 request_id,
