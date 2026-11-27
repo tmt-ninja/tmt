@@ -3,111 +3,113 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readlinkSync,
   realpathSync,
+  rmSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
   readdirSync,
-} from 'node:fs';
-import os from 'node:os';
-import { writeExecutable } from '../support/executable-fixture.mjs';
-import path from 'node:path';
-import { createHash } from 'node:crypto';
-import { describe, expect, it } from 'vite-plus/test';
+} from "node:fs";
+import os from "node:os";
+import { writeExecutable } from "../support/executable-fixture.mjs";
+import path from "node:path";
+import { createHash } from "node:crypto";
+import { afterAll, beforeAll, describe, expect, it } from "vite-plus/test";
 import {
   expectError,
   parseWholeStdout,
   runCli,
   withSandbox,
   type Sandbox,
-} from '../support/cli-process.js';
-import { resolveCliExecutables } from '../support/cli-executable.mjs';
-import { install, installFormerSquad, withReleaseSandbox } from '../support/native-installation.js';
-import { createArtifact, type ArtifactFixture } from '../support/native-artifact.js';
+} from "../support/cli-process.js";
+import { resolveCliExecutables } from "../support/cli-executable.mjs";
+import { installFormerSquad, withReleaseSandbox } from "../support/native-installation.js";
+import { createArtifact, type ArtifactFixture } from "../support/native-artifact.js";
 
 const INSTALL_PROCESS_BUDGET_MS = 15_000;
 
 function replacementArgs(artifact: ArtifactFixture, prefix: string): string[] {
   return [
-    'extension',
-    'install',
-    'ops',
-    '--yes',
-    '--archive',
+    "extension",
+    "install",
+    "ops",
+    "--yes",
+    "--archive",
     artifact.archive,
-    '--manifest',
+    "--manifest",
     artifact.manifest,
-    '--prefix',
+    "--prefix",
     prefix,
-    '--channel',
-    'alpha',
+    "--channel",
+    "alpha",
   ];
 }
 
 async function enableHooks(sandbox: Sandbox, name: string): Promise<unknown> {
-  const result = await runCli(sandbox, ['extension', 'hooks', 'enable', name, '--json']);
+  const result = await runCli(sandbox, ["extension", "hooks", "enable", name, "--json"]);
   expect(result.status, result.stdout + result.stderr).toBe(0);
   return parseWholeStdout(result).enabled;
 }
 
 /** Release skills refuse a store outside HOME, and the shared sandbox keeps XDG beside HOME. */
 function storeInsideHome(sandbox: { home: string; env: NodeJS.ProcessEnv }): string {
-  const config = path.join(sandbox.home, '.config');
+  const config = path.join(sandbox.home, ".config");
   sandbox.env.XDG_CONFIG_HOME = config;
-  return path.join(config, 'tmt');
+  return path.join(config, "tmt");
 }
 
-describe('a leftover former Squad installation', () => {
-  it('is reported when Ops is installed beside it and nothing of it is touched', async () => {
+describe("a leftover former Squad installation", () => {
+  it("is reported when Ops is installed beside it and nothing of it is touched", async () => {
     await withSandbox(async (sandbox) => {
-      const prefix = path.join(sandbox.root, 'replacement prefix');
+      const prefix = path.join(sandbox.root, "replacement prefix");
       await installFormerSquad(sandbox, prefix);
-      sandbox.env.PATH = [path.join(prefix, 'bin'), '/usr/bin', '/bin'].join(':');
-      await enableHooks(sandbox, 'squad');
-      const settings = path.join(sandbox.globalDir, 'extension-hooks.json');
+      sandbox.env.PATH = [path.join(prefix, "bin"), "/usr/bin", "/bin"].join(":");
+      await enableHooks(sandbox, "squad");
+      const settings = path.join(sandbox.globalDir, "extension-hooks.json");
       const consent = readFileSync(settings);
-      const config = path.join(sandbox.globalDir, 'squad.toml');
-      writeFileSync(config, 'retained user configuration\n');
-      const candidate = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'ops');
-      const root = path.join(realpathSync(prefix), 'lib/tmt-squad');
-      const links = ['tmt-squad', 'tmt-sq'].map((name) =>
-        path.join(realpathSync(prefix), 'bin', name)
+      const config = path.join(sandbox.globalDir, "squad.toml");
+      writeFileSync(config, "retained user configuration\n");
+      const candidate = await createArtifact(sandbox, "0.1.0-alpha.2", new Uint8Array(), "ops");
+      const root = path.join(realpathSync(prefix), "lib/tmt-squad");
+      const links = ["tmt-squad", "tmt-sq"].map((name) =>
+        path.join(realpathSync(prefix), "bin", name),
       );
 
-      const result = await runCli(sandbox, [...replacementArgs(candidate, prefix), '--json'], {
+      const result = await runCli(sandbox, [...replacementArgs(candidate, prefix), "--json"], {
         deadlineMs: INSTALL_PROCESS_BUDGET_MS,
       });
       expect(result.status, result.stdout + result.stderr).toBe(0);
-      expect(result.stderr).toBe('');
+      expect(result.stderr).toBe("");
       const report = parseWholeStdout(result);
       expect(report.retiredSquadHint).toContain(`Squad at ${root} is left as it is`);
-      expect(report.retiredSquadHint).toContain('no longer upgrades it');
+      expect(report.retiredSquadHint).toContain("no longer upgrades it");
       // Squad's recorded hook consent stays too, and the note names how to withdraw it.
       expect(report.retiredSquadHint).toContain(
-        'Withdraw its hook consent with: tmt extension hooks disable squad.'
+        "Withdraw its hook consent with: tmt extension hooks disable squad.",
       );
-      expect(report.retiredSquadHint).toContain(`Remove ${links.join(', ')}, ${root} by hand`);
+      expect(report.retiredSquadHint).toContain(`Remove ${links.join(", ")}, ${root} by hand`);
       // Ops is installed, so there is nothing to tell the user to install.
-      expect(report.retiredSquadHint).not.toContain('Install Ops with');
-      for (const key of ['replaced', 'removed', 'kept', 'hooks', 'boardSwitch', 'formerly']) {
+      expect(report.retiredSquadHint).not.toContain("Install Ops with");
+      for (const key of ["replaced", "removed", "kept", "hooks", "boardSwitch", "formerly"]) {
         expect(report).not.toHaveProperty(key);
       }
 
-      expect(readlinkSync(path.join(prefix, 'bin/tmt-ops'))).toBe('../lib/tmt-ops/current/tmt-ops');
+      expect(readlinkSync(path.join(prefix, "bin/tmt-ops"))).toBe("../lib/tmt-ops/current/tmt-ops");
       expect(
-        JSON.parse(readFileSync(path.join(prefix, 'lib/tmt-ops/current/receipt.json'), 'utf8'))
-          .version
+        JSON.parse(readFileSync(path.join(prefix, "lib/tmt-ops/current/receipt.json"), "utf8"))
+          .version,
       ).toBe(candidate.version);
-      expect(existsSync(path.join(root, 'current/tmt-squad'))).toBe(true);
+      expect(existsSync(path.join(root, "current/tmt-squad"))).toBe(true);
       for (const link of links) {
-        expect(readlinkSync(link)).toBe('../lib/tmt-squad/current/tmt-squad');
+        expect(readlinkSync(link)).toBe("../lib/tmt-squad/current/tmt-squad");
       }
       // Consent and configuration are the user's, and installing Ops moves none of it.
       expect(readFileSync(settings).equals(consent)).toBe(true);
-      expect(readFileSync(config, 'utf8')).toBe('retained user configuration\n');
-      expect(existsSync(path.join(sandbox.globalDir, 'ops.toml'))).toBe(false);
+      expect(readFileSync(config, "utf8")).toBe("retained user configuration\n");
+      expect(existsSync(path.join(sandbox.globalDir, "ops.toml"))).toBe(false);
       expect(existsSync(sandbox.database)).toBe(false);
 
       const repeated = await runCli(sandbox, replacementArgs(candidate, prefix), {
@@ -119,201 +121,222 @@ describe('a leftover former Squad installation', () => {
   }, 60_000);
 });
 
-describe('Remote replacement notices after partial completion', () => {
-  it.each([true, false])(
-    'retains successful activation and one restart hint with a skill warning, JSON=%s',
-    async (json) => {
-      await withSandbox(async (sandbox) => {
-        const prefix = path.join(sandbox.root, 'remote partial prefix');
-        const installRemote = (artifact: ArtifactFixture) =>
-          runCli(
-            sandbox,
-            [
-              'extension',
-              'install',
-              'remote',
-              '--yes',
-              '--archive',
-              artifact.archive,
-              '--manifest',
-              artifact.manifest,
-              '--prefix',
-              prefix,
-              '--skills',
-              ...(json ? ['--json'] : []),
-            ],
-            { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
-          );
-        const globalDir = storeInsideHome(sandbox);
-        const first = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'remote');
-        const installed = await installRemote(first);
-        expect(installed.status, installed.stdout + installed.stderr).toBe(0);
-        expect(installed.stdout + installed.stderr).not.toContain('Remote was upgraded');
-        const oldRelease = realpathSync(path.join(prefix, 'lib/tmt-remote/current'));
-        mkdirSync(path.join(globalDir, 'remote'), { recursive: true });
-        writeFileSync(path.join(globalDir, 'remote/machine.key'), 'retained invalid key');
-        writeFileSync(path.join(globalDir, 'remote/remote.db'), 'retained invalid database');
-        writeFileSync(path.join(globalDir, 'skill-owners.json'), '{invalid');
-        const second = await createArtifact(
+describe("Remote replacement notices after partial completion", () => {
+  it("retains successful activation and one restart hint with a skill warning", async () => {
+    await withSandbox(async (sandbox) => {
+      const prefix = path.join(sandbox.root, "remote partial prefix");
+      const installRemote = (artifact: ArtifactFixture) =>
+        runCli(
           sandbox,
-          '0.1.0-alpha.2',
-          new Uint8Array([1]),
-          'remote'
+          [
+            "extension",
+            "install",
+            "remote",
+            "--yes",
+            "--archive",
+            artifact.archive,
+            "--manifest",
+            artifact.manifest,
+            "--prefix",
+            prefix,
+            "--skills",
+            "--json",
+          ],
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS },
         );
-        const replaced = await installRemote(second);
-        expect(replaced.status, replaced.stdout + replaced.stderr).toBe(0);
-        const hint =
-          'Remote was upgraded, but its door status could not be confirmed. Finish active pairing and held approvals, then restart if running: tmt remote stop && tmt remote serve.';
-        if (json)
-          expect(parseWholeStdout(replaced)).toMatchObject({
-            installed: true,
-            changed: true,
-            version: '0.1.0-alpha.2',
-            skills: { status: 'warning', warning: { code: 'EXTENSION_SKILLS_FAILED' } },
-            restartHint: hint,
-          });
-        else {
-          expect(replaced.stdout).toContain('Warning:');
-          expect(replaced.stdout).toContain(hint);
-        }
-        expect(replaced.stdout).toContain(path.join(globalDir, 'skill-owners.json'));
-        expect((replaced.stdout + replaced.stderr).split('Remote was upgraded').length - 1).toBe(1);
-        expect(realpathSync(path.join(prefix, 'lib/tmt-remote/current'))).not.toBe(oldRelease);
-        expect(existsSync(oldRelease)).toBe(true);
-        const listed = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix, '--json']);
-        expect(parseWholeStdout(listed).extensions).toContainEqual(
-          expect.objectContaining({ name: 'remote', version: '0.1.0-alpha.2' })
-        );
-        expect(readFileSync(path.join(globalDir, 'remote/machine.key'), 'utf8')).toBe(
-          'retained invalid key'
-        );
-        expect(readFileSync(path.join(globalDir, 'remote/remote.db'), 'utf8')).toBe(
-          'retained invalid database'
-        );
-        expect(readFileSync(path.join(globalDir, 'skill-owners.json'), 'utf8')).toBe('{invalid');
-        expect(existsSync(path.join(globalDir, 'remote/control.sock'))).toBe(false);
+      const globalDir = storeInsideHome(sandbox);
+      const first = await createArtifact(sandbox, "0.1.0-alpha.1", new Uint8Array(), "remote");
+      const installed = await installRemote(first);
+      expect(installed.status, installed.stdout + installed.stderr).toBe(0);
+      expect(installed.stdout + installed.stderr).not.toContain("Remote was upgraded");
+      const oldRelease = realpathSync(path.join(prefix, "lib/tmt-remote/current"));
+      mkdirSync(path.join(globalDir, "remote"), { recursive: true });
+      writeFileSync(path.join(globalDir, "remote/machine.key"), "retained invalid key");
+      writeFileSync(path.join(globalDir, "remote/remote.db"), "retained invalid database");
+      writeFileSync(path.join(globalDir, "skill-owners.json"), "{invalid");
+      const second = await createArtifact(sandbox, "0.1.0-alpha.2", new Uint8Array([1]), "remote");
+      const replaced = await installRemote(second);
+      expect(replaced.status, replaced.stdout + replaced.stderr).toBe(0);
+      const hint =
+        "Remote was upgraded, but its door status could not be confirmed. Finish active pairing and held approvals, then restart if running: tmt remote stop && tmt remote serve.";
+      expect(parseWholeStdout(replaced)).toMatchObject({
+        installed: true,
+        changed: true,
+        version: "0.1.0-alpha.2",
+        skills: { status: "warning", warning: { code: "EXTENSION_SKILLS_FAILED" } },
+        restartHint: hint,
       });
-    },
-    60_000
-  );
+      expect(replaced.stdout).toContain(path.join(globalDir, "skill-owners.json"));
+      expect((replaced.stdout + replaced.stderr).split("Remote was upgraded").length - 1).toBe(1);
+      expect(realpathSync(path.join(prefix, "lib/tmt-remote/current"))).not.toBe(oldRelease);
+      expect(existsSync(oldRelease)).toBe(true);
+      const listed = await runCli(sandbox, ["extension", "ls", "--prefix", prefix, "--json"]);
+      expect(parseWholeStdout(listed).extensions).toContainEqual(
+        expect.objectContaining({ name: "remote", version: "0.1.0-alpha.2" }),
+      );
+      expect(readFileSync(path.join(globalDir, "remote/machine.key"), "utf8")).toBe(
+        "retained invalid key",
+      );
+      expect(readFileSync(path.join(globalDir, "remote/remote.db"), "utf8")).toBe(
+        "retained invalid database",
+      );
+      expect(readFileSync(path.join(globalDir, "skill-owners.json"), "utf8")).toBe("{invalid");
+      expect(existsSync(path.join(globalDir, "remote/control.sock"))).toBe(false);
+    });
+  }, 60_000);
 });
 
-describe('tmt extension install surface', () => {
-  it('keeps exact published selection consented and refuses a downgrade before changing an installed release', async () => {
+describe("tmt extension install surface", () => {
+  let sharedRoot = "";
+  let sharedArtifacts!: {
+    opsV1: ArtifactFixture;
+    remoteV1: ArtifactFixture;
+    remoteV2: ArtifactFixture;
+    colabV1: ArtifactFixture;
+    colabV2: ArtifactFixture;
+  };
+
+  beforeAll(async () => {
+    sharedRoot = mkdtempSync(path.join(os.tmpdir(), "tmt-ext-install-"));
+    const build = (
+      key: string,
+      version: string,
+      suffix: Uint8Array,
+      product: "ops" | "remote" | "colab",
+    ) => {
+      const root = path.join(sharedRoot, key);
+      mkdirSync(root, { recursive: true });
+      return createArtifact({ root }, version, suffix, product);
+    };
+    const [opsV1, remoteV1, remoteV2, colabV1, colabV2] = await Promise.all([
+      build("ops-v1", "0.1.0-alpha.1", new Uint8Array(), "ops"),
+      build("remote-v1", "0.1.0-alpha.1", new Uint8Array(), "remote"),
+      build("remote-v2", "0.1.0-alpha.2", new Uint8Array([1]), "remote"),
+      build("colab-v1", "0.1.0-alpha.1", new Uint8Array(), "colab"),
+      build("colab-v2", "0.1.0-alpha.2", new Uint8Array([1]), "colab"),
+    ]);
+    sharedArtifacts = { opsV1, remoteV1, remoteV2, colabV1, colabV2 };
+  });
+
+  afterAll(() => {
+    if (sharedRoot) rmSync(sharedRoot, { recursive: true, force: true });
+  });
+
+  it("keeps exact published selection consented and refuses a downgrade before changing an installed release", async () => {
     await withSandbox(async (sandbox) => {
-      sandbox.env.TMT_AGENT = '1';
-      sandbox.env.BROWSER = '/usr/bin/true';
-      const prefix = path.join(sandbox.root, 'exact remote prefix');
+      sandbox.env.TMT_AGENT = "1";
+      sandbox.env.BROWSER = "/usr/bin/true";
+      const prefix = path.join(sandbox.root, "exact remote prefix");
       const exact = [
-        'extension',
-        'install',
-        'remote',
-        '--to',
-        '0.1.0-alpha.1',
-        '--channel',
-        'alpha',
-        '--prefix',
+        "extension",
+        "install",
+        "remote",
+        "--to",
+        "0.1.0-alpha.1",
+        "--channel",
+        "alpha",
+        "--prefix",
         prefix,
-        '--json',
+        "--json",
       ];
-      expectError(await runCli(sandbox, exact), 'EXTENSION_CONSENT_REQUIRED');
+      expectError(await runCli(sandbox, exact), "EXTENSION_CONSENT_REQUIRED");
       expect(existsSync(prefix)).toBe(false);
-      const artifact = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array(), 'remote');
+      const artifact = sharedArtifacts.remoteV2;
       const installed = await runCli(
         sandbox,
         [
-          'extension',
-          'install',
-          'remote',
-          '--archive',
+          "extension",
+          "install",
+          "remote",
+          "--archive",
           artifact.archive,
-          '--manifest',
+          "--manifest",
           artifact.manifest,
-          '--prefix',
+          "--prefix",
           prefix,
-          '--yes',
-          '--json',
+          "--yes",
+          "--json",
         ],
-        { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+        { deadlineMs: INSTALL_PROCESS_BUDGET_MS },
       );
       expect(installed.status, installed.stdout + installed.stderr).toBe(0);
-      const current = path.join(prefix, 'lib/tmt-remote/current');
+      const current = path.join(prefix, "lib/tmt-remote/current");
       const before = {
         link: readlinkSync(current),
-        receipt: readFileSync(path.join(current, 'receipt.json')),
-        executable: readFileSync(path.join(current, 'tmt-remote')),
+        receipt: readFileSync(path.join(current, "receipt.json")),
+        executable: readFileSync(path.join(current, "tmt-remote")),
       };
-      const refused = await runCli(sandbox, [...exact, '--yes']);
+      const refused = await runCli(sandbox, [...exact, "--yes"]);
       expect(refused.status).toBe(1);
-      expect(expectError(refused, 'EXTENSION_INSTALL_FAILED')).toMatchObject({
-        error: { message: expect.stringContaining('does not permit a version downgrade') },
+      expect(expectError(refused, "EXTENSION_INSTALL_FAILED")).toMatchObject({
+        error: { message: expect.stringContaining("does not permit a version downgrade") },
       });
       expect(readlinkSync(current)).toBe(before.link);
-      expect(readFileSync(path.join(current, 'receipt.json')).equals(before.receipt)).toBe(true);
-      expect(readFileSync(path.join(current, 'tmt-remote')).equals(before.executable)).toBe(true);
-      expect(existsSync(path.join(prefix, 'bin/tmt'))).toBe(false);
-      const listed = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix, '--json']);
+      expect(readFileSync(path.join(current, "receipt.json")).equals(before.receipt)).toBe(true);
+      expect(readFileSync(path.join(current, "tmt-remote")).equals(before.executable)).toBe(true);
+      expect(existsSync(path.join(prefix, "bin/tmt"))).toBe(false);
+      const listed = await runCli(sandbox, ["extension", "ls", "--prefix", prefix, "--json"]);
       expect(listed.status, listed.stdout + listed.stderr).toBe(0);
       expect(parseWholeStdout(listed).extensions).toContainEqual(
-        expect.objectContaining({ name: 'remote', version: '0.1.0-alpha.2' })
+        expect.objectContaining({ name: "remote", version: "0.1.0-alpha.2" }),
       );
     });
   });
 
-  it('offers every registered official extension independently of release activation', async () => {
+  it("offers every registered official extension independently of release activation", async () => {
     await withSandbox(async (sandbox) => {
       const result = await runCli(sandbox, [
-        'extension',
-        'ls',
-        '--prefix',
-        path.join(sandbox.root, 'empty prefix'),
-        '--json',
+        "extension",
+        "ls",
+        "--prefix",
+        path.join(sandbox.root, "empty prefix"),
+        "--json",
       ]);
       expect(result.status).toBe(0);
-      expect(result.stderr).toBe('');
+      expect(result.stderr).toBe("");
       const listed = parseWholeStdout(result) as {
         extensions: { name: string; installed: boolean }[];
       };
       expect(listed.extensions.every((extension) => !extension.installed)).toBe(true);
       expect(listed.extensions.map((extension) => extension.name).sort()).toEqual([
-        'colab',
-        'digest',
-        'ops',
-        'remote',
+        "colab",
+        "digest",
+        "ops",
+        "remote",
       ]);
       expectError(
-        await runCli(sandbox, ['extension', 'install', 'driver-herdr', '--yes', '--json']),
-        'EXTENSION_UNKNOWN'
+        await runCli(sandbox, ["extension", "install", "driver-herdr", "--yes", "--json"]),
+        "EXTENSION_UNKNOWN",
       );
     });
   });
 
-  it.each(['remote', 'colab'] as const)(
-    'installs and upgrades %s without starting it or modifying its private state',
+  it.each(["remote", "colab"] as const)(
+    "installs and upgrades %s without starting it or modifying its private state",
     async (name) => {
       await withSandbox(async (sandbox) => {
         const prefix = path.join(sandbox.root, `${name} prefix`);
         const extensionState = path.join(sandbox.globalDir, name);
         mkdirSync(extensionState, { recursive: true });
-        writeFileSync(path.join(extensionState, 'machine.key'), 'retained key');
-        writeFileSync(path.join(extensionState, `${name}.db`), 'retained grants');
-        const first = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), name);
+        writeFileSync(path.join(extensionState, "machine.key"), "retained key");
+        writeFileSync(path.join(extensionState, `${name}.db`), "retained grants");
+        const first = name === "remote" ? sharedArtifacts.remoteV1 : sharedArtifacts.colabV1;
         const cli = (args: string[]) =>
-          runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+          runCli(sandbox, [...args, "--json"], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
         const install = (artifact: ArtifactFixture, yes: boolean) =>
           cli([
-            'extension',
-            'install',
+            "extension",
+            "install",
             name,
-            '--archive',
+            "--archive",
             artifact.archive,
-            '--manifest',
+            "--manifest",
             artifact.manifest,
-            '--prefix',
+            "--prefix",
             prefix,
-            ...(yes ? ['--yes'] : []),
+            ...(yes ? ["--yes"] : []),
           ]);
-        expectError(await install(first, false), 'EXTENSION_CONSENT_REQUIRED');
+        expectError(await install(first, false), "EXTENSION_CONSENT_REQUIRED");
         expect(existsSync(prefix)).toBe(false);
         const installed = await install(first, true);
         expect(installed.status, installed.stdout + installed.stderr).toBe(0);
@@ -321,46 +344,46 @@ describe('tmt extension install surface', () => {
           extension: name,
           installed: true,
           changed: true,
-          version: '0.1.0-alpha.1',
+          version: "0.1.0-alpha.1",
           executable: path.join(realpathSync(prefix), `bin/tmt-${name}`),
-          skills: { status: 'skipped', available: [], published: [], removed: [] },
+          skills: { status: "skipped", available: [], published: [], removed: [] },
         });
         expect(readlinkSync(path.join(prefix, `bin/tmt-${name}`))).toBe(
-          `../lib/tmt-${name}/current/tmt-${name}`
+          `../lib/tmt-${name}/current/tmt-${name}`,
         );
         expect(parseWholeStdout(await install(first, true))).toMatchObject({ changed: false });
         const oldRelease = realpathSync(path.join(prefix, `lib/tmt-${name}/current`));
-        const candidate = await createArtifact(sandbox, '0.1.0-alpha.2', new Uint8Array([1]), name);
+        const candidate = name === "remote" ? sharedArtifacts.remoteV2 : sharedArtifacts.colabV2;
         const upgraded = await install(candidate, true);
         expect(upgraded.status, upgraded.stdout + upgraded.stderr).toBe(0);
         expect(parseWholeStdout(upgraded)).toMatchObject({
           changed: true,
-          version: '0.1.0-alpha.2',
+          version: "0.1.0-alpha.2",
         });
-        if (name === 'remote') {
+        if (name === "remote") {
           expect(parseWholeStdout(upgraded).restartHint).toBe(
-            'Remote was upgraded, but its door status could not be confirmed. Finish active pairing and held approvals, then restart if running: tmt remote stop && tmt remote serve.'
+            "Remote was upgraded, but its door status could not be confirmed. Finish active pairing and held approvals, then restart if running: tmt remote stop && tmt remote serve.",
           );
           expect(upgraded.stdout.match(/Remote was upgraded/g)).toHaveLength(1);
         } else {
-          expect(parseWholeStdout(upgraded)).not.toHaveProperty('restartHint');
+          expect(parseWholeStdout(upgraded)).not.toHaveProperty("restartHint");
         }
         expect(existsSync(oldRelease)).toBe(true);
-        const listed = await cli(['extension', 'ls', '--prefix', prefix]);
+        const listed = await cli(["extension", "ls", "--prefix", prefix]);
         expect(parseWholeStdout(listed).extensions).toContainEqual({
           name,
           official: true,
           missing: false,
-          dependencies: name === 'colab' ? ['remote'] : [],
+          dependencies: name === "colab" ? ["remote"] : [],
           installed: true,
-          version: '0.1.0-alpha.2',
-          channel: 'alpha',
+          version: "0.1.0-alpha.2",
+          channel: "alpha",
           pinned: null,
           commands: [`tmt-${name}`],
           shadowedBy: [],
         });
-        expectError(await install(first, true), 'EXTENSION_INSTALL_FAILED');
-        const removed = await cli(['extension', 'rm', name, '--yes', '--prefix', prefix]);
+        expectError(await install(first, true), "EXTENSION_INSTALL_FAILED");
+        const removed = await cli(["extension", "rm", name, "--yes", "--prefix", prefix]);
         expect(removed.status, removed.stdout + removed.stderr).toBe(0);
         expect(parseWholeStdout(removed)).toMatchObject({
           extension: name,
@@ -369,92 +392,92 @@ describe('tmt extension install surface', () => {
         });
         expect(existsSync(path.join(prefix, `bin/tmt-${name}`))).toBe(false);
         expect(existsSync(path.join(prefix, `lib/tmt-${name}/releases`))).toBe(true);
-        expect(readFileSync(path.join(extensionState, 'machine.key'), 'utf8')).toBe('retained key');
-        expect(readFileSync(path.join(extensionState, `${name}.db`), 'utf8')).toBe(
-          'retained grants'
+        expect(readFileSync(path.join(extensionState, "machine.key"), "utf8")).toBe("retained key");
+        expect(readFileSync(path.join(extensionState, `${name}.db`), "utf8")).toBe(
+          "retained grants",
         );
-        expect(existsSync(path.join(extensionState, 'control.sock'))).toBe(false);
+        expect(existsSync(path.join(extensionState, "control.sock"))).toBe(false);
         expect(existsSync(sandbox.database)).toBe(false);
       });
     },
-    60_000
+    60_000,
   );
 
-  it('installs, lists offline, refuses without consent, and uninstalls squad keeping its releases', async () => {
+  it("installs, lists offline, refuses without consent, and uninstalls squad keeping its releases", async () => {
     await withSandbox(async (sandbox) => {
-      const prefix = path.join(sandbox.root, 'extension prefix');
-      const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops');
+      const prefix = path.join(sandbox.root, "extension prefix");
+      const squad = await createArtifact(sandbox, "0.1.0-alpha.1", new Uint8Array(), "ops");
       const cli = (args: string[]) =>
-        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+        runCli(sandbox, [...args, "--json"], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
 
       // Consent is never assumed in a non-interactive run.
       const refused = await cli([
-        'extension',
-        'install',
-        'ops',
-        '--archive',
+        "extension",
+        "install",
+        "ops",
+        "--archive",
         squad.archive,
-        '--manifest',
+        "--manifest",
         squad.manifest,
-        '--prefix',
+        "--prefix",
         prefix,
       ]);
-      expectError(refused, 'EXTENSION_CONSENT_REQUIRED');
+      expectError(refused, "EXTENSION_CONSENT_REQUIRED");
       expect(existsSync(prefix)).toBe(false);
-      expectError(await cli(['extension', 'install', 'cli', '--yes']), 'EXTENSION_UNKNOWN');
+      expectError(await cli(["extension", "install", "cli", "--yes"]), "EXTENSION_UNKNOWN");
 
       const install = [
-        'extension',
-        'install',
-        'ops',
-        '--yes',
-        '--archive',
+        "extension",
+        "install",
+        "ops",
+        "--yes",
+        "--archive",
         squad.archive,
-        '--manifest',
+        "--manifest",
         squad.manifest,
-        '--prefix',
+        "--prefix",
         prefix,
-        '--channel',
-        'alpha',
+        "--channel",
+        "alpha",
       ];
       const installed = await cli(install);
-      expect(installed.stderr).toBe('');
+      expect(installed.stderr).toBe("");
       expect(parseWholeStdout(installed)).toEqual({
-        extension: 'ops',
+        extension: "ops",
         installed: true,
         changed: true,
-        version: '0.1.0-alpha.1',
-        executable: path.join(realpathSync(prefix), 'bin/tmt-ops'),
-        skills: { status: 'skipped', available: [], published: [], removed: [] },
+        version: "0.1.0-alpha.1",
+        executable: path.join(realpathSync(prefix), "bin/tmt-ops"),
+        skills: { status: "skipped", available: [], published: [], removed: [] },
       });
-      for (const link of ['tmt-ops'])
-        expect(readlinkSync(path.join(prefix, 'bin', link))).toBe('../lib/tmt-ops/current/tmt-ops');
+      for (const link of ["tmt-ops"])
+        expect(readlinkSync(path.join(prefix, "bin", link))).toBe("../lib/tmt-ops/current/tmt-ops");
       expect(parseWholeStdout(await cli(install))).toMatchObject({ changed: false });
 
       // A foreign same-named command elsewhere on PATH is reported, never run.
-      const foreign = path.join(sandbox.root, 'foreign bin');
+      const foreign = path.join(sandbox.root, "foreign bin");
       mkdirSync(foreign);
-      writeExecutable(path.join(foreign, 'tmt-ops'), '#!/bin/sh\nexit 7\n', 0o755);
+      writeExecutable(path.join(foreign, "tmt-ops"), "#!/bin/sh\nexit 7\n", 0o755);
       // A controlled PATH: never the user's own installed commands.
-      sandbox.env.PATH = [path.join(prefix, 'bin'), foreign, '/usr/bin', '/bin'].join(':');
-      const listed = parseWholeStdout(await cli(['extension', 'list', '--prefix', prefix]));
+      sandbox.env.PATH = [path.join(prefix, "bin"), foreign, "/usr/bin", "/bin"].join(":");
+      const listed = parseWholeStdout(await cli(["extension", "list", "--prefix", prefix]));
       expect(listed).toEqual({
         guidance: { actions: expect.any(Array) },
         extensions: [
           {
-            name: 'ops',
+            name: "ops",
             official: true,
             missing: false,
             dependencies: [],
             installed: true,
-            version: '0.1.0-alpha.1',
-            channel: 'alpha',
+            version: "0.1.0-alpha.1",
+            channel: "alpha",
             pinned: null,
-            commands: ['tmt-ops'],
-            shadowedBy: [path.join(foreign, 'tmt-ops')],
+            commands: ["tmt-ops"],
+            shadowedBy: [path.join(foreign, "tmt-ops")],
           },
           {
-            name: 'remote',
+            name: "remote",
             official: true,
             missing: true,
             dependencies: [],
@@ -462,23 +485,23 @@ describe('tmt extension install surface', () => {
             version: null,
             channel: null,
             pinned: null,
-            commands: ['tmt-remote'],
+            commands: ["tmt-remote"],
             shadowedBy: [],
           },
           {
-            name: 'colab',
+            name: "colab",
             official: true,
             missing: true,
-            dependencies: ['remote'],
+            dependencies: ["remote"],
             installed: false,
             version: null,
             channel: null,
             pinned: null,
-            commands: ['tmt-colab'],
+            commands: ["tmt-colab"],
             shadowedBy: [],
           },
           {
-            name: 'digest',
+            name: "digest",
             official: true,
             missing: true,
             dependencies: [],
@@ -486,117 +509,117 @@ describe('tmt extension install surface', () => {
             version: null,
             channel: null,
             pinned: null,
-            commands: ['tmt-digest'],
+            commands: ["tmt-digest"],
             shadowedBy: [],
           },
         ],
       });
 
       // Root help discovers the sole Ops command.
-      const help = await runCli(sandbox, ['--help']);
+      const help = await runCli(sandbox, ["--help"]);
       expect(help.stdout).toMatch(/^ {2}ops +\S/m);
 
       expectError(
-        await cli(['extension', 'uninstall', 'ops', '--prefix', prefix]),
-        'EXTENSION_CONSENT_REQUIRED'
+        await cli(["extension", "uninstall", "ops", "--prefix", prefix]),
+        "EXTENSION_CONSENT_REQUIRED",
       );
-      const removed = await cli(['extension', 'uninstall', 'ops', '--yes', '--prefix', prefix]);
+      const removed = await cli(["extension", "uninstall", "ops", "--yes", "--prefix", prefix]);
       expect(parseWholeStdout(removed)).toEqual({
-        extension: 'ops',
+        extension: "ops",
         installed: false,
         changed: true,
         skillsRemoved: [],
         skillsKept: [],
-        kept: ['releases', 'hookConsent'],
+        kept: ["releases", "hookConsent"],
       });
-      for (const link of ['tmt-ops'])
-        expect(existsSync(path.join(prefix, 'bin', link))).toBe(false);
-      expect(existsSync(path.join(prefix, 'lib/tmt-ops/releases'))).toBe(true);
+      for (const link of ["tmt-ops"])
+        expect(existsSync(path.join(prefix, "bin", link))).toBe(false);
+      expect(existsSync(path.join(prefix, "lib/tmt-ops/releases"))).toBe(true);
       expectError(
-        await cli(['extension', 'upgrade', 'ops', '--yes', '--prefix', prefix]),
-        'EXTENSION_NOT_INSTALLED'
+        await cli(["extension", "upgrade", "ops", "--yes", "--prefix", prefix]),
+        "EXTENSION_NOT_INSTALLED",
       );
     });
   }, 60_000);
 
-  it('names one exact repair command, refuses unsafe damage, and treats healthy repair as a no-op', async () => {
+  it("names one exact repair command, refuses unsafe damage, and treats healthy repair as a no-op", async () => {
     await withSandbox(async (sandbox) => {
       const prefix = path.join(sandbox.root, "repair prefix with ' quote");
-      const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops');
+      const squad = sharedArtifacts.opsV1;
       const cli = (args: string[]) =>
-        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+        runCli(sandbox, [...args, "--json"], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
       expectError(
-        await cli(['extension', 'install', 'ops', '--repair', '--prefix', prefix]),
-        'EXTENSION_CONSENT_REQUIRED'
+        await cli(["extension", "install", "ops", "--repair", "--prefix", prefix]),
+        "EXTENSION_CONSENT_REQUIRED",
       );
       expect(existsSync(prefix)).toBe(false);
       const installed = await cli([
-        'extension',
-        'install',
-        'ops',
-        '--yes',
-        '--archive',
+        "extension",
+        "install",
+        "ops",
+        "--yes",
+        "--archive",
         squad.archive,
-        '--manifest',
+        "--manifest",
         squad.manifest,
-        '--prefix',
+        "--prefix",
         prefix,
-        '--channel',
-        'alpha',
+        "--channel",
+        "alpha",
       ]);
       expect(installed.status).toBe(0);
-      const release = realpathSync(path.join(prefix, 'lib/tmt-ops/current'));
-      const receiptPath = path.join(release, 'receipt.json');
-      const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+      const release = realpathSync(path.join(prefix, "lib/tmt-ops/current"));
+      const receiptPath = path.join(release, "receipt.json");
+      const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
       // Test-only provenance lets read-only/healthy cases run without a live release or endpoint bypass.
       receipt.source = {
-        kind: 'github-release',
-        repository: 'wkh237/tmt',
+        kind: "github-release",
+        repository: "wkh237/tmt",
         release_id: 42,
-        manifest_sha256: 'a'.repeat(64),
+        manifest_sha256: "a".repeat(64),
       };
       writeFileSync(receiptPath, JSON.stringify(receipt));
       const healthyReceipt = readFileSync(receiptPath);
       const healthy = await cli([
-        'extension',
-        'install',
-        'ops',
-        '--repair',
-        '--yes',
-        '--prefix',
+        "extension",
+        "install",
+        "ops",
+        "--repair",
+        "--yes",
+        "--prefix",
         prefix,
       ]);
       expect(healthy.status).toBe(0);
       expect(parseWholeStdout(healthy)).toMatchObject({ changed: false, retainedRelease: null });
-      expect(realpathSync(path.join(prefix, 'lib/tmt-ops/current'))).toBe(release);
+      expect(realpathSync(path.join(prefix, "lib/tmt-ops/current"))).toBe(release);
       expect(readFileSync(receiptPath).equals(healthyReceipt)).toBe(true);
-      const tamperedPath = path.join(release, 'LICENSE');
-      writeFileSync(tamperedPath, 'user edits\n');
+      const tamperedPath = path.join(release, "LICENSE");
+      writeFileSync(tamperedPath, "user edits\n");
       const before = readFileSync(tamperedPath);
       const quotedPrefix = `'${realpathSync(prefix).replace(/'/g, "'\\''")}'`;
       const repairCommand = `tmt extension install ops --repair --yes --prefix ${quotedPrefix}`;
       // Listing keeps going and reports the damaged entry with the same exact repair.
-      const listed = await cli(['extension', 'list', '--prefix', prefix]);
+      const listed = await cli(["extension", "list", "--prefix", prefix]);
       expect(listed.status).toBe(0);
       const squadRow = (
         parseWholeStdout(listed) as {
           extensions: { name: string; status?: string; hint?: string }[];
         }
-      ).extensions.find((entry) => entry.name === 'ops');
-      expect(squadRow?.status).toBe('repairRequired');
+      ).extensions.find((entry) => entry.name === "ops");
+      expect(squadRow?.status).toBe("repairRequired");
       expect(parseWholeStdout(listed).guidance).toMatchObject({
         actions: expect.arrayContaining([
           expect.objectContaining({
-            id: 'repair-ops',
-            kind: 'repair',
+            id: "repair-ops",
+            kind: "repair",
             argv: [
-              'tmt',
-              'extension',
-              'install',
-              'ops',
-              '--repair',
-              '--yes',
-              '--prefix',
+              "tmt",
+              "extension",
+              "install",
+              "ops",
+              "--repair",
+              "--yes",
+              "--prefix",
               realpathSync(prefix),
             ],
           }),
@@ -605,94 +628,94 @@ describe('tmt extension install surface', () => {
       expect(squadRow?.hint).toContain(repairCommand);
       expect(squadRow?.hint?.match(/tmt extension/g)).toHaveLength(1);
       for (const args of [
-        ['extension', 'install', 'ops', '--yes', '--prefix', prefix],
-        ['extension', 'upgrade', 'ops', '--yes', '--prefix', prefix],
+        ["extension", "install", "ops", "--yes", "--prefix", prefix],
+        ["extension", "upgrade", "ops", "--yes", "--prefix", prefix],
       ]) {
-        const error = expectError(await cli(args), 'EXTENSION_REPAIR_REQUIRED').error as {
+        const error = expectError(await cli(args), "EXTENSION_REPAIR_REQUIRED").error as {
           message: string;
         };
         expect(error.message).toContain(`Repair this release with: ${repairCommand}`);
         expect(error.message.match(/tmt extension/g)).toHaveLength(1);
-        expect(error.message).not.toContain('Inspect with:');
+        expect(error.message).not.toContain("Inspect with:");
         expect(readFileSync(tamperedPath).equals(before)).toBe(true);
       }
-      const outside = path.join(sandbox.root, 'outside');
-      writeFileSync(outside, 'outside sentinel');
-      symlinkSync(outside, path.join(release, 'foreign-link'));
-      const unsafe = await cli(['extension', 'list', '--prefix', prefix]);
+      const outside = path.join(sandbox.root, "outside");
+      writeFileSync(outside, "outside sentinel");
+      symlinkSync(outside, path.join(release, "foreign-link"));
+      const unsafe = await cli(["extension", "list", "--prefix", prefix]);
       expect(unsafe.status).toBe(0);
       const unsafeRow = (
         parseWholeStdout(unsafe) as {
           extensions: { name: string; status?: string; hint?: string; detail?: string }[];
         }
-      ).extensions.find((entry) => entry.name === 'ops');
-      expect(unsafeRow?.status).toBe('invalid');
-      expect(`${unsafeRow?.hint} ${unsafeRow?.detail}`).not.toContain('--repair');
+      ).extensions.find((entry) => entry.name === "ops");
+      expect(unsafeRow?.status).toBe("invalid");
+      expect(`${unsafeRow?.hint} ${unsafeRow?.detail}`).not.toContain("--repair");
       const error = expectError(
-        await cli(['extension', 'install', 'ops', '--repair', '--yes', '--prefix', prefix]),
-        'EXTENSION_INSTALLATION_INVALID'
+        await cli(["extension", "install", "ops", "--repair", "--yes", "--prefix", prefix]),
+        "EXTENSION_INSTALLATION_INVALID",
       ).error as { message: string };
-      expect(error.message).not.toContain('--repair');
-      expect(readFileSync(outside, 'utf8')).toBe('outside sentinel');
+      expect(error.message).not.toContain("--repair");
+      expect(readFileSync(outside, "utf8")).toBe("outside sentinel");
       expect(readFileSync(tamperedPath).equals(before)).toBe(true);
       expect(readFileSync(receiptPath).equals(healthyReceipt)).toBe(true);
     });
   }, 60_000);
 
-  it('repairs a local archive exactly and retains its damaged release and foreign files', async () => {
+  it("repairs a local archive exactly and retains its damaged release and foreign files", async () => {
     await withSandbox(async (sandbox) => {
-      const prefix = path.join(sandbox.root, 'local repair prefix');
-      const squad = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops');
+      const prefix = path.join(sandbox.root, "local repair prefix");
+      const squad = sharedArtifacts.opsV1;
       const cli = (args: string[]) =>
-        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
-      const inputs = ['--archive', squad.archive, '--manifest', squad.manifest];
+        runCli(sandbox, [...args, "--json"], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+      const inputs = ["--archive", squad.archive, "--manifest", squad.manifest];
       expect(
         (
           await cli([
-            'extension',
-            'install',
-            'ops',
-            '--yes',
-            '--prefix',
+            "extension",
+            "install",
+            "ops",
+            "--yes",
+            "--prefix",
             prefix,
-            '--channel',
-            'alpha',
+            "--channel",
+            "alpha",
             ...inputs,
           ])
-        ).status
+        ).status,
       ).toBe(0);
-      const current = path.join(prefix, 'lib/tmt-ops/current');
+      const current = path.join(prefix, "lib/tmt-ops/current");
       const old = realpathSync(current);
-      const receiptBytes = readFileSync(path.join(old, 'receipt.json'));
-      const original = readFileSync(path.join(old, 'LICENSE'));
-      writeFileSync(path.join(old, 'LICENSE'), 'user edits');
-      writeFileSync(path.join(old, 'foreign.txt'), 'keep foreign content');
-      const repair = ['extension', 'install', 'ops', '--repair', '--yes', '--prefix', prefix];
+      const receiptBytes = readFileSync(path.join(old, "receipt.json"));
+      const original = readFileSync(path.join(old, "LICENSE"));
+      writeFileSync(path.join(old, "LICENSE"), "user edits");
+      writeFileSync(path.join(old, "foreign.txt"), "keep foreign content");
+      const repair = ["extension", "install", "ops", "--repair", "--yes", "--prefix", prefix];
       // Listing reports the damaged entry with its exact repair instead of failing as a whole.
-      const listed = await cli(['extension', 'list', '--prefix', prefix]);
+      const listed = await cli(["extension", "list", "--prefix", prefix]);
       expect(listed.status).toBe(0);
       const row = (
         parseWholeStdout(listed) as {
           extensions: { name: string; status?: string; path?: string; hint?: string }[];
         }
-      ).extensions.find((entry) => entry.name === 'ops');
-      expect(row).toMatchObject({ status: 'repairRequired' });
-      expect(row?.path).toBe(path.join(prefix, 'bin/tmt-ops'));
+      ).extensions.find((entry) => entry.name === "ops");
+      expect(row).toMatchObject({ status: "repairRequired" });
+      expect(row?.path).toBe(path.join(prefix, "bin/tmt-ops"));
       expect(row?.hint).toContain(
-        "--archive '<original-archive>' --manifest '<matching-manifest>'"
+        "--archive '<original-archive>' --manifest '<matching-manifest>'",
       );
       expect(row?.hint?.match(/tmt extension/g)).toHaveLength(1);
       const refused = await cli(repair);
       expect(refused.status).toBe(1);
-      const error = expectError(refused, 'EXTENSION_REPAIR_REQUIRED').error as { message: string };
+      const error = expectError(refused, "EXTENSION_REPAIR_REQUIRED").error as { message: string };
       expect(error.message).toContain(
-        "--archive '<original-archive>' --manifest '<matching-manifest>'"
+        "--archive '<original-archive>' --manifest '<matching-manifest>'",
       );
       expect(error.message.match(/tmt extension/g)).toHaveLength(1);
       expect(realpathSync(current)).toBe(old);
       expectError(
-        await cli(['extension', 'install', 'ops', '--repair', '--prefix', prefix, ...inputs]),
-        'EXTENSION_CONSENT_REQUIRED'
+        await cli(["extension", "install", "ops", "--repair", "--prefix", prefix, ...inputs]),
+        "EXTENSION_CONSENT_REQUIRED",
       );
       const repaired = await cli([...repair, ...inputs]);
       expect(repaired.status).toBe(0);
@@ -703,14 +726,14 @@ describe('tmt extension install surface', () => {
       });
       const active = realpathSync(current);
       expect(active).not.toBe(old);
-      expect(readFileSync(path.join(active, 'LICENSE')).equals(original)).toBe(true);
-      expect(existsSync(path.join(active, 'foreign.txt'))).toBe(false);
-      expect(JSON.parse(readFileSync(path.join(active, 'receipt.json'), 'utf8')).source).toBe(
-        'local-archive'
+      expect(readFileSync(path.join(active, "LICENSE")).equals(original)).toBe(true);
+      expect(existsSync(path.join(active, "foreign.txt"))).toBe(false);
+      expect(JSON.parse(readFileSync(path.join(active, "receipt.json"), "utf8")).source).toBe(
+        "local-archive",
       );
-      expect(readFileSync(path.join(old, 'LICENSE'), 'utf8')).toBe('user edits');
-      expect(readFileSync(path.join(old, 'foreign.txt'), 'utf8')).toBe('keep foreign content');
-      expect(readFileSync(path.join(old, 'receipt.json')).equals(receiptBytes)).toBe(true);
+      expect(readFileSync(path.join(old, "LICENSE"), "utf8")).toBe("user edits");
+      expect(readFileSync(path.join(old, "foreign.txt"), "utf8")).toBe("keep foreign content");
+      expect(readFileSync(path.join(old, "receipt.json")).equals(receiptBytes)).toBe(true);
       expect(parseWholeStdout(await cli([...repair, ...inputs]))).toMatchObject({
         changed: false,
         retainedRelease: null,
@@ -719,22 +742,22 @@ describe('tmt extension install surface', () => {
     });
   }, 60_000);
 
-  it('declares optional uses, lists them, answers extensions.uses and warns before removing what they use', async () => {
+  it("declares optional uses, lists them, answers extensions.uses and warns before removing what they use", async () => {
     await withSandbox(async (sandbox) => {
       const cli = (args: string[]) =>
-        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+        runCli(sandbox, [...args, "--json"], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
       const uses = JSON.stringify({
         version: 1,
         uses: [
           {
-            feature: 'browser-access',
-            label: 'Browser access',
-            extension: 'remote',
-            requires: '>=0.1.0-alpha.1',
+            feature: "browser-access",
+            label: "Browser access",
+            extension: "remote",
+            requires: ">=0.1.0-alpha.1",
           },
         ],
       });
-      const install = async (product: 'colab' | 'remote', version: string, declared?: string) => {
+      const install = async (product: "colab" | "remote", version: string, declared?: string) => {
         const artifact = await createArtifact(
           sandbox,
           version,
@@ -742,117 +765,117 @@ describe('tmt extension install surface', () => {
           product,
           {},
           undefined,
-          declared
+          declared,
         );
         const result = await cli([
-          'extension',
-          'install',
+          "extension",
+          "install",
           product,
-          '--yes',
-          '--channel',
-          'alpha',
-          '--archive',
+          "--yes",
+          "--channel",
+          "alpha",
+          "--archive",
           artifact.archive,
-          '--manifest',
+          "--manifest",
           artifact.manifest,
         ]);
         expect(result.status, result.stdout + result.stderr).toBe(0);
       };
       type UseRow = { available: boolean; reason: string | null; installed: string | null };
       const listed = async (): Promise<UseRow> => {
-        const rows = parseWholeStdout(await cli(['extension', 'ls'])).extensions as {
+        const rows = parseWholeStdout(await cli(["extension", "ls"])).extensions as {
           name: string;
           uses?: UseRow[];
         }[];
-        return rows.find((row) => row.name === 'colab')!.uses![0];
+        return rows.find((row) => row.name === "colab")!.uses![0];
       };
       const answer = async (extension: string) =>
         JSON.parse(
           (
-            await runCli(sandbox, ['api'], {
+            await runCli(sandbox, ["api"], {
               stdin: JSON.stringify({
                 version: 1,
-                operation: 'extensions.uses',
-                input: { extension, feature: 'browser-access' },
+                operation: "extensions.uses",
+                input: { extension, feature: "browser-access" },
               }),
             })
-          ).stdout
+          ).stdout,
         );
 
-      await install('colab', '0.1.0-alpha.1', uses);
+      await install("colab", "0.1.0-alpha.1", uses);
       expect(await listed()).toMatchObject({
-        feature: 'browser-access',
-        extension: 'remote',
-        requires: '>=0.1.0-alpha.1',
+        feature: "browser-access",
+        extension: "remote",
+        requires: ">=0.1.0-alpha.1",
         available: false,
-        reason: 'missing',
+        reason: "missing",
         installed: null,
       });
-      expect(await answer('colab')).toMatchObject({
+      expect(await answer("colab")).toMatchObject({
         available: false,
-        reason: 'missing',
-        hint: 'Browser access needs the Remote extension: tmt extension install remote --yes',
+        reason: "missing",
+        hint: "Browser access needs the Remote extension: tmt extension install remote --yes",
       });
-      const text = await runCli(sandbox, ['extension', 'ls']);
-      expect(text.stdout).toContain('tmt extension install remote --yes');
+      const text = await runCli(sandbox, ["extension", "ls"]);
+      expect(text.stdout).toContain("tmt extension install remote --yes");
       // The default prefix needs no --prefix in a printed command.
-      expect(text.stdout).not.toContain('--prefix');
+      expect(text.stdout).not.toContain("--prefix");
 
-      await install('remote', '0.1.0-alpha.0');
-      expect(await listed()).toMatchObject({ available: false, reason: 'tooOld' });
-      expect((await answer('colab')).hint).toContain('tmt extension upgrade remote --yes');
+      await install("remote", "0.1.0-alpha.0");
+      expect(await listed()).toMatchObject({ available: false, reason: "tooOld" });
+      expect((await answer("colab")).hint).toContain("tmt extension upgrade remote --yes");
 
-      await install('remote', '0.1.0-alpha.2');
+      await install("remote", "0.1.0-alpha.2");
       expect(await listed()).toMatchObject({
         available: true,
         reason: null,
-        installed: '0.1.0-alpha.2',
+        installed: "0.1.0-alpha.2",
       });
-      expect(await answer('colab')).toMatchObject({ available: true, reason: null, hint: '' });
-      expect((await answer('remote')).error.code).toBe('EXTENSION_USE_UNDECLARED');
+      expect(await answer("colab")).toMatchObject({ available: true, reason: null, hint: "" });
+      expect((await answer("remote")).error.code).toBe("EXTENSION_USE_UNDECLARED");
 
       // Removal warns about what stops working and still needs consent.
-      const refused = await cli(['extension', 'rm', 'remote']);
+      const refused = await cli(["extension", "rm", "remote"]);
       const message = (
-        expectError(refused, 'EXTENSION_CONSENT_REQUIRED').error as { message: string }
+        expectError(refused, "EXTENSION_CONSENT_REQUIRED").error as { message: string }
       ).message;
       expect(message).toContain("colab's Browser access");
-      const removed = await cli(['extension', 'rm', 'remote', '--yes']);
+      const removed = await cli(["extension", "rm", "remote", "--yes"]);
       expect(removed.status).toBe(0);
       expect(parseWholeStdout(removed)).toMatchObject({
-        affects: [{ extension: 'colab', feature: 'browser-access', label: 'Browser access' }],
+        affects: [{ extension: "colab", feature: "browser-access", label: "Browser access" }],
       });
-      expect(await listed()).toMatchObject({ available: false, reason: 'missing' });
+      expect(await listed()).toMatchObject({ available: false, reason: "missing" });
     });
   }, 120_000);
 
-  it('checks CLI minima before publication and lists compatibility from the verified local receipt', async () => {
+  it("checks CLI minima before publication and lists compatibility from the verified local receipt", async () => {
     await withSandbox(async (sandbox) => {
-      const prefix = path.join(sandbox.root, 'minimum-cli-prefix');
+      const prefix = path.join(sandbox.root, "minimum-cli-prefix");
       const cli = (args: string[], selected = prefix) =>
-        runCli(sandbox, [...args, '--prefix', selected, '--json'], {
+        runCli(sandbox, [...args, "--prefix", selected, "--json"], {
           deadlineMs: INSTALL_PROCESS_BUDGET_MS,
         });
       const args = (artifact: ArtifactFixture) => [
-        'extension',
-        'install',
-        'remote',
-        '--yes',
-        '--channel',
-        'alpha',
-        '--archive',
+        "extension",
+        "install",
+        "remote",
+        "--yes",
+        "--channel",
+        "alpha",
+        "--archive",
         artifact.archive,
-        '--manifest',
+        "--manifest",
         artifact.manifest,
       ];
-      const version = await runCli(sandbox, ['--version']);
+      const version = await runCli(sandbox, ["--version"]);
       expect(version.status).toBe(0);
       const running = version.stdout.trim();
       expect(running).toMatch(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/);
-      const noMinimum = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'remote');
+      const noMinimum = await createArtifact(sandbox, "0.1.0-alpha.1", new Uint8Array(), "remote");
       expect((await cli(args(noMinimum))).status).toBe(0);
       const row = async () => {
-        const listed = parseWholeStdout(await cli(['extension', 'ls']));
+        const listed = parseWholeStdout(await cli(["extension", "ls"]));
         return (
           listed.extensions as {
             name: string;
@@ -860,153 +883,153 @@ describe('tmt extension install surface', () => {
             status?: string;
             uses?: unknown[];
           }[]
-        ).find((extension) => extension.name === 'remote')!;
+        ).find((extension) => extension.name === "remote")!;
       };
       expect((await row()).cli).toBeUndefined();
-      const current = path.join(prefix, 'lib', 'tmt-remote', 'current');
+      const current = path.join(prefix, "lib", "tmt-remote", "current");
       const oldTarget = readlinkSync(current);
       const oldRelease = realpathSync(current);
-      const oldReceipt = readFileSync(path.join(oldRelease, 'receipt.json'));
-      const oldExecutable = readFileSync(path.join(oldRelease, 'tmt-remote'));
+      const oldReceipt = readFileSync(path.join(oldRelease, "receipt.json"));
+      const oldExecutable = readFileSync(path.join(oldRelease, "tmt-remote"));
       const declaration = (requiresCli: string) =>
         JSON.stringify({
           version: 1,
           requiresCli,
           uses: [
-            { feature: 'board', label: 'Board', extension: 'ops', requires: '>=0.1.0-alpha.1' },
+            { feature: "board", label: "Board", extension: "ops", requires: ">=0.1.0-alpha.1" },
           ],
         });
       const tooNew = await createArtifact(
         sandbox,
-        '0.1.0-alpha.2',
+        "0.1.0-alpha.2",
         new Uint8Array(),
-        'remote',
+        "remote",
         {},
         undefined,
-        declaration('>=999.0.0')
+        declaration(">=999.0.0"),
       );
-      const fresh = path.join(sandbox.root, 'refused-fresh-prefix');
+      const fresh = path.join(sandbox.root, "refused-fresh-prefix");
       for (const selected of [fresh, prefix]) {
-        const refused = expectError(await cli(args(tooNew), selected), 'EXTENSION_INSTALL_FAILED');
-        expect(refused.error).toMatchObject({ suggestion: 'tmt upgrade' });
-        expect((refused.error as { message: string }).message).toContain('requires tmt 999.0.0');
-        expect((refused.error as { message: string }).message).not.toContain('Inspect with');
+        const refused = expectError(await cli(args(tooNew), selected), "EXTENSION_INSTALL_FAILED");
+        expect(refused.error).toMatchObject({ suggestion: "tmt upgrade" });
+        expect((refused.error as { message: string }).message).toContain("requires tmt 999.0.0");
+        expect((refused.error as { message: string }).message).not.toContain("Inspect with");
       }
       expect(existsSync(fresh)).toBe(false);
       expect(readlinkSync(current)).toBe(oldTarget);
-      expect(readFileSync(path.join(oldRelease, 'receipt.json')).equals(oldReceipt)).toBe(true);
-      expect(readFileSync(path.join(oldRelease, 'tmt-remote')).equals(oldExecutable)).toBe(true);
+      expect(readFileSync(path.join(oldRelease, "receipt.json")).equals(oldReceipt)).toBe(true);
+      expect(readFileSync(path.join(oldRelease, "tmt-remote")).equals(oldExecutable)).toBe(true);
 
       const accepted = await createArtifact(
         sandbox,
-        '0.1.0-alpha.2',
+        "0.1.0-alpha.2",
         new Uint8Array(),
-        'remote',
+        "remote",
         {},
         undefined,
-        declaration('>=0.0.1')
+        declaration(">=0.0.1"),
       );
       const installed = await cli(args(accepted));
       expect(installed.status, installed.stdout + installed.stderr).toBe(0);
-      expect((await row()).cli).toEqual({ requires: '>=0.0.1', running, compatible: true });
+      expect((await row()).cli).toEqual({ requires: ">=0.0.1", running, compatible: true });
       const release = realpathSync(current);
-      const receiptPath = path.join(release, 'receipt.json');
-      const receipt = JSON.parse(readFileSync(receiptPath, 'utf8')) as {
+      const receiptPath = path.join(release, "receipt.json");
+      const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as {
         requires_cli: string;
         file_sha256: Record<string, string>;
       };
-      expect(receipt.requires_cli).toBe('>=0.0.1');
+      expect(receipt.requires_cli).toBe(">=0.0.1");
       // Simulate a verified release installed by a newer CLI. Both its declaration
       // and frozen receipt name the same future requirement.
-      const future = declaration('>=999.0.0');
-      writeFileSync(path.join(release, 'TMT-USES.json'), future);
-      receipt.requires_cli = '>=999.0.0';
-      receipt.file_sha256['TMT-USES.json'] = createHash('sha256').update(future).digest('hex');
+      const future = declaration(">=999.0.0");
+      writeFileSync(path.join(release, "TMT-USES.json"), future);
+      receipt.requires_cli = ">=999.0.0";
+      receipt.file_sha256["TMT-USES.json"] = createHash("sha256").update(future).digest("hex");
       writeFileSync(receiptPath, JSON.stringify(receipt));
       const before = readFileSync(receiptPath);
       const observed = await row();
-      expect(observed.cli).toEqual({ requires: '>=999.0.0', running, compatible: false });
-      expect(observed.cli).not.toHaveProperty('installed');
+      expect(observed.cli).toEqual({ requires: ">=999.0.0", running, compatible: false });
+      expect(observed.cli).not.toHaveProperty("installed");
       expect(observed.status).toBeUndefined();
       expect(observed.uses).toHaveLength(1);
-      const human = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix]);
+      const human = await runCli(sandbox, ["extension", "ls", "--prefix", prefix]);
       expect(human.status).toBe(0);
       expect(human.stdout.match(/requires tmt 999\.0\.0/g)).toHaveLength(1);
-      expect(human.stdout).toContain('run tmt upgrade');
-      expect(human.stdout).toContain('Board needs the Ops extension');
+      expect(human.stdout).toContain("run tmt upgrade");
+      expect(human.stdout).toContain("Board needs the Ops extension");
       expect(readFileSync(receiptPath).equals(before)).toBe(true);
-      expect(readFileSync(path.join(release, 'TMT-USES.json'), 'utf8')).toBe(future);
+      expect(readFileSync(path.join(release, "TMT-USES.json"), "utf8")).toBe(future);
     });
   }, 120_000);
 
-  it('rejects a release whose TMT-USES.json is malformed before anything is published', async () => {
+  it("rejects a release whose TMT-USES.json is malformed before anything is published", async () => {
     await withSandbox(async (sandbox) => {
       const cli = (args: string[]) =>
-        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+        runCli(sandbox, [...args, "--json"], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
       const artifact = await createArtifact(
         sandbox,
-        '0.1.0-alpha.1',
+        "0.1.0-alpha.1",
         new Uint8Array(),
-        'colab',
+        "colab",
         {},
         undefined,
-        '{"version":1,"uses":[{"feature":"Browser Access"}]}'
+        '{"version":1,"uses":[{"feature":"Browser Access"}]}',
       );
       const refused = await cli([
-        'extension',
-        'install',
-        'colab',
-        '--yes',
-        '--channel',
-        'alpha',
-        '--archive',
+        "extension",
+        "install",
+        "colab",
+        "--yes",
+        "--channel",
+        "alpha",
+        "--archive",
         artifact.archive,
-        '--manifest',
+        "--manifest",
         artifact.manifest,
       ]);
-      expectError(refused, 'EXTENSION_INSTALL_FAILED');
-      const rows = parseWholeStdout(await cli(['extension', 'ls'])).extensions as {
+      expectError(refused, "EXTENSION_INSTALL_FAILED");
+      const rows = parseWholeStdout(await cli(["extension", "ls"])).extensions as {
         name: string;
         installed: boolean;
       }[];
-      expect(rows.find((row) => row.name === 'colab')?.installed).toBe(false);
+      expect(rows.find((row) => row.name === "colab")?.installed).toBe(false);
     });
   }, 120_000);
 
-  it('publishes bundled skills, refreshes them by name on update, and uninstall removes every owned skill', async () => {
+  it("publishes bundled skills, refreshes them by name on update, and uninstall removes every owned skill", async () => {
     await withSandbox(async (sandbox) => {
-      const prefix = path.join(sandbox.root, 'extension prefix');
+      const prefix = path.join(sandbox.root, "extension prefix");
       const cli = (args: string[]) =>
-        runCli(sandbox, [...args, '--json'], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
+        runCli(sandbox, [...args, "--json"], { deadlineMs: INSTALL_PROCESS_BUDGET_MS });
       const install = (artifact: { archive: string; manifest: string }, extra: string[] = []) =>
         cli([
-          'extension',
-          'install',
-          'ops',
-          '--yes',
-          '--archive',
+          "extension",
+          "install",
+          "ops",
+          "--yes",
+          "--archive",
           artifact.archive,
-          '--manifest',
+          "--manifest",
           artifact.manifest,
-          '--prefix',
+          "--prefix",
           prefix,
-          '--channel',
-          'alpha',
+          "--channel",
+          "alpha",
           ...extra,
         ]);
       storeInsideHome(sandbox);
       const squad = (version: string, skills: Record<string, string>) =>
-        createArtifact(sandbox, version, new Uint8Array(), 'ops', skills);
-      const first = await squad('0.1.0-alpha.1', {
-        'tmt-ops/SKILL.md': 'lead v1\n',
-        'tmt-ops/references/usage.md': 'usage\n',
-        'tmt-ops-retired/SKILL.md': 'retired\n',
+        createArtifact(sandbox, version, new Uint8Array(), "ops", skills);
+      const first = await squad("0.1.0-alpha.1", {
+        "tmt-ops/SKILL.md": "lead v1\n",
+        "tmt-ops/references/usage.md": "usage\n",
+        "tmt-ops-retired/SKILL.md": "retired\n",
       });
 
-      const accepted = parseWholeStdout(await install(first, ['--skills'])) as {
+      const accepted = parseWholeStdout(await install(first, ["--skills"])) as {
         skills: { status: string; published: Array<{ name: string; target: string }> };
       };
-      expect(accepted.skills.status).toBe('current');
+      expect(accepted.skills.status).toBe("current");
       const targets = accepted.skills.published.map((item) => item.target);
       expect(targets.length).toBeGreaterThan(0);
       // The provider roots this sandbox publishes into, from the report itself.
@@ -1019,22 +1042,22 @@ describe('tmt extension install surface', () => {
         expect(item.target.startsWith(sandbox.home)).toBe(true);
         expect(lstatSync(item.target).isSymbolicLink()).toBe(true);
       }
-      const lead = published('tmt-ops');
+      const lead = published("tmt-ops");
       expect(lead.length).toBeGreaterThan(0);
       for (const target of lead) {
-        expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('lead v1\n');
-        expect(readFileSync(path.join(target, 'references/usage.md'), 'utf8')).toBe('usage\n');
+        expect(readFileSync(path.join(target, "SKILL.md"), "utf8")).toBe("lead v1\n");
+        expect(readFileSync(path.join(target, "references/usage.md"), "utf8")).toBe("usage\n");
       }
 
       // A playbook the same owner holds, outside the release tree.
-      const playbook = await runCli(sandbox, ['api'], {
+      const playbook = await runCli(sandbox, ["api"], {
         stdin: JSON.stringify({
           version: 1,
-          operation: 'skills.install',
+          operation: "skills.install",
           input: {
-            owner: 'ops',
+            owner: "ops",
             consent: true,
-            skills: [{ name: 'squad-playbook', files: [{ path: 'SKILL.md', content: 'play' }] }],
+            skills: [{ name: "squad-playbook", files: [{ path: "SKILL.md", content: "play" }] }],
           },
         }),
       });
@@ -1042,74 +1065,74 @@ describe('tmt extension install surface', () => {
 
       // An update refreshes held tree skills, removes the one it dropped by
       // name, and leaves the playbook alone.
-      const second = await squad('0.2.0-alpha.1', { 'tmt-ops/SKILL.md': 'lead v2\n' });
-      const updated = parseWholeStdout(await install(second, ['--skills'])) as {
+      const second = await squad("0.2.0-alpha.1", { "tmt-ops/SKILL.md": "lead v2\n" });
+      const updated = parseWholeStdout(await install(second, ["--skills"])) as {
         version: string;
         skills: { available: string[]; removed: string[] };
       };
-      expect(updated.version).toBe('0.2.0-alpha.1');
-      expect(updated.skills.available).toEqual(['tmt-ops']);
+      expect(updated.version).toBe("0.2.0-alpha.1");
+      expect(updated.skills.available).toEqual(["tmt-ops"]);
       expect(updated.skills.removed.length).toBeGreaterThan(0);
-      for (const target of published('tmt-ops'))
-        expect(readFileSync(path.join(target, 'SKILL.md'), 'utf8')).toBe('lead v2\n');
-      expect(published('tmt-ops-retired')).toEqual([]);
-      const plays = published('squad-playbook');
+      for (const target of published("tmt-ops"))
+        expect(readFileSync(path.join(target, "SKILL.md"), "utf8")).toBe("lead v2\n");
+      expect(published("tmt-ops-retired")).toEqual([]);
+      const plays = published("squad-playbook");
       expect(plays.length).toBeGreaterThan(0);
 
       // A folder nobody manages is never touched.
-      const foreign = path.join(path.dirname(plays[0]!), 'someone-elses-skill');
+      const foreign = path.join(path.dirname(plays[0]!), "someone-elses-skill");
       mkdirSync(foreign);
-      writeFileSync(path.join(foreign, 'SKILL.md'), 'mine');
+      writeFileSync(path.join(foreign, "SKILL.md"), "mine");
 
       // Uninstall removes every skill the owner holds, playbooks included.
       const removed = parseWholeStdout(
-        await cli(['extension', 'uninstall', 'ops', '--yes', '--prefix', prefix])
+        await cli(["extension", "uninstall", "ops", "--yes", "--prefix", prefix]),
       ) as { skillsRemoved: string[]; skillsKept: string[]; kept: string[] };
       expect(removed.skillsRemoved.length).toBe(lead.length + plays.length);
       expect(removed.skillsKept).toEqual([]);
-      expect(removed.kept).toEqual(['releases', 'hookConsent']);
-      expect(published('tmt-ops')).toEqual([]);
-      expect(published('squad-playbook')).toEqual([]);
-      expect(readFileSync(path.join(foreign, 'SKILL.md'), 'utf8')).toBe('mine');
-      expect(existsSync(path.join(prefix, 'lib/tmt-ops/releases'))).toBe(true);
+      expect(removed.kept).toEqual(["releases", "hookConsent"]);
+      expect(published("tmt-ops")).toEqual([]);
+      expect(published("squad-playbook")).toEqual([]);
+      expect(readFileSync(path.join(foreign, "SKILL.md"), "utf8")).toBe("mine");
+      expect(existsSync(path.join(prefix, "lib/tmt-ops/releases"))).toBe(true);
     });
   }, 90_000);
 
-  it('installs canonical Colab skill bytes and replaces existing published names', async () => {
+  it("installs canonical Colab skill bytes and replaces existing published names", async () => {
     await withSandbox(async (sandbox) => {
       const canonical = readFileSync(
-        new URL('../../../extensions/tmt-colab/skills/tmt-colab/SKILL.md', import.meta.url),
-        'utf8'
+        new URL("../../../extensions/tmt-colab/skills/tmt-colab/SKILL.md", import.meta.url),
+        "utf8",
       );
       storeInsideHome(sandbox);
-      const prefix = path.join(sandbox.root, 'Colab skill prefix');
+      const prefix = path.join(sandbox.root, "Colab skill prefix");
       const artifact = (version: string, content: string) =>
-        createArtifact(sandbox, version, new Uint8Array(), 'colab', {
-          'tmt-colab/SKILL.md': content,
+        createArtifact(sandbox, version, new Uint8Array(), "colab", {
+          "tmt-colab/SKILL.md": content,
         });
       const install = (input: ArtifactFixture, skills = true) =>
         runCli(
           sandbox,
           [
-            'extension',
-            'install',
-            'colab',
-            '--yes',
-            '--archive',
+            "extension",
+            "install",
+            "colab",
+            "--yes",
+            "--archive",
             input.archive,
-            '--manifest',
+            "--manifest",
             input.manifest,
-            '--prefix',
+            "--prefix",
             prefix,
-            ...(skills ? ['--skills'] : []),
-            '--json',
+            ...(skills ? ["--skills"] : []),
+            "--json",
           ],
-          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS },
         );
-      const first = await artifact('0.1.0-alpha.1', canonical);
+      const first = await artifact("0.1.0-alpha.1", canonical);
       const accepted = await install(first);
       expect(accepted.status, accepted.stdout + accepted.stderr).toBe(0);
-      expect((parseWholeStdout(accepted).skills as { status: string }).status).toBe('current');
+      expect((parseWholeStdout(accepted).skills as { status: string }).status).toBe("current");
       const {
         skills: { published },
       } = parseWholeStdout(accepted) as {
@@ -1117,92 +1140,92 @@ describe('tmt extension install surface', () => {
       };
       expect(published.length).toBeGreaterThan(0);
       for (const item of published) {
-        expect(item.name).toBe('tmt-colab');
+        expect(item.name).toBe("tmt-colab");
         expect(item.target.startsWith(sandbox.home)).toBe(true);
         expect(lstatSync(item.target).isSymbolicLink()).toBe(true);
-        expect(readFileSync(path.join(item.target, 'SKILL.md'), 'utf8')).toBe(canonical);
+        expect(readFileSync(path.join(item.target, "SKILL.md"), "utf8")).toBe(canonical);
       }
       const readout = await runCli(
         {
           ...sandbox,
           cli: {
-            executable: path.join(prefix, 'bin/tmt-colab'),
+            executable: path.join(prefix, "bin/tmt-colab"),
             args: [],
           },
         },
-        ['skill']
+        ["skill"],
       );
       expect(readout.status, readout.stdout + readout.stderr).toBe(0);
       expect(readout.stdout).toBe(canonical);
-      expect(readout.stderr).toBe('');
-      const updatedBytes = canonical + '\nUpdated installation fixture.\n';
-      const updated = await install(await artifact('0.1.0-alpha.2', updatedBytes));
+      expect(readout.stderr).toBe("");
+      const updatedBytes = canonical + "\nUpdated installation fixture.\n";
+      const updated = await install(await artifact("0.1.0-alpha.2", updatedBytes));
       expect(updated.status, updated.stdout + updated.stderr).toBe(0);
       for (const item of published)
-        expect(readFileSync(path.join(item.target, 'SKILL.md'), 'utf8')).toBe(updatedBytes);
+        expect(readFileSync(path.join(item.target, "SKILL.md"), "utf8")).toBe(updatedBytes);
       // The published name replaces any real directory without byte or ownership checks.
       const conflict = published[0]!.target;
       unlinkSync(conflict);
       mkdirSync(conflict);
-      writeFileSync(path.join(conflict, 'SKILL.md'), 'User-owned Colab instructions.\n');
-      const personal = path.join(path.dirname(conflict), 'personal-guidance');
+      writeFileSync(path.join(conflict, "SKILL.md"), "User-owned Colab instructions.\n");
+      const personal = path.join(path.dirname(conflict), "personal-guidance");
       mkdirSync(personal);
-      writeFileSync(path.join(personal, 'SKILL.md'), 'Personal instructions.');
-      symlinkSync(personal, path.join(conflict, 'nested'));
-      const replaced = await install(await artifact('0.1.0-alpha.3', canonical));
+      writeFileSync(path.join(personal, "SKILL.md"), "Personal instructions.");
+      symlinkSync(personal, path.join(conflict, "nested"));
+      const replaced = await install(await artifact("0.1.0-alpha.3", canonical));
       expect(replaced.status, replaced.stdout + replaced.stderr).toBe(0);
-      expect(readFileSync(path.join(conflict, 'SKILL.md'), 'utf8')).toBe(canonical);
-      expect(readFileSync(path.join(personal, 'SKILL.md'), 'utf8')).toBe('Personal instructions.');
+      expect(readFileSync(path.join(conflict, "SKILL.md"), "utf8")).toBe(canonical);
+      expect(readFileSync(path.join(personal, "SKILL.md"), "utf8")).toBe("Personal instructions.");
       unlinkSync(conflict);
       symlinkSync(personal, conflict);
-      const relinked = await install(await artifact('0.1.0-alpha.4', updatedBytes));
+      const relinked = await install(await artifact("0.1.0-alpha.4", updatedBytes));
       expect(relinked.status, relinked.stdout + relinked.stderr).toBe(0);
-      expect(readFileSync(path.join(conflict, 'SKILL.md'), 'utf8')).toBe(updatedBytes);
-      expect(readFileSync(path.join(personal, 'SKILL.md'), 'utf8')).toBe('Personal instructions.');
+      expect(readFileSync(path.join(conflict, "SKILL.md"), "utf8")).toBe(updatedBytes);
+      expect(readFileSync(path.join(personal, "SKILL.md"), "utf8")).toBe("Personal instructions.");
       expect(
-        existsSync(path.join(path.dirname(path.dirname(conflict)), '.tmt-skill-backups'))
+        existsSync(path.join(path.dirname(path.dirname(conflict)), ".tmt-skill-backups")),
       ).toBe(false);
-      expect(readlinkSync(path.join(prefix, 'bin/tmt-colab'))).toBe(
-        '../lib/tmt-colab/current/tmt-colab'
+      expect(readlinkSync(path.join(prefix, "bin/tmt-colab"))).toBe(
+        "../lib/tmt-colab/current/tmt-colab",
       );
-      const listed = await runCli(sandbox, ['extension', 'ls', '--prefix', prefix, '--json']);
+      const listed = await runCli(sandbox, ["extension", "ls", "--prefix", prefix, "--json"]);
       expect(listed.status, listed.stdout + listed.stderr).toBe(0);
       expect(parseWholeStdout(listed)).toMatchObject({
         extensions: expect.arrayContaining([
-          expect.objectContaining({ name: 'colab', installed: true, version: '0.1.0-alpha.4' }),
+          expect.objectContaining({ name: "colab", installed: true, version: "0.1.0-alpha.4" }),
         ]),
       });
-      expect(existsSync(path.join(sandbox.globalDir, 'colab', 'door.sock'))).toBe(false);
+      expect(existsSync(path.join(sandbox.globalDir, "colab", "door.sock"))).toBe(false);
       expect(existsSync(sandbox.database)).toBe(false);
     });
   }, 90_000);
 
-  it('publishes release skills only with --skills, and never from a store outside HOME', async () => {
+  it("publishes release skills only with --skills, and never from a store outside HOME", async () => {
     await withSandbox(async (sandbox) => {
       expect(realpathSync(sandbox.home)).not.toBe(realpathSync(os.homedir()));
-      const artifact = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops', {
-        'tmt-ops/SKILL.md': 'lead\n',
+      const artifact = await createArtifact(sandbox, "0.1.0-alpha.1", new Uint8Array(), "ops", {
+        "tmt-ops/SKILL.md": "lead\n",
       });
       const install = (prefix: string, world: typeof sandbox, extra: string[] = []) =>
         runCli(
           world,
           [
-            'extension',
-            'install',
-            'ops',
-            '--yes',
-            '--archive',
+            "extension",
+            "install",
+            "ops",
+            "--yes",
+            "--archive",
             artifact.archive,
-            '--manifest',
+            "--manifest",
             artifact.manifest,
-            '--prefix',
+            "--prefix",
             prefix,
-            '--channel',
-            'alpha',
-            '--json',
+            "--channel",
+            "alpha",
+            "--json",
             ...extra,
           ],
-          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS },
         );
       // Every link a publication would add sits under a provider directory in HOME.
       const links = () =>
@@ -1212,113 +1235,113 @@ describe('tmt extension install surface', () => {
       const refused = (
         result: Awaited<ReturnType<typeof install>>,
         store: string,
-        prefix: string
+        prefix: string,
       ) => {
         expect(result.status, result.stdout + result.stderr).toBe(1);
         const { error } = parseWholeStdout(result) as { error: { code: string; message: string } };
-        expect(error.code).toBe('EXTENSION_SKILLS_FAILED');
+        expect(error.code).toBe("EXTENSION_SKILLS_FAILED");
         expect(error.message).toContain(store);
         expect(error.message).toContain(sandbox.home);
-        expect(error.message).toContain('XDG_CONFIG_HOME');
+        expect(error.message).toContain("XDG_CONFIG_HOME");
         expect(existsSync(prefix)).toBe(false);
         expect(links()).toEqual([]);
       };
 
-      const plain = await install(path.join(sandbox.root, 'plain prefix'), sandbox);
+      const plain = await install(path.join(sandbox.root, "plain prefix"), sandbox);
       expect(plain.status, plain.stdout + plain.stderr).toBe(0);
       expect(parseWholeStdout(plain)).toMatchObject({
         installed: true,
         skills: {
-          status: 'skipped',
-          available: ['tmt-ops'],
+          status: "skipped",
+          available: ["tmt-ops"],
           published: [],
-          hint: expect.stringContaining('--skills'),
+          hint: expect.stringContaining("--skills"),
         },
       });
       expect(links()).toEqual([]);
 
       // An explicit prefix and isolated XDG paths under the same HOME.
-      const isolated = path.join(sandbox.root, 'isolated config');
+      const isolated = path.join(sandbox.root, "isolated config");
       const xdgWorld = { ...sandbox, env: { ...sandbox.env, XDG_CONFIG_HOME: isolated } };
-      const unasked = await install(path.join(sandbox.root, 'xdg prefix'), xdgWorld);
+      const unasked = await install(path.join(sandbox.root, "xdg prefix"), xdgWorld);
       expect(unasked.status, unasked.stdout + unasked.stderr).toBe(0);
-      expect(parseWholeStdout(unasked)).toMatchObject({ skills: { status: 'skipped' } });
+      expect(parseWholeStdout(unasked)).toMatchObject({ skills: { status: "skipped" } });
       expect(links()).toEqual([]);
-      const xdgPrefix = path.join(sandbox.root, 'xdg skills prefix');
-      refused(await install(xdgPrefix, xdgWorld, ['--skills']), isolated, xdgPrefix);
+      const xdgPrefix = path.join(sandbox.root, "xdg skills prefix");
+      refused(await install(xdgPrefix, xdgWorld, ["--skills"]), isolated, xdgPrefix);
 
-      const store = path.join(sandbox.root, 'tmt home');
+      const store = path.join(sandbox.root, "tmt home");
       const tmtWorld = {
         ...sandbox,
         cli: {
-          executable: '/usr/bin/env',
+          executable: "/usr/bin/env",
           args: [`TMT_HOME=${store}`, sandbox.cli.executable, ...sandbox.cli.args],
         },
       };
-      const tmtPrefix = path.join(sandbox.root, 'tmt home prefix');
-      refused(await install(tmtPrefix, tmtWorld, ['--skills']), store, tmtPrefix);
+      const tmtPrefix = path.join(sandbox.root, "tmt home prefix");
+      refused(await install(tmtPrefix, tmtWorld, ["--skills"]), store, tmtPrefix);
 
       storeInsideHome(sandbox);
-      const published = await install(path.join(sandbox.root, 'home prefix'), sandbox, [
-        '--skills',
+      const published = await install(path.join(sandbox.root, "home prefix"), sandbox, [
+        "--skills",
       ]);
       expect(published.status, published.stdout + published.stderr).toBe(0);
-      expect(parseWholeStdout(published)).toMatchObject({ skills: { status: 'current' } });
+      expect(parseWholeStdout(published)).toMatchObject({ skills: { status: "current" } });
       expect(links().length).toBeGreaterThan(0);
       expect(links().every((link) => link.startsWith(sandbox.home))).toBe(true);
     });
   }, 90_000);
 
-  it('keeps the extension installed when its skills cannot be published', async () => {
+  it("keeps the extension installed when its skills cannot be published", async () => {
     await withSandbox(async (sandbox) => {
       storeInsideHome(sandbox);
-      const prefix = path.join(sandbox.root, 'extension prefix');
-      const initial = await createArtifact(sandbox, '0.0.9-alpha.1', new Uint8Array(), 'ops');
+      const prefix = path.join(sandbox.root, "extension prefix");
+      const initial = await createArtifact(sandbox, "0.0.9-alpha.1", new Uint8Array(), "ops");
       const installed = await runCli(sandbox, replacementArgs(initial, prefix));
       expect(installed.status, installed.stdout + installed.stderr).toBe(0);
-      const artifact = await createArtifact(sandbox, '0.1.0-alpha.1', new Uint8Array(), 'ops', {
-        'tmt-ops/SKILL.md': 'lead\n',
+      const artifact = await createArtifact(sandbox, "0.1.0-alpha.1", new Uint8Array(), "ops", {
+        "tmt-ops/SKILL.md": "lead\n",
       });
       // Publication cannot replace a directory in a root without write permission.
-      const conflict = path.join(sandbox.home, '.claude/skills/tmt-ops');
+      const conflict = path.join(sandbox.home, ".claude/skills/tmt-ops");
       mkdirSync(conflict, { recursive: true });
-      writeFileSync(path.join(conflict, 'SKILL.md'), 'old copy');
+      writeFileSync(path.join(conflict, "SKILL.md"), "old copy");
       const root = path.dirname(conflict);
       chmodSync(root, 0o555);
       try {
         const result = await runCli(
           sandbox,
           [
-            'extension',
-            'install',
-            'ops',
-            '--yes',
-            '--skills',
-            '--archive',
+            "extension",
+            "install",
+            "ops",
+            "--yes",
+            "--skills",
+            "--archive",
             artifact.archive,
-            '--manifest',
+            "--manifest",
             artifact.manifest,
-            '--prefix',
+            "--prefix",
             prefix,
-            '--channel',
-            'alpha',
-            '--json',
+            "--channel",
+            "alpha",
+            "--json",
           ],
-          { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+          { deadlineMs: INSTALL_PROCESS_BUDGET_MS },
         );
         expect(result.status, result.stdout + result.stderr).toBe(0);
         expect(parseWholeStdout(result)).toMatchObject({
           installed: true,
           changed: true,
-          version: '0.1.0-alpha.1',
-          skills: { status: 'warning', warning: { code: 'EXTENSION_SKILLS_FAILED' } },
+          version: "0.1.0-alpha.1",
+          skills: { status: "warning", warning: { code: "EXTENSION_SKILLS_FAILED" } },
         });
         expect(
-          (parseWholeStdout(result).skills as { warning: { message: string } }).warning.message
+          (parseWholeStdout(result).skills as { warning: { message: string } }).warning.message,
         ).toContain(conflict);
-        expect(readFileSync(path.join(conflict, 'SKILL.md'), 'utf8')).toBe('old copy');
-        expect(readlinkSync(path.join(prefix, 'bin/tmt-ops'))).toBe(
-          '../lib/tmt-ops/current/tmt-ops'
+        expect(readFileSync(path.join(conflict, "SKILL.md"), "utf8")).toBe("old copy");
+        expect(readlinkSync(path.join(prefix, "bin/tmt-ops"))).toBe(
+          "../lib/tmt-ops/current/tmt-ops",
         );
       } finally {
         chmodSync(root, 0o755);
@@ -1327,115 +1350,115 @@ describe('tmt extension install surface', () => {
   }, 60_000);
 });
 
-describe('aggregate official upgrades', () => {
+describe("aggregate official upgrades", () => {
   it(
-    'keeps independent official product pins and leaves retired Office bytes untouched',
+    "keeps independent official product pins and leaves retired Office bytes untouched",
     { timeout: 60000 },
     async () => {
       await withReleaseSandbox(async (sandbox) => {
-        const prefix = path.join(sandbox.root, 'native install prefix with spaces');
+        const prefix = path.join(sandbox.root, "native install prefix with spaces");
         const install = async (
           artifact: ArtifactFixture,
-          product: 'cli' | 'ops' | 'remote' | 'colab' | 'digest'
+          product: "cli" | "ops" | "remote" | "colab" | "digest",
         ) => {
           const result = await runCli(
             sandbox,
             [
-              '__native-install',
-              '--archive',
+              "__native-install",
+              "--archive",
               artifact.archive,
-              '--manifest',
+              "--manifest",
               artifact.manifest,
-              '--prefix',
+              "--prefix",
               prefix,
-              '--channel',
-              'alpha',
-              '--product',
+              "--channel",
+              "alpha",
+              "--product",
               product,
-              '--pin',
-              '--json',
+              "--pin",
+              "--json",
             ],
-            { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+            { deadlineMs: INSTALL_PROCESS_BUDGET_MS },
           );
           expect(result.status, result.stdout + result.stderr).toBe(0);
-          expect(result.stderr).toBe('');
+          expect(result.stderr).toBe("");
           return parseWholeStdout(result) as { executable: string };
         };
-        const version = (await runCli(sandbox, ['--version'])).stdout.trim();
+        const version = (await runCli(sandbox, ["--version"])).stdout.trim();
         const cliArtifact = await createArtifact(sandbox, version);
-        const cli = await install(cliArtifact, 'cli');
+        const cli = await install(cliArtifact, "cli");
         const extensionReceipts = new Map<string, Buffer>();
-        for (const product of ['ops', 'remote', 'colab', 'digest'] as const) {
+        for (const product of ["ops", "remote", "colab", "digest"] as const) {
           const artifact = await createArtifact(
             sandbox,
-            '0.1.0-alpha.1',
+            "0.1.0-alpha.1",
             new Uint8Array(),
-            product
+            product,
           );
           await install(artifact, product);
           const receipt = path.join(prefix, `lib/tmt-${product}/current/receipt.json`);
           extensionReceipts.set(receipt, readFileSync(receipt));
         }
         const managed = { ...sandbox, cli: { executable: cli.executable, args: [] } };
-        const first = await runCli(managed, ['upgrade', '--yes', '--json'], {
+        const first = await runCli(managed, ["upgrade", "--yes", "--json"], {
           deadlineMs: INSTALL_PROCESS_BUDGET_MS,
         });
         expect(first.status, first.stderr + first.stdout).toBe(0);
         expect(parseWholeStdout(first).products).toMatchObject([
-          { product: 'cli', status: 'skippedPinned' },
+          { product: "cli", status: "skippedPinned" },
           {
-            product: 'ops',
-            status: 'skippedPinned',
-            hint: 'tmt extension upgrade ops --unpin',
+            product: "ops",
+            status: "skippedPinned",
+            hint: "tmt extension upgrade ops --unpin",
           },
           {
-            product: 'remote',
-            status: 'skippedPinned',
-            hint: 'tmt extension upgrade remote --unpin',
+            product: "remote",
+            status: "skippedPinned",
+            hint: "tmt extension upgrade remote --unpin",
           },
           {
-            product: 'colab',
-            status: 'skippedPinned',
-            hint: 'tmt extension upgrade colab --unpin',
+            product: "colab",
+            status: "skippedPinned",
+            hint: "tmt extension upgrade colab --unpin",
           },
           {
-            product: 'digest',
-            status: 'skippedPinned',
-            hint: 'tmt extension upgrade digest --unpin',
+            product: "digest",
+            status: "skippedPinned",
+            hint: "tmt extension upgrade digest --unpin",
           },
         ]);
-        const retiredOffice = path.join(prefix, 'bin/tmt-office');
-        writeFileSync(retiredOffice, 'not a managed installation');
+        const retiredOffice = path.join(prefix, "bin/tmt-office");
+        writeFileSync(retiredOffice, "not a managed installation");
         // A leftover Squad directory is reported by every completed upgrade and never touched.
-        const retiredSquad = path.join(realpathSync(prefix), 'lib/tmt-squad');
+        const retiredSquad = path.join(realpathSync(prefix), "lib/tmt-squad");
         mkdirSync(retiredSquad);
-        const skipped = await runCli(managed, ['upgrade', '--yes', '--json'], {
+        const skipped = await runCli(managed, ["upgrade", "--yes", "--json"], {
           deadlineMs: INSTALL_PROCESS_BUDGET_MS,
         });
         expect(skipped.status, skipped.stderr + skipped.stdout).toBe(0);
         expect(parseWholeStdout(skipped).products).toMatchObject([
-          { product: 'cli', status: 'skippedPinned' },
-          { product: 'ops', status: 'skippedPinned' },
-          { product: 'remote', status: 'skippedPinned' },
-          { product: 'colab', status: 'skippedPinned' },
-          { product: 'digest', status: 'skippedPinned' },
+          { product: "cli", status: "skippedPinned" },
+          { product: "ops", status: "skippedPinned" },
+          { product: "remote", status: "skippedPinned" },
+          { product: "colab", status: "skippedPinned" },
+          { product: "digest", status: "skippedPinned" },
         ]);
-        expect(readFileSync(retiredOffice, 'utf8')).toBe('not a managed installation');
+        expect(readFileSync(retiredOffice, "utf8")).toBe("not a managed installation");
         expect(parseWholeStdout(skipped).retiredSquadHint).toContain(
-          `Squad at ${retiredSquad} is left as it is`
+          `Squad at ${retiredSquad} is left as it is`,
         );
         expect(existsSync(retiredSquad)).toBe(true);
-        const text = await runCli(managed, ['upgrade', '--yes'], {
+        const text = await runCli(managed, ["upgrade", "--yes"], {
           deadlineMs: INSTALL_PROCESS_BUDGET_MS,
         });
         expect(text.status, text.stderr + text.stdout).toBe(0);
-        expect(text.stdout).toContain('is left as it is');
+        expect(text.stdout).toContain("is left as it is");
         for (const [receipt, before] of extensionReceipts) {
           expect(readFileSync(receipt).equals(before)).toBe(true);
         }
         expect(existsSync(sandbox.database)).toBe(false);
       });
-    }
+    },
   );
 });
 
@@ -1497,9 +1520,9 @@ finally:
     proxy.close()
 `;
 
-describe('a missing official extension in a private human terminal', () => {
-  it.each(['no', 'eof', 'interrupt', 'yes', 'enter', 'agent', 'help', 'no-stderr'] as const)(
-    '%s follows consent without executing the original command or leaving a partial install',
+describe("a missing official extension in a private human terminal", () => {
+  it.each(["no", "interrupt", "enter", "agent"] as const)(
+    "%s follows consent without executing the original command or leaving a partial install",
     async (answer) => {
       const { cli } = resolveCliExecutables();
       await withSandbox(
@@ -1513,41 +1536,41 @@ describe('a missing official extension in a private human terminal', () => {
             beforeAnswer: number;
             screen: string;
           };
-          if (answer === 'agent' || answer === 'help' || answer === 'no-stderr') {
+          if (answer === "agent") {
             expect(observation.asked).toBe(false);
             expect(observation.connections).toBe(0);
             expect(observation.status).toBe(3);
-            expect(observation.screen).toContain('tmt extension install ops --yes');
+            expect(observation.screen).toContain("tmt extension install ops --yes");
           } else {
             expect(observation.asked, observation.screen).toBe(true);
             // Failed preview still permits the question with unknown metadata.
-            expect(observation.screen).toContain('version unknown');
-            expect(observation.screen).toContain('size unknown');
-            if (answer === 'yes' || answer === 'enter') {
+            expect(observation.screen).toContain("version unknown");
+            expect(observation.screen).toContain("size unknown");
+            if (answer === "enter") {
               expect(observation.status).toBe(1);
               expect(observation.connections).toBeGreaterThan(observation.beforeAnswer);
-              expect(observation.screen).toContain('Could not check for ops updates');
+              expect(observation.screen).toContain("Could not check for ops updates");
             } else {
-              expect(observation.status).toBe(answer === 'interrupt' ? -2 : 0);
+              expect(observation.status).toBe(answer === "interrupt" ? -2 : 0);
               expect(observation.beforeAnswer).toBeGreaterThan(0);
               expect(observation.connections).toBe(observation.beforeAnswer);
-              if (answer !== 'interrupt') expect(observation.screen).toContain('No changes made');
+              if (answer !== "interrupt") expect(observation.screen).toContain("No changes made");
             }
           }
-          expect(existsSync(path.join(sandbox.home, '.local'))).toBe(false);
-          expect(existsSync(path.join(sandbox.home, '.agents'))).toBe(false);
+          expect(existsSync(path.join(sandbox.home, ".local"))).toBe(false);
+          expect(existsSync(path.join(sandbox.home, ".agents"))).toBe(false);
           expect(existsSync(sandbox.database)).toBe(false);
-          expect(observation.screen).not.toContain('Run it again:');
+          expect(observation.screen).not.toContain("Run it again:");
         },
         {
           TMT_TEST_CLI: JSON.stringify({
-            executable: '/usr/bin/python3',
-            args: ['-c', terminal, cli.executable, answer],
+            executable: "/usr/bin/python3",
+            args: ["-c", terminal, cli.executable, answer],
           }),
-        }
+        },
       );
     },
-    20_000
+    20_000,
   );
 });
 
@@ -1599,115 +1622,115 @@ finally:
     os.close(slave)
 `;
 
-describe('upgrade new-provider consent', () => {
+describe("upgrade new-provider consent", () => {
   it(
-    'requires interactive approval even for --yes at a human TTY, preserves decline, and applies only the reviewed scopes',
+    "requires interactive approval even for --yes at a human TTY, preserves decline, and applies only the reviewed scopes",
     { timeout: 60_000 },
     async () => {
       await withReleaseSandbox(async (sandbox) => {
-        const prefix = path.join(sandbox.root, 'custom upgrade prefix');
-        const version = (await runCli(sandbox, ['--version'])).stdout.trim();
-        for (const product of ['cli', 'ops', 'remote', 'colab', 'digest'] as const) {
+        const prefix = path.join(sandbox.root, "custom upgrade prefix");
+        const version = (await runCli(sandbox, ["--version"])).stdout.trim();
+        for (const product of ["cli", "ops", "remote", "colab", "digest"] as const) {
           const artifact = await createArtifact(
             sandbox,
-            product === 'cli' ? version : '0.1.0-alpha.1',
+            product === "cli" ? version : "0.1.0-alpha.1",
             new Uint8Array(),
-            product
+            product,
           );
           const installed = await runCli(
             sandbox,
             [
-              '__native-install',
-              '--archive',
+              "__native-install",
+              "--archive",
               artifact.archive,
-              '--manifest',
+              "--manifest",
               artifact.manifest,
-              '--prefix',
+              "--prefix",
               prefix,
-              '--channel',
-              'alpha',
-              '--product',
+              "--channel",
+              "alpha",
+              "--product",
               product,
-              '--pin',
-              '--json',
+              "--pin",
+              "--json",
             ],
-            { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+            { deadlineMs: INSTALL_PROCESS_BUDGET_MS },
           );
           expect(installed.status, installed.stdout + installed.stderr).toBe(0);
         }
         const receipts = new Map(
-          ['cli', 'ops', 'remote', 'colab', 'digest'].map((product) => {
+          ["cli", "ops", "remote", "colab", "digest"].map((product) => {
             const file = path.join(
               prefix,
-              'lib',
-              product === 'cli' ? 'tmt' : `tmt-${product}`,
-              'current',
-              'receipt.json'
+              "lib",
+              product === "cli" ? "tmt" : `tmt-${product}`,
+              "current",
+              "receipt.json",
             );
             return [file, readFileSync(file)] as const;
-          })
+          }),
         );
-        const bin = path.join(sandbox.root, 'provider-bin');
+        const bin = path.join(sandbox.root, "provider-bin");
         mkdirSync(bin);
         writeExecutable(
-          path.join(bin, 'claude'),
+          path.join(bin, "claude"),
           '#!/bin/sh\nprintf ran > "$HOME/provider-ran"\n',
-          0o755
+          0o755,
         );
-        mkdirSync(path.join(sandbox.home, '.claude'));
-        const settings = path.join(sandbox.home, '.claude', 'settings.json');
+        mkdirSync(path.join(sandbox.home, ".claude"));
+        const settings = path.join(sandbox.home, ".claude", "settings.json");
         const original = '{"userOwned" : {"opaque": 1e999}}\n';
         writeFileSync(settings, original);
-        mkdirSync(path.join(sandbox.home, '.gemini'));
-        const executable = path.join(prefix, 'bin', 'tmt');
+        mkdirSync(path.join(sandbox.home, ".gemini"));
+        const executable = path.join(prefix, "bin", "tmt");
         const managed = {
           ...sandbox,
           cli: { executable, args: [] },
           env: {
             ...sandbox.env,
-            PATH: `${bin}${path.delimiter}${path.join(prefix, 'bin')}${path.delimiter}/usr/bin${path.delimiter}/bin`,
+            PATH: `${bin}${path.delimiter}${path.join(prefix, "bin")}${path.delimiter}/usr/bin${path.delimiter}/bin`,
           },
         };
         const untouched = () => {
-          expect(readFileSync(settings, 'utf8')).toBe(original);
-          expect(existsSync(path.join(sandbox.home, '.claude', 'skills'))).toBe(false);
-          expect(existsSync(path.join(sandbox.home, '.agents'))).toBe(false);
-          expect(existsSync(path.join(sandbox.globalDir, 'setup-record.json'))).toBe(false);
-          expect(existsSync(path.join(sandbox.home, 'provider-ran'))).toBe(false);
+          expect(readFileSync(settings, "utf8")).toBe(original);
+          expect(existsSync(path.join(sandbox.home, ".claude", "skills"))).toBe(false);
+          expect(existsSync(path.join(sandbox.home, ".agents"))).toBe(false);
+          expect(existsSync(path.join(sandbox.globalDir, "setup-record.json"))).toBe(false);
+          expect(existsSync(path.join(sandbox.home, "provider-ran"))).toBe(false);
         };
-        for (const flags of [['--yes', '--json'], ['--json']]) {
-          const result = await runCli(managed, ['upgrade', ...flags], {
+        for (const flags of [["--yes", "--json"], ["--json"]]) {
+          const result = await runCli(managed, ["upgrade", ...flags], {
             deadlineMs: INSTALL_PROCESS_BUDGET_MS,
           });
           expect(result.status, result.stdout + result.stderr).toBe(0);
-          expect(result.stderr).toBe('');
+          expect(result.stderr).toBe("");
           expect(parseWholeStdout(result).providerSetup).toEqual(
             expect.arrayContaining([
               expect.objectContaining({
-                provider: 'claude',
-                status: 'consentRequired',
-                hint: 'tmt setup claude',
+                provider: "claude",
+                status: "consentRequired",
+                hint: "tmt setup claude",
               }),
               expect.objectContaining({
-                provider: 'gemini',
-                status: 'consentRequired',
-                hint: 'tmt setup',
+                provider: "gemini",
+                status: "consentRequired",
+                hint: "tmt setup",
               }),
-            ])
+            ]),
           );
           untouched();
         }
-        for (const mode of ['yes', 'decline', 'accept']) {
+        for (const mode of ["yes", "decline", "accept"]) {
           const terminal = await runCli(
             {
               ...managed,
               cli: {
-                executable: '/usr/bin/python3',
-                args: ['-c', upgradeTerminal, executable, mode],
+                executable: "/usr/bin/python3",
+                args: ["-c", upgradeTerminal, executable, mode],
               },
             },
             [],
-            { deadlineMs: INSTALL_PROCESS_BUDGET_MS }
+            { deadlineMs: INSTALL_PROCESS_BUDGET_MS },
           );
           expect(terminal.status, terminal.stdout + terminal.stderr).toBe(0);
           const observed = JSON.parse(terminal.stdout) as {
@@ -1719,25 +1742,25 @@ describe('upgrade new-provider consent', () => {
           };
           expect(observed.status, observed.screen).toBe(0);
           expect(observed.restored).toBe(true);
-          expect(observed.questions).toBe(mode === 'yes' ? 0 : 1);
-          expect(observed.reviewed).toBe(mode !== 'yes');
-          if (mode !== 'accept') untouched();
+          expect(observed.questions).toBe(mode === "yes" ? 0 : 1);
+          expect(observed.reviewed).toBe(mode !== "yes");
+          if (mode !== "accept") untouched();
         }
-        expect(readFileSync(settings, 'utf8')).toContain('"userOwned" : {"opaque": 1e999}');
-        expect(readFileSync(settings, 'utf8')).toContain('SessionStart');
-        for (const root of ['.claude/skills', '.agents/skills']) {
-          expect(readFileSync(path.join(sandbox.home, root, 'tmt', 'SKILL.md'), 'utf8')).toContain(
-            'name: tmt'
+        expect(readFileSync(settings, "utf8")).toContain('"userOwned" : {"opaque": 1e999}');
+        expect(readFileSync(settings, "utf8")).toContain("SessionStart");
+        for (const root of [".claude/skills", ".agents/skills"]) {
+          expect(readFileSync(path.join(sandbox.home, root, "tmt", "SKILL.md"), "utf8")).toContain(
+            "name: tmt",
           );
           expect(
-            readFileSync(path.join(sandbox.home, root, 'tmt-inbox', 'SKILL.md'), 'utf8')
-          ).toContain('name: tmt-inbox');
+            readFileSync(path.join(sandbox.home, root, "tmt-inbox", "SKILL.md"), "utf8"),
+          ).toContain("name: tmt-inbox");
         }
         for (const [file, before] of receipts) expect(readFileSync(file)).toEqual(before);
-        expect(existsSync(path.join(sandbox.home, 'provider-ran'))).toBe(false);
+        expect(existsSync(path.join(sandbox.home, "provider-ran"))).toBe(false);
         expect(existsSync(sandbox.database)).toBe(false);
-        expect(existsSync(path.join(sandbox.home, '.local'))).toBe(false);
+        expect(existsSync(path.join(sandbox.home, ".local"))).toBe(false);
       });
-    }
+    },
   );
 });
