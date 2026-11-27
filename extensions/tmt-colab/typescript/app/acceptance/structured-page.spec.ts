@@ -17,6 +17,159 @@ test.afterEach(disposeActiveWorlds);
  * it lands (#6742), so a case that types at the end goes there first. */
 const textEnd = process.platform === 'darwin' ? 'Meta+ArrowDown' : 'Control+End';
 
+test('a phone block image viewer fits the viewport and its controls can be clicked', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'phone-image-owner');
+    const cli = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const created = cli(['page', 'create', '--title', 'Phone image', '--no-open']);
+    cli([
+      'block',
+      'insert',
+      created.pageId,
+      '--type',
+      'paragraph',
+      '--text',
+      'The sketch follows.',
+    ]);
+    const page = await browser.context.newPage();
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(new URL(created.path, door.origin).href);
+    await expect(page.getByText('The sketch follows.')).toBeVisible();
+    const png = path.join(world.root, 'sketch.png');
+    fs.writeFileSync(
+      png,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP4z8DwnwEJMOAQBACsjQf5o4qoqgAAAABJRU5ErkJggg==',
+        'base64',
+      ),
+    );
+    const { attachment } = cli(['attachment', 'attach', created.pageId, png]);
+    cli([
+      'block',
+      'insert',
+      created.pageId,
+      '--type',
+      'image',
+      '--props',
+      JSON.stringify({
+        layout: 'single',
+        images: [{ src: `colab-attachment:${attachment.attachmentId}`, alt: 'Release sketch' }],
+      }),
+    ]);
+    await expect(page.getByRole('img', { name: 'Release sketch' })).toBeVisible();
+    const opener = page.getByRole('button', { name: 'Image 1: open viewer' });
+    for (const method of ['pointer', 'keyboard']) {
+      if (method === 'pointer') await opener.click();
+      else await opener.press('Enter');
+      const viewer = page.getByRole('dialog', { name: 'Release sketch' });
+      await expect(viewer).toBeInViewport({ ratio: 0.99 });
+      await viewer.getByRole('button', { name: 'Zoom in' }).click();
+      await page.keyboard.press('Escape');
+      await expect(viewer).toBeHidden();
+      await expect(opener).toBeFocused();
+    }
+  });
+});
+
+test('the outline follows the live side menu on the same mounted block page', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'live-outline-owner');
+    const cli = (args: string[], input?: string) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'], input));
+    const created = cli(['page', 'create', '--title', 'Live outline', '--no-open']);
+    cli(
+      ['block', 'batch', created.pageId, '--file', '-'],
+      JSON.stringify(
+        ['Overview', 'Details', 'Closeout'].map((title) => ({
+          op: 'insert',
+          id: crypto.randomUUID(),
+          type: 'heading',
+          text: title,
+          props: { level: 2 },
+        })),
+      ),
+    );
+    const page = await browser.context.newPage();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.goto(new URL(created.path, door.origin).href);
+    await page.mouse.move(720, 450);
+    const shell = page.locator('.tmt-ui-shell[data-rail]');
+    const outline = page.getByRole('navigation', { name: 'Page outline' });
+    const strip = outline.and(page.locator('[data-strip]'));
+    const collapse = page.getByRole('button', { name: 'Collapse side menu', exact: true });
+    await expect(outline).toBeVisible();
+    const shortcut = await collapse.getAttribute('aria-keyshortcuts');
+    expect(shortcut).toMatch(/^(Meta|Control)\+Backslash$/);
+    await collapse.click();
+    await expect(shell).toHaveAttribute('data-rail', 'collapsed');
+    await expect(strip).toBeVisible();
+    await page.getByRole('button', { name: 'Expand side menu', exact: true }).click();
+    await expect(shell).toHaveAttribute('data-rail', 'expanded');
+    await expect(strip).toHaveCount(0);
+    await page.keyboard.press(shortcut!);
+    await expect(strip).toBeVisible();
+    await page.keyboard.press(shortcut!);
+    await expect(strip).toHaveCount(0);
+    await expect(outline).toBeVisible();
+  });
+});
+
+test('Enter opens focused table column actions after escaping a cell edit', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'table-menu-owner');
+    const cli = (args: string[], input?: string) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'], input));
+    const created = cli(['page', 'create', '--title', 'Table menu', '--no-open']);
+    const table = crypto.randomUUID();
+    const row = crypto.randomUUID();
+    cli(
+      ['block', 'batch', created.pageId, '--file', '-'],
+      JSON.stringify([
+        {
+          op: 'insert',
+          id: table,
+          type: 'table',
+          props: { columns: [{ id: 'state', name: 'State' }] },
+        },
+        { op: 'table', id: table, action: 'add-row', row, cells: { state: 'Open' } },
+      ]),
+    );
+    const page = await browser.context.newPage();
+    await page.goto(new URL(created.path, door.origin).href);
+    const block = page.locator(`[data-block-id="${table}"]`);
+    await block.getByText('Open', { exact: true }).click();
+    const editor = page.locator('[contenteditable="true"]');
+    await editor.press(textEnd);
+    await editor.pressSequentially(' now');
+    await editor.press('Escape');
+    await expect(block).toHaveAttribute('data-selected', '');
+    await expect(block).toContainText('Open now');
+    const actions = block.getByRole('button', { name: 'Column actions: State' });
+    await actions.focus();
+    await page.keyboard.press('Enter');
+    const rename = page.getByRole('menuitem', { name: 'Rename', exact: true });
+    await expect(rename).toBeVisible();
+    await rename.click();
+    const name = block.getByRole('textbox', { name: 'Column name' });
+    await expect(name).toBeVisible();
+    await name.fill('Status');
+    await name.press('Enter');
+    await expect
+      .poll(() => {
+        const listed = cli(['block', 'ls', created.pageId]).blocks;
+        return {
+          title: listed.find((item: { id: string }) => item.id === table)?.props.columns[0].name,
+          content: listed.find((item: { id: string }) => item.id === row)?.cells.state.s,
+        };
+      })
+      .toEqual({ title: 'Status', content: 'Open now' });
+  });
+});
+
 test('open --block scrolls the loopback door to the exact heading and to-do', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());

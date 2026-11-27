@@ -1979,6 +1979,9 @@ export function useBlockEditing(
       if (event.key === 'Enter' && selection.anchor === selection.focus) {
         // The question card owns Enter, including when an answer control already has focus.
         if (treeRef.current.get(selection.focus)?.type === 'question') return false;
+        // A focused table action opens its own menu before the selected block enters an editor.
+        if (event.target instanceof Element && event.target.closest('button[aria-haspopup="menu"]'))
+          return false;
         // A table is entered at its first cell, or by adding its first row.
         const table = treeRef.current.get(selection.focus);
         const first = table?.type === 'table' && tableColumns(table.props)[0];
