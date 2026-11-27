@@ -67,6 +67,7 @@ const CANONICAL_COLAB_SKILL = readFileSync(
 );
 
 let sharedRoot = '';
+let sharedHashes: Array<{ path: string; sha256: string }> = [];
 let sharedArtifacts!: {
   opsV1: ArtifactFixture;
   opsV009: ArtifactFixture;
@@ -196,10 +197,24 @@ beforeAll(async () => {
     colabCanonicalV3,
     colabCanonicalV4,
   };
+  sharedHashes = Object.values(sharedArtifacts).flatMap((artifact) =>
+    [artifact.archive, artifact.manifest].map((filePath) => ({
+      path: filePath,
+      sha256: createHash('sha256').update(readFileSync(filePath)).digest('hex'),
+    }))
+  );
 }, 60_000);
 
 afterAll(() => {
-  if (sharedRoot) rmSync(sharedRoot, { recursive: true, force: true });
+  try {
+    for (const entry of sharedHashes) {
+      expect(createHash('sha256').update(readFileSync(entry.path)).digest('hex')).toBe(
+        entry.sha256
+      );
+    }
+  } finally {
+    if (sharedRoot) rmSync(sharedRoot, { recursive: true, force: true });
+  }
 });
 
 describe('a leftover former Squad installation', () => {
