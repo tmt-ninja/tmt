@@ -261,7 +261,36 @@ pub(super) struct State {
     #[cfg(test)]
     builds: usize,
 }
+#[derive(PartialEq, Eq)]
+pub(super) struct TranscriptFocusTrace {
+    reader_hits: usize,
+    retained: bool,
+    rebound: bool,
+}
+impl TranscriptFocusTrace {
+    pub(super) fn document(&self) -> serde_json::Value {
+        serde_json::json!({
+            "reader_hits": self.reader_hits,
+            "retained": self.retained,
+            "rebound": self.rebound,
+        })
+    }
+}
+
 impl State {
+    pub(super) fn transcript_focus_trace(&self) -> TranscriptFocusTrace {
+        let focused = self.focused.as_ref().filter(|hit| hit.transcript.is_some());
+        TranscriptFocusTrace {
+            reader_hits: self
+                .hits
+                .iter()
+                .filter(|hit| hit.reader && hit.transcript.is_some())
+                .count(),
+            retained: focused.is_some(),
+            rebound: focused.is_some_and(|hit| self.hits.contains(hit)),
+        }
+    }
+
     pub fn begin_frame(&mut self, screen: Rect) {
         self.hits.clear();
         self.screen = screen;
@@ -292,7 +321,7 @@ impl State {
         self.pressed = None;
         self.hovered = None;
     }
-    pub(super) fn invalidate_snapshot(&mut self) {
+    pub(super) fn invalidate_preserving_transcript_focus(&mut self) {
         // Retain the keyboard intent only. The next paint must publish a new hit.
         let focused = self.focused.take().filter(|hit| hit.transcript.is_some());
         self.invalidate();

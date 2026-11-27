@@ -396,7 +396,7 @@ impl BoardEvent {
 }
 
 /// Observe selection at its event owner, including indirect publication writes.
-/// The off path checks only the optional trace; it never projects a target.
+/// The off path checks only the optional trace; it never projects a target or a link hit.
 fn observe_navigation<C, T>(
     app: &mut App,
     context: C,
@@ -410,11 +410,19 @@ fn observe_navigation<C, T>(
         return apply(app, context);
     };
     let previous = app.trace_target();
+    let previous_link = app.member_links.borrow().transcript_focus_trace();
     let result = apply(app, context);
     let selected = app.trace_target();
     if previous != selected {
         trace.navigation(serde_json::json!({"event":"selection_write", "cause":cause,
             "previous":previous, "selected":selected}));
+    }
+    let link = app.member_links.borrow().transcript_focus_trace();
+    if link != previous_link {
+        trace.navigation(serde_json::json!({
+            "event": "transcript_focus", "cause": cause,
+            "previous": previous_link.document(), "current": link.document()
+        }));
     }
     result
 }
@@ -1756,7 +1764,7 @@ fn session(
                         }
                         app.meter_hover = None;
                         app.header_hover = None;
-                        app.invalidate_frame_geometry();
+                        app.invalidate_resized_frame();
                         dirty = true;
                         Effect::None
                     }

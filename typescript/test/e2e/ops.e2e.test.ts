@@ -2579,6 +2579,12 @@ child.stdout.pipe(process.stdout);
     await withE2EFixture(async (fixture) => {
       installSquad(fixture);
       const capture = capturedTurnWorker(fixture, 'auth-fix');
+      const keyTrace = path.join(fixture.root, 'transcript-link-navigation.jsonl');
+      const paints: string[] = [];
+      const started = performance.now();
+      const note = (message: string) => {
+        paints.push(`${Math.round(performance.now() - started)} ms ${message}`);
+      };
       try {
         await capture.event('prompt-recorded');
         expectJsonResult(await fixture.runJsonCli(['identity', 'create', 'Ben']));
@@ -2603,7 +2609,7 @@ child.stdout.pipe(process.stdout);
           'send-keys',
           '-t',
           shell.pane,
-          'NO_COLOR=1 tmt ops ui --squad product; echo LINK_BOARD_EXIT=$?',
+          `NO_COLOR=1 TMT_OPS_TEST_KEY_TRACE=${quote(keyTrace)} tmt ops ui --squad product; echo LINK_BOARD_EXIT=$?`,
           'Enter',
         ]);
         await fixture.waitForCapture(
@@ -2633,6 +2639,7 @@ child.stdout.pipe(process.stdout);
         // The board regression a_transcript_url_opens_after_recompose_only_if_the_pressed_hit_survives
         // owns the mouse gesture. Here the reader's keyboard selection opens the popover.
         let selectedCapture = '';
+        let lastStyle = '';
         const readLinkStyle = () => {
           selectedCapture = fixture.tmux(['capture-pane', '-p', '-e', '-t', shell.pane]);
           const sgr = /\u001b\[([\d;]*)m/g;
@@ -2654,6 +2661,16 @@ child.stdout.pipe(process.stdout);
           }
           const plainCapture = selectedCapture.replace(sgr, '');
           const readerReady = plainCapture.includes('←→ mentions · Enter actions');
+          const style = JSON.stringify({
+            labelPresent: label >= 0,
+            underlined,
+            reversed,
+            readerReady,
+          });
+          if (style !== lastStyle) {
+            note(`paint ${style}`);
+            lastStyle = style;
+          }
           return { underlined, reversed, readerReady };
         };
         fixture.tmux(['send-keys', '-t', shell.pane, 'Tab']);
@@ -2671,7 +2688,10 @@ child.stdout.pipe(process.stdout);
               cause,
             });
           });
+        note('reader readiness capture passed');
         fixture.tmux(['send-keys', '-t', shell.pane, 'Right']);
+        note('tmux returned from the single Right');
+        lastStyle = ''; // Record the first post-Right observation even if the ink did not change.
         await fixture
           .waitFor(
             () => {
@@ -2737,6 +2757,14 @@ child.stdout.pipe(process.stdout);
         await fixture.waitForCapture(
           (current) => current.includes('LINK_BOARD_EXIT=0'),
           shell.pane
+        );
+      } catch (cause) {
+        const navigation = fs.existsSync(keyTrace)
+          ? fs.readFileSync(keyTrace, 'utf8').trim().split('\n').slice(-48).join('\n')
+          : '<no board key trace>';
+        throw new Error(
+          `${String(cause)}\nTranscript link paint trace:\n${paints.slice(-24).join('\n')}\nBoard key and paint trace:\n${navigation}`,
+          { cause }
         );
       } finally {
         await capture.finish();

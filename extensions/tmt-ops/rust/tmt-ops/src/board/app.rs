@@ -1923,7 +1923,9 @@ impl App {
         }
         self.squad_keys = snapshot.squad_keys;
 
-        self.member_links.borrow_mut().invalidate_snapshot();
+        self.member_links
+            .borrow_mut()
+            .invalidate_preserving_transcript_focus();
         self.invalidate_geometry();
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
@@ -4830,6 +4832,13 @@ impl App {
     /// and drafts survive; only a new paint can publish interactive geometry.
     pub(super) fn invalidate_frame_geometry(&self) {
         self.member_links.borrow_mut().invalidate();
+        self.invalidate_geometry();
+    }
+
+    pub(super) fn invalidate_resized_frame(&self) {
+        self.member_links
+            .borrow_mut()
+            .invalidate_preserving_transcript_focus();
         self.invalidate_geometry();
     }
 
