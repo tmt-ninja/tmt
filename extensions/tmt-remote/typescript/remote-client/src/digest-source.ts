@@ -22,6 +22,9 @@ export interface UsageTotals {
 export interface UsagePoint extends UsageTotals {
   fromMs: number;
   toMs: number;
+  /** Core's read coverage of the bucket; absent on older reports. Zero tokens with zero coverage
+   * is no data, never a measured zero. */
+  coveredMs?: number;
   /** False: the bucket is a lower bound, not an error. */
   complete: boolean;
 }
@@ -219,6 +222,9 @@ export interface UsageDocument {
   version: 1;
   observedAtMs: number;
   since: UsageRange;
+  /** The window Core read, which the series buckets evenly; null when no identity could be read,
+   * absent on older reports. */
+  window?: { fromMs: number; toMs: number } | null;
   usage: {
     seats: readonly UsageSeat[];
     /** Absent on older report producers. */

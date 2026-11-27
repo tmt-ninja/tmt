@@ -401,8 +401,7 @@ body:not(:has(.tmt-ui-shell)) {
   border: 0;
   border-radius: var(--tmt-ui-radius-s);
 }
-.digest-other-windows > summary,
-.digest-provider-details > summary {
+.digest-other-windows > summary {
   font-size: var(--tmt-ui-caption-size);
   padding-block: var(--tmt-ui-space-xs);
 }
@@ -435,12 +434,75 @@ body:not(:has(.tmt-ui-shell)) {
 .digest-provider .tmt-ui-meter-fill {
   background: var(--tmt-ui-color-secondary);
 }
-.digest-provider-details {
+/* #6751 B: the runway's words under the meter, the week's history and its three facts below. */
+.digest-runway {
+  margin: 0;
+}
+.digest-provider-history {
+  display: grid;
+  gap: var(--tmt-ui-space-m);
+  min-width: 0;
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
 }
-.digest-provider-details > .tmt-ui-status-tiles {
-  margin-top: var(--tmt-ui-space-m);
+.digest-provider-history .tmt-ui-status-tile-value {
+  color: var(--tmt-ui-color-text);
+}
+/* #6751 C: by model beside by seat, each a list of labelled meters. */
+.digest-share-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--tmt-ui-space-xl);
+  align-items: start;
+}
+.digest-share-group,
+.digest-share {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+}
+.digest-share-group {
+  gap: var(--tmt-ui-space-m);
+}
+.digest-share {
+  gap: var(--tmt-ui-space-xs);
+}
+.digest-share-title {
+  margin: 0;
+  color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
+  font-weight: 600;
+}
+.digest-share-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-s);
+  min-width: 0;
+}
+.digest-share-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.digest-share-value {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.digest-share .tmt-ui-meter {
+  height: 6px;
+  border: 0;
+  border-radius: var(--tmt-ui-radius-s);
+}
+.digest-share .tmt-ui-meter-fill {
+  border: 0;
+  border-radius: var(--tmt-ui-radius-s);
+}
+.digest-share-detail {
+  margin: 0;
+  font-size: var(--tmt-ui-caption-size);
+  overflow-wrap: anywhere;
 }
 .digest-token-grid {
   display: grid;
@@ -533,6 +595,7 @@ body:not(:has(.tmt-ui-shell)) {
     width: min(100% - 32px, 87.5rem);
   }
   .digest-token-grid,
+  .digest-share-groups,
   #digest-missing {
     grid-template-columns: minmax(0, 1fr);
   }

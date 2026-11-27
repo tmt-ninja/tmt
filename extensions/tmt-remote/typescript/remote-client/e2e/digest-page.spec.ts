@@ -365,7 +365,7 @@ test('the sample report paints every card once, in the reference order, with the
   page,
 }) => {
   const errors = await open(page);
-  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(6);
+  await expect(page.locator('#digest-sections .digest-card')).toHaveCount(8);
   // The sample has partial seats, so the coverage banner leads, ahead of every card (#6751 F).
   await expect(page.locator('#digest-sections > :first-child')).toHaveId('digest-coverage');
   await expect(page.locator('#digest-coverage h2')).toHaveText(
@@ -376,6 +376,8 @@ test('the sample report paints every card once, in the reference order, with the
     'Allowance',
     'Provider usage',
     'Token usage',
+    'Usage share',
+    'Trend',
     'Messages between seats',
     'What Digest saved',
     'Data coverage',
@@ -511,12 +513,11 @@ test('allowance retains observed Codex windows and omits providers without recor
   await expect(primary.locator('.digest-window-observation')).toBeVisible();
   await expect(primary).toContainText('Observed 10m ago');
   await expect(primary).toContainText('Reported by core-1, feat-1');
-  const history = primary.locator('details');
-  await expect(history).not.toHaveAttribute('open');
-  await history.locator('summary').click();
+  // #6751 B: the week's history and its runway are in view, with no disclosure to open.
+  await expect(primary.locator('details')).toHaveCount(0);
   await expect(primary.locator('.tmt-ui-status-tile-label')).toHaveText([
-    'Elapsed',
-    'Pace',
+    'Left',
+    'Runs out',
     'Resets in',
   ]);
   await expect(primary.locator('.tmt-ui-chart')).toBeVisible();
@@ -537,7 +538,6 @@ test('allowance retains observed Codex windows and omits providers without recor
   await expect(windows.first()).toContainText('Reported by remote-1, tmt-lead, ux-1');
   for (const window of await windows.all()) {
     await expect(window).toContainText('Resets');
-    await window.locator('summary').click();
     await expect(window.locator('.tmt-ui-chart')).toBeVisible();
   }
   const readings = await openai.locator('.tmt-ui-chart-readout').allTextContents();
@@ -609,15 +609,151 @@ test('one provider shares the allowance card with its heading and retains its hi
   const provider = page.locator('#digest-provider-codex');
   await expect(page.locator('#digest-allowance .digest-provider')).toHaveCount(1);
   await expect(page.locator('#digest-provider-claude')).toHaveCount(0);
-  await expect(provider.locator('.tmt-ui-chart')).toBeHidden();
-  await provider.locator('summary').click();
   await expect(provider.locator('.tmt-ui-chart')).toBeVisible();
+  await expect(provider.locator('.digest-runway')).toContainText('runs out in');
+  expect(errors).toEqual([]);
+});
+
+test('each allowance card says where its window is headed, or why it cannot (#6751 B)', async ({
+  page,
+}) => {
+  const errors = await open(page, '?providers=2', { width: 1440, height: 900 });
+  const codex = page.locator('#digest-provider-codex');
+  const primary = codex.locator(':scope > .digest-provider');
+  await expect(primary.locator('.digest-runway')).toHaveText(
+    /^At the last day's pace it runs out in \d+d \d+h, \d+d \d+h before the reset\.$/,
+  );
+  const runsOut = primary.locator('.tmt-ui-status-tile').nth(1);
+  await expect(runsOut).toHaveAttribute('data-tone', 'blocked');
+  await expect(runsOut.locator('dd')).toHaveText(
+    /^[A-Z][a-z]{2} \d{1,2} [A-Z][a-z]{2}, \d\d:\d\d$/,
+  );
+  await codex.locator('.digest-other-windows > summary').click();
+  const others = codex.locator('.digest-other-windows .digest-provider');
+  await expect(others).toHaveCount(2);
+  for (const window of await others.all()) {
+    await expect(window.locator('.digest-runway')).toHaveText(
+      /^Lasts to the reset\. At the last day's pace about \d+% is left at the reset\.$/,
+    );
+    await expect(window.locator('.tmt-ui-status-tile-label').nth(1)).toHaveText('At the reset');
+    await expect(window.locator('.tmt-ui-status-tile').nth(1)).toHaveAttribute(
+      'data-tone',
+      'working',
+    );
+  }
+  // A window whose history is not served draws no chart and says why there is no runway.
+  const unserved = page.locator('[id="digest-provider-sample-provider-1"] > .digest-provider');
+  await expect(unserved.locator('.tmt-ui-chart')).toHaveCount(0);
+  await expect(unserved.locator('.digest-runway')).toHaveText(
+    'No runway: the weekly history is not served yet.',
+  );
+  await expect(unserved.locator('.tmt-ui-status-tile-value').nth(1)).toHaveText('—');
+  expect(errors).toEqual([]);
+});
+
+test('usage share names each model and seat, keeps what no model covers apart and states the cached share (#6751 C)', async ({
+  page,
+}) => {
+  const errors = await open(page, '', { width: 1440, height: 900 });
+  const models = page.locator('#digest-shares-models');
+  await expect(models.locator('.digest-share-name')).toHaveCount(5);
+  await expect(models.locator('.digest-share-name').last()).toHaveText('No model recorded');
+  const values = (await models.locator('.digest-share-value').allTextContents()).map(
+    Number.parseFloat,
+  );
+  expect(values.slice(0, 4)).toEqual(values.slice(0, 4).sort((a, b) => b - a));
+  expect(Math.abs(values.reduce((sum, value) => sum + value, 0) - 100)).toBeLessThan(0.5);
+  await expect(models.locator('.tmt-ui-status-tile-value')).toHaveText(/^\d+(\.\d)?% of input$/);
+  const seats = page.locator('#digest-shares-seats .digest-share');
+  await expect(seats).toHaveCount(6);
+  await expect(seats.filter({ hasText: 'night-1' }).locator('.digest-share-detail')).toHaveText(
+    /^gpt-6\.2-sol 60(\.\d)?% · gpt-6\.2-astra 15(\.\d)?% · no model 25(\.\d)?%$/,
+  );
+  // A seat keeps the hue the token chart and its legend draw it in.
+  const legend = page.locator('#digest-ranking tbody tr').first();
+  await expect(seats.first().locator('.digest-seat')).toHaveText(
+    (await legend.locator('.digest-seat').textContent())!,
+  );
+  const colour = (locator: import('@playwright/test').Locator) =>
+    locator.evaluate((node) => getComputedStyle(node).backgroundColor);
+  expect(await colour(seats.first().locator('.tmt-ui-meter-fill'))).toBe(
+    await colour(legend.locator('.tmt-ui-status-tile-dot')),
+  );
+  // Cost waits for output and cache prices in the price table, and says where that is tracked.
+  const cost = page.locator('#digest-shares .digest-share-cost');
+  await expect(cost).toHaveText(
+    "Shares are of tokens, input plus output. Cost needs each model's output and cached-input prices, which the price table does not have yet (#6855).",
+  );
+  await expect(cost.getByRole('link', { name: '#6855', exact: true })).toHaveAttribute(
+    'href',
+    'https://github.com/tmt-ninja/tmt/issues/6855',
+  );
+  // A large team folds the rest into one row; a Digest without attribution has no model to name.
+  await open(page, '?seats=24', { width: 1440, height: 900 });
+  await expect(seats).toHaveCount(7);
+  await expect(seats.last().locator('.digest-share-name')).toHaveText('Other (18 seats)');
+  await open(page, '?older-usage', { width: 1440, height: 900 });
+  await expect(models.locator('.digest-share-name')).toHaveText(['No model recorded']);
+  await expect(models.locator('.digest-share-value')).toHaveText(['100%']);
+  await expect(models.locator('.digest-share-detail')).toHaveText(
+    'Core recorded no model for these tokens.',
+  );
+  expect(errors).toEqual([]);
+});
+
+test('the trend adds every seat per bucket and leaves one no seat read blank, never zero (#6751 E)', async ({
+  page,
+}) => {
+  const errors = await open(page, '?asleep', { width: 1440, height: 900 });
+  const trend = page.locator('#digest-trend');
+  await expect(trend.locator('.digest-subtitle')).toHaveText('Every seat together, hour by hour.');
+  // The chart's table reads a blank hour as a dash, never 0.
+  const cells = trend.locator('table tbody tr').first().locator('td');
+  const dashes = async () =>
+    (await cells.allTextContents()).filter((text) => text.trim() === '—').length;
+  await expect(cells).toHaveCount(24);
+  expect(await dashes()).toBe(5);
+  await expect(trend.locator('rect.tmt-ui-chart-bar')).toHaveCount(19);
+  await expect(trend.locator('.tmt-ui-status-tile-label')).toHaveText([
+    'Busiest hour',
+    'Average hour',
+    'No data',
+  ]);
+  await expect(trend.locator('.tmt-ui-status-tile-value').first()).toHaveText(/ at \d\d:00$/);
+  await expect(trend.locator('.tmt-ui-status-tile-value').last()).toHaveText('5 hours');
+  // No line for the period before: Ben kept the trend simple (#6751 E).
+  await expect(trend.locator('.tmt-ui-chart-reference')).toHaveCount(0);
+  await expect(trend).toContainText(
+    'No seat has a reading for 5 hours of this range: they are left blank, never counted as zero.',
+  );
+  await page.getByRole('tab', { name: '7d', exact: true }).click();
+  await expect(trend.locator('.digest-subtitle')).toHaveText('Every seat together, day by day.');
+  await expect(cells).toHaveCount(7);
+  expect(await dashes()).toBe(0);
+  // Every day has a reading: no "No data" tile.
+  await expect(trend.locator('.tmt-ui-status-tile-label')).toHaveText([
+    'Busiest day',
+    'Average day',
+  ]);
+  await page.getByRole('tab', { name: '30d', exact: true }).click();
+  await expect(cells).toHaveCount(30);
+  // No reading at all: the share and the trend say so, with no chart or zero.
+  await open(page, '?no-tokens', { width: 1440, height: 900 });
+  for (const id of ['#digest-shares', '#digest-trend']) {
+    await expect(page.locator(id)).toContainText('No token observations in this range.');
+    await expect(page.locator(`${id} .tmt-ui-chart, ${id} .digest-share`)).toHaveCount(0);
+  }
   expect(errors).toEqual([]);
 });
 
 /** Acceptance captures: the shell at 1440 and 390, light and dark, sample and a 24-seat team. */
 for (const [label, query] of [
   ['sample', ''],
+  ['asleep', '?asleep'],
+  ['no-tokens', '?no-tokens'],
+  ['older-usage', '?older-usage'],
+  ['stale-allowance', '?stale-allowance'],
+  ['providers-2', '?providers=2'],
   ['24-seats', '?seats=24'],
   ['24-seats-one-provider', '?seats=24&one-provider'],
   ['savings-partial', '?savings=partial'],
@@ -643,16 +779,17 @@ for (const [label, query] of [
           path: path.join(dir!, `digest-${label}-${scheme}-${width}.png`),
           fullPage: true,
         });
-        await page.locator('#digest-savings').screenshot({
-          path: path.join(dir!, `digest-${label}-savings-${scheme}-${width}.png`),
-        });
+        for (const card of ['allowance', 'shares', 'trend', 'savings'])
+          await page.locator(`#digest-${card}`).screenshot({
+            path: path.join(dir!, `digest-${label}-${card}-${scheme}-${width}.png`),
+          });
         expect(errors).toEqual([]);
       });
 
 for (const width of [320, 390, 768, 1440]) {
   test(`one scroll at ${width}px: nothing makes the page scroll sideways`, async ({ page }) => {
     await open(page, '', { width, height: 900 });
-    await expect(page.locator('#digest-sections .digest-card')).toHaveCount(6);
+    await expect(page.locator('#digest-sections .digest-card')).toHaveCount(8);
     await page.waitForTimeout(200);
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -870,13 +1007,13 @@ test('refresh and range changes retain provider and method disclosures, legend e
 }) => {
   await page.clock.install();
   await open(page, '?refresh&seats=24', { width: 1440, height: 900 });
-  const provider = page.locator('#digest-provider-codex > .digest-provider > details');
+  const provider = page.locator('#digest-provider-codex > .digest-other-windows');
   const method = page.locator('#digest-method');
-  await provider.locator('summary').click();
+  await provider.locator(':scope > summary').click();
   await method.locator('summary').click();
   await page.getByRole('button', { name: 'Show all 24 seats' }).click();
   await page.getByRole('tab', { name: 'Share' }).click();
-  await provider.locator('summary').focus();
+  await provider.locator(':scope > summary').focus();
   await page.clock.fastForward(60_000);
   await expect.poll(() => page.evaluate(() => window.digestReads)).toBe(2);
   await page.clock.fastForward(60_000);
@@ -886,7 +1023,7 @@ test('refresh and range changes retain provider and method disclosures, legend e
   ).toContainText('10% left');
   await expect(provider).toHaveAttribute('open', '');
   await expect(method).toHaveAttribute('open', '');
-  await expect(provider.locator('summary')).toBeFocused();
+  await expect(provider.locator(':scope > summary')).toBeFocused();
   await expect(page.locator('#digest-ranking tbody tr')).toHaveCount(24);
   await expect(page.getByRole('tab', { name: 'Share' })).toHaveAttribute('aria-selected', 'true');
   // A new range that cannot read must not show the old range's observations.
@@ -904,11 +1041,16 @@ test('refresh and range changes retain provider and method disclosures, legend e
   );
 });
 
-test('stale allowance is named before its disclosure is opened', async ({ page }) => {
+test('stale allowance is named and draws no runway (#6751 B)', async ({ page }) => {
   await open(page, '?stale-allowance');
+  await page.locator('.digest-other-windows > summary').click();
   for (const provider of await page.locator('.digest-provider').all()) {
     await expect(provider.locator('.digest-provider-label')).toContainText('(stale)');
-    await expect(provider.locator('details')).not.toHaveAttribute('open');
+    await expect(provider.locator('.digest-runway')).toHaveText(
+      'No runway: the latest reading of this window is stale.',
+    );
+    await expect(provider.locator('.tmt-ui-status-tile-value').nth(1)).toHaveText('—');
+    await expect(provider.locator('.tmt-ui-status-tile-value').nth(2)).toHaveText('stale');
   }
 });
 

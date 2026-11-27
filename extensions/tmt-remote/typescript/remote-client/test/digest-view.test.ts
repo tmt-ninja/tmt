@@ -193,6 +193,15 @@ it('providers pair each weekly window with its history chart and a stable hue', 
   expect(views.every((view) => view.chart?.series[0]!.key === view.key)).toBe(true);
   expect(views[0]!.chart!.style).toBe(1);
   expect(providers({ ...day, limitHistory: undefined }).every((view) => !view.chart)).toBe(true);
+  // #6751 B: the current window runs out at its last day's pace, the others last to their resets,
+  // and a stale or unsampled window has no runway.
+  const current = views.find((view) => view.leftPercent === 55)!;
+  expect(current.runway).toMatchObject({ basis: 'recent', leftAtReset: 0 });
+  expect(current.runway!.emptyAtMs).toBeLessThan(current.resetsAtMs);
+  expect(views.filter((view) => view.runway?.emptyAtMs === null)).toHaveLength(2);
+  const stale = { ...day, limits: day.limits.map((limit) => ({ ...limit, stale: true })) };
+  expect(providers(stale).map((view) => view.runway)).toEqual([null, null, null]);
+  expect(providers({ ...day, limitHistory: undefined }).every((view) => !view.runway)).toBe(true);
   // Hues follow the sorted sources, so a third provider gets its own instead of a shared grey.
   expect(providers(withShares('agy', 'claude', 'codex')).map((view) => view.style)).toEqual([
     3, 3, 3,
@@ -691,8 +700,8 @@ it('adds every seat per bucket: hourly for 24h, daily for 7d and 30d, a lower bo
     expect(days.x).toHaveLength(count);
     expect(days.x[0]).toMatch(/^\d\d-\d\d$/);
   }
-  // A bucket that only an incomplete reading reached is a lower bound; one with no reading at all is
-  // not in the series.
+  // A bucket that only an incomplete reading reached is a lower bound. Off Core's window grid (an
+  // older report has no window), only the buckets some seat read are in the series.
   const seat = day.usage.seats[0]!;
   const one: UsageDocument = {
     ...day,
@@ -721,6 +730,13 @@ it('adds every seat per bucket: hourly for 24h, daily for 7d and 30d, a lower bo
   expect(gap.partial).toEqual([false, true]);
   expect(gap.cachedRatio).toEqual([50, null]);
   expect(gap.peak).toEqual({ at: '00:00', tokens: 15 });
+  // On Core's window every bucket keeps its place: one no seat read is null, never 0 or dropped.
+  const asleep = trend(mockDocument('24h', { asleep: true }), 'UTC');
+  expect(asleep.x).toHaveLength(24);
+  expect(asleep.tokens.slice(15, 20)).toEqual([null, null, null, null, null]);
+  expect(asleep.tokens.filter((value) => value === null)).toHaveLength(5);
+  expect(asleep.cachedRatio[15]).toBeNull();
+  expect(asleep.partial[15]).toBe(false);
 });
 
 it('projects a weekly window to its reset at the recent pace, or says when it runs out (#6751 B)', () => {

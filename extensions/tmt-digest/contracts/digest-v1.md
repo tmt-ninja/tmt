@@ -317,7 +317,9 @@ actual from these reports before and after the switch.
 ## Usage report
 
 `tmt digest usage report` joins Core's consumption, account limits and exchange
-flow for all members; [usage-v1.md](usage-v1.md) owns it. It keeps no Digest state.
+flow for all members; [usage-v1.md](usage-v1.md) owns it. It keeps no Digest state. Its series points carry Core's
+coverage, and when a point is no data rather than a measured zero is stated once in
+[usage-v1.md](usage-v1.md#document).
 
 ## Labels
 

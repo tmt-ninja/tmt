@@ -41,7 +41,7 @@ with Core's usual 15 seconds and 1 MiB per call:
   (`{input,output,cached}`, present only when `byModel` is not null and the rows sum to
   less than `totals`: what no model row covers), `lines` (the lines its tokens belong to,
   as `usage.lines[]` counts them: its models' families, plus `unattributed` for tokens no
-  model row covers; empty for a seat with no tokens), `series[]` (`{fromMs,toMs,input,output,cached,complete}`)
+  model row covers; empty for a seat with no tokens), `series[]` (`{fromMs,toMs,input,output,cached,coveredMs,complete}`)
   and `coverage` `{coveredMs,windowMs,startsAtMs,complete,gap}`. A `series[]` point also
   carries `serviceTier` (the provider's tier id, such as `default` or `priority`) when
   Core reports the tier of the seat's newest token-moving read in that bucket; absent is
@@ -50,7 +50,11 @@ with Core's usual 15 seconds and 1 MiB per call:
   start of its first rollup bucket with a successful read), but never before the
   window's own start. Earlier time was not recorded, and Core does not backfill it.
   Cached input is part of input; total is input plus output. An incomplete bucket is a
-  lower bound, not an error. `coverage.incompleteReason` is present when the seat's
+  lower bound, not an error. Core lists every bucket of the window, and `coveredMs` is the
+  bucket's coverage as Core reports it. **A point is no data only when its tokens are 0
+  and its `coveredMs` is 0** (the host was asleep, say); any other point, a zero with
+  coverage included, is a reading. A point without `coveredMs` comes from an older Digest
+  and reads as a reading. `coverage.incompleteReason` is present when the seat's
   newest reading in Core's closed history was incomplete and its driver named why
   (`latest.consumption.incompleteReason`; [values](../../../contracts/extension-api.md#consumption-history)).
   It describes that reading, not every incomplete bucket in the window.
@@ -186,8 +190,8 @@ JSON rows, so the two never disagree.
   when the flow could not be read.
 
 A text cell starting with `=`, `+`, `-`, `@`, tab or carriage return gets a leading
-`'`, so a spreadsheet never reads a name as a formula. CSV carries no `limits`;
-use `--json` for them.
+`'`, so a spreadsheet never reads a name as a formula. CSV carries no `limits`, no
+series (so no per-bucket `coveredMs`); use `--json` for them.
 
 ## Vector
 
