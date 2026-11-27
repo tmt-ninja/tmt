@@ -44,6 +44,50 @@ fn shell_prefixes_keep_the_command_and_distinguish_private_results() {
 }
 
 #[test]
+fn talk_command_submit_resolves_only_the_selected_member() {
+    use crate::board::{app::Effect, standalone::Task};
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let key = |code| KeyEvent::new(code, KeyModifiers::NONE);
+    for prefix in ["!", "！", "!!", "！！"] {
+        let mut app = app();
+        open(&mut app, "auth-fix");
+        let member = app
+            .input
+            .as_ref()
+            .unwrap()
+            .draft_key
+            .as_ref()
+            .unwrap()
+            .1
+            .clone();
+        for ch in format!("{prefix}pwd").chars() {
+            assert_eq!(app.input_key(key(KeyCode::Char(ch))), Effect::None);
+        }
+        assert!(!app.standalone.shown());
+        assert_eq!(
+            app.input_key(key(KeyCode::Enter)),
+            Effect::Standalone(Task::Target(member)),
+            "prefix {prefix} must resolve the member before any launch"
+        );
+    }
+}
+
+#[test]
+fn talk_command_submit_retains_the_exact_draft_while_admission_is_pending() {
+    use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+
+    let mut app = app();
+    open(&mut app, "auth-fix");
+    let draft = "！printf 'two  spaces'";
+    app.input.as_mut().unwrap().text = draft.into();
+
+    app.input_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+
+    assert_eq!(app.input.as_ref().unwrap().text.as_str(), draft);
+}
+
+#[test]
 fn shell_submission_is_once_per_member_and_private_results_never_attach() {
     use crate::board::app::Effect;
     use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
