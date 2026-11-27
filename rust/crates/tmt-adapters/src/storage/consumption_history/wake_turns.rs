@@ -194,7 +194,9 @@ pub(in crate::storage) fn close_started_before(
 }
 
 /// The turn's own share per model, or none when the start bucket's split cannot be taken out
-/// exactly: an unattributed share is unknown, never moved to another model.
+/// exactly: an unattributed share is unknown, never moved to another model. A cache-write
+/// count is optional evidence: it stays only when both sides reported it and the start
+/// bucket's share comes out without going negative; otherwise that count alone is unknown.
 fn subtract(mut rows: Vec<ModelUsage>, base: Option<&[ModelUsage]>) -> Option<Vec<ModelUsage>> {
     for old in base.unwrap_or_default() {
         let row = rows.iter_mut().find(|row| row.model_id == old.model_id)?;
@@ -203,12 +205,12 @@ fn subtract(mut rows: Vec<ModelUsage>, base: Option<&[ModelUsage]>) -> Option<Ve
         row.cached_input_tokens = row
             .cached_input_tokens
             .checked_sub(old.cached_input_tokens)?;
-        row.cache_write_tokens = None;
+        row.cache_write_tokens = row
+            .cache_write_tokens
+            .zip(old.cache_write_tokens)
+            .and_then(|(now, start)| now.checked_sub(start));
     }
     rows.retain(|row| row.input_tokens != 0 || row.output_tokens != 0);
-    for row in &mut rows {
-        row.cache_write_tokens = None;
-    }
     Some(rows)
 }
 
@@ -285,5 +287,76 @@ impl Storage {
             }));
         }
         Ok(json!({"fromMs": from_ms, "throughMs": through_ms, "turns": turns, "more": more}))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ModelUsage, subtract};
+
+    fn row(model: &str, input: u64, write: Option<u64>) -> ModelUsage {
+        ModelUsage {
+            model_id: model.into(),
+            input_tokens: input,
+            output_tokens: 10,
+            cached_input_tokens: 0,
+            cache_write_tokens: write,
+        }
+    }
+
+    #[test]
+    fn a_turns_cache_writes_are_its_buckets_less_the_start_buckets() {
+        let rows = subtract(
+            vec![
+                row("claude-opus-5-5", 1_000, Some(300)),
+                row("other", 50, Some(7)),
+            ],
+            Some(&[row("claude-opus-5-5", 400, Some(100))]),
+        )
+        .unwrap();
+        assert_eq!(rows[0].input_tokens, 600);
+        assert_eq!(rows[0].cache_write_tokens, Some(200));
+        // A model the start bucket did not have keeps its own count.
+        assert_eq!(rows[1].cache_write_tokens, Some(7));
+        // The output names the count as Digest reads it.
+        let json = serde_json::to_value(&rows[0]).unwrap();
+        assert_eq!(json["cacheWriteTokens"], 200);
+    }
+
+    #[test]
+    fn a_cache_write_count_unknown_on_either_side_stays_unknown() {
+        for (now, base) in [(None, Some(100)), (Some(300), None), (None, None)] {
+            let rows = subtract(
+                vec![row("claude-opus-5-5", 1_000, now)],
+                Some(&[row("claude-opus-5-5", 400, base)]),
+            )
+            .unwrap();
+            assert_eq!(rows[0].input_tokens, 600, "{now:?} {base:?}");
+            assert_eq!(rows[0].cache_write_tokens, None, "{now:?} {base:?}");
+            let json = serde_json::to_value(&rows[0]).unwrap();
+            assert!(
+                json.get("cacheWriteTokens").is_none(),
+                "absent, never null or 0"
+            );
+        }
+    }
+
+    #[test]
+    fn a_cache_write_count_that_would_go_negative_is_unknown_and_the_others_stand() {
+        let rows = subtract(
+            vec![row("claude-opus-5-5", 1_000, Some(50))],
+            Some(&[row("claude-opus-5-5", 400, Some(100))]),
+        )
+        .unwrap();
+        assert_eq!(rows[0].input_tokens, 600);
+        assert_eq!(rows[0].cache_write_tokens, None);
+    }
+
+    #[test]
+    fn a_row_stored_before_cache_writes_were_kept_still_reads_without_the_count() {
+        let stored = r#"[{"modelId":"claude-opus-5-5","inputTokens":600,"outputTokens":80,"cachedInputTokens":0}]"#;
+        let rows: Vec<ModelUsage> = serde_json::from_str(stored).unwrap();
+        assert_eq!(rows[0].cache_write_tokens, None);
+        assert_eq!(rows[0].input_tokens, 600);
     }
 }

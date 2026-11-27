@@ -584,3 +584,48 @@ fn coverage_says_where_the_evidence_begins_and_whether_it_has_a_gap() {
     );
     assert_eq!(gap["collectedThroughMs"], 900_000);
 }
+
+/// Core's wake-turn rows now keep Claude's cache writes (#6860): the same turn read from a
+/// page with the count is priced exactly at the write rate, and without it is a floor.
+#[test]
+fn a_claude_wake_up_with_its_reported_cache_writes_is_exact_not_a_floor() {
+    let mut item = checklist(
+        1,
+        50_000,
+        60_000,
+        &[20_000, 30_000, 40_000],
+        "delivered",
+        true,
+    );
+    for message in &mut item.items {
+        message.phase_at_arrival = Some("idle".into());
+    }
+    let settlements = [(A.to_owned(), item)];
+    let page = |cache_write: Option<u64>| {
+        let mut row = json!({"modelId": "claude-opus-5-5", "inputTokens": 1_000,
+            "outputTokens": 100, "cachedInputTokens": 300});
+        if let Some(count) = cache_write {
+            row["cacheWriteTokens"] = json!(count);
+        }
+        json!({"fromMs": 0, "throughMs": 100_000, "more": false, "turns": [{
+            "identityId": A, "startedAtMs": 45_000, "endedAtMs": 50_000,
+            "requestIds": ["r1"], "measured": true,
+            "tokens": {"inputTokens": 1_000, "outputTokens": 100, "cachedInputTokens": 300},
+            "byModel": [row]}]})
+    };
+    let cost = |cache_write| {
+        let (turns, _) = wake::parse(&page(cache_write)).unwrap();
+        run_with_wake(&settlements, &[], None, Some(&turns))["members"][0]["wakeUps"]["costPerWake"]
+            .clone()
+    };
+    // 500 uncached x 4 + 300 cached x 0.2 + 200 written x 5 + 100 output x 20.
+    assert_eq!(
+        cost(Some(200)),
+        json!({"medianUsdMicros": 5_060, "priced": 1, "reason": null, "lowerBound": false})
+    );
+    // An older Core sends no count: all 700 uncached at the input rate, marked a floor.
+    assert_eq!(
+        cost(None),
+        json!({"medianUsdMicros": 4_860, "priced": 1, "reason": null, "lowerBound": true})
+    );
+}
