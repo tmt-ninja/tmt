@@ -1002,8 +1002,13 @@ fn a_partly_attributed_seat_names_its_remainder_and_keeps_it_on_the_unattributed
     let seat = &document["usage"]["seats"][0];
     assert_eq!(
         seat["byModel"],
-        json!([{"modelId": "gpt-6.1-sol", "input": 6, "output": 1, "cached": 1, "cacheWrite": null}])
+        json!([{"modelId": "gpt-6.1-sol", "input": 6, "output": 1, "cached": 1, "cacheWrite": null,
+            // 5 uncached x 2 + 1 cached x 0.1 + 1 output x 10 = 20.1, writes unreported.
+            "cost": {"usdMicros": 20, "lowerBound": true}, "costUnavailable": []}])
     );
+    // Its row is priced, but tokens no row covers leave the seat's total unknown.
+    assert_eq!(seat["cost"], Value::Null);
+    assert_eq!(seat["costUnavailable"], json!(["unattributed"]));
     assert_eq!(
         seat["unattributed"],
         json!({"input": 4, "output": 1, "cached": 3})
@@ -1342,4 +1347,37 @@ fn a_reported_cache_write_is_priced_and_one_beyond_the_input_is_refused() {
         "modelId": "claude-opus-5-5", "inputTokens": 6, "outputTokens": 1,
         "cachedInputTokens": 5, "cacheWriteTokens": 2}]);
     assert!(model::usage(&totals, &series, &ids, &labels).is_err());
+}
+
+#[test]
+fn a_seat_total_sums_its_rows_with_tokens_and_an_empty_unpriced_row_does_not_block_it() {
+    let document = attributed_as(json!([
+        {"modelId": "claude-opus-5-5", "inputTokens": 10, "outputTokens": 2,
+            "cachedInputTokens": 4, "cacheWriteTokens": 1},
+        {"modelId": "gemini-4-hydrogen", "inputTokens": 0, "outputTokens": 0,
+            "cachedInputTokens": 0},
+        {"modelId": "unknown-model", "inputTokens": 0, "outputTokens": 0,
+            "cachedInputTokens": 0}
+    ]));
+    let seat = &document["usage"]["seats"][0];
+    // The fixture's total is 10/2/4, all on Opus: 5 uncached x 4 + 4 cached x 0.2
+    // + 1 written x 5 + 2 output x 20 = 65.8.
+    assert_eq!(
+        seat["byModel"][0]["cost"],
+        json!({"usdMicros": 66, "lowerBound": false})
+    );
+    assert_eq!(seat["byModel"][2]["cost"], Value::Null);
+    assert_eq!(seat["byModel"][2]["costUnavailable"], json!(["no_price"]));
+    assert_eq!(seat["cost"], json!({"usdMicros": 66, "lowerBound": false}));
+    assert_eq!(seat["costUnavailable"], json!([]));
+    // An unpriced row that has tokens does block it, with its reason.
+    let document = attributed_as(json!([
+        {"modelId": "claude-opus-5-5", "inputTokens": 9, "outputTokens": 2,
+            "cachedInputTokens": 4, "cacheWriteTokens": 1},
+        {"modelId": "unknown-model", "inputTokens": 1, "outputTokens": 0,
+            "cachedInputTokens": 0}
+    ]));
+    let seat = &document["usage"]["seats"][0];
+    assert_eq!(seat["cost"], Value::Null);
+    assert_eq!(seat["costUnavailable"], json!(["no_price"]));
 }

@@ -734,15 +734,23 @@ fn seat_lines(seat: &Seat) -> Vec<&'static str> {
     lines.into_iter().collect()
 }
 
-fn seat_json(seat: &Seat) -> Value {
+/// Copies `fields`' keys onto `row`.
+fn merge(row: &mut Value, fields: &Value) {
+    for (key, field) in fields.as_object().into_iter().flatten() {
+        row[key] = field.clone();
+    }
+}
+
+fn seat_json(seat: &Seat, costs: &costs::SeatCosts) -> Value {
     let mut value = json!({
         "id": seat.label.id, "name": seat.label.name, "retired": seat.label.retired,
         "totals": seat.totals.json(),
         "lines": seat_lines(seat),
-        "byModel": seat.by_model.as_ref().map(|models| models.iter().map(|model| {
+        "byModel": seat.by_model.as_ref().map(|models| models.iter().zip(&costs.rows).map(|(model, cost)| {
             let mut row = model.tokens.json();
             row["cacheWrite"] = json!(model.cache_write);
             row["modelId"] = json!(model.model_id);
+            merge(&mut row, cost);
             row
         }).collect::<Vec<_>>()),
         "series": seat.series.iter().map(|point| {
@@ -763,6 +771,7 @@ fn seat_json(seat: &Seat) -> Value {
     if let Some(reason) = &seat.incomplete_reason {
         value["coverage"]["incompleteReason"] = json!(reason);
     }
+    merge(&mut value, &costs.total);
     // Only a seat that is partly attributed names its remainder; a seat with no
     // `byModel` is unattributed as a whole.
     if seat.by_model.is_some()
@@ -798,20 +807,21 @@ pub fn usage_sections(
     as_of_ms: u64,
 ) -> Result<(Value, Vec<Value>, Vec<Value>), Error> {
     let grouped = lines(&usage.seats)?;
-    let (models, line_costs) = costs::section(&usage.seats, prices, as_of_ms)?;
+    let costs = costs::section(&usage.seats, prices, as_of_ms)?;
     let answers = usage.accounts.as_deref().unwrap_or_default();
     let section = json!({
-        "seats": usage.seats.iter().map(seat_json).collect::<Vec<_>>(),
+        "seats": usage.seats.iter().zip(&costs.seats).map(|(seat, costs)| seat_json(seat, costs))
+            .collect::<Vec<_>>(),
         "unavailable": usage.unavailable.iter().map(unavailable_json).collect::<Vec<_>>(),
         "otherSessions": other_sessions(),
-        "models": models,
+        "models": costs.models,
         "lines": grouped.iter().map(|(name, line)| {
             let mut row = json!({
                 "line": name, "totals": line.tokens.json(),
                 "seats": line.seats.len(), "partialSeats": line.partial.len(),
             });
-            for (key, field) in line_costs.get(name).and_then(Value::as_object).into_iter().flatten() {
-                row[key] = field.clone();
+            if let Some(cost) = costs.lines.get(name) {
+                merge(&mut row, cost);
             }
             row
         }).collect::<Vec<_>>(),

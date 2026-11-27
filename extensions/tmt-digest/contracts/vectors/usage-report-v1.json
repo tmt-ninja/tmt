@@ -525,7 +525,12 @@
                   "input": 1000,
                   "output": 200,
                   "cached": 600,
-                  "cacheWrite": 100
+                  "cacheWrite": 100,
+                  "cost": {
+                    "usdMicros": 5820,
+                    "lowerBound": false
+                  },
+                  "costUnavailable": []
                 }
               ],
               "series": [
@@ -554,7 +559,12 @@
                 "startsAtMs": 1799913600000,
                 "complete": true,
                 "gap": false
-              }
+              },
+              "cost": {
+                "usdMicros": 5820,
+                "lowerBound": false
+              },
+              "costUnavailable": []
             },
             {
               "id": "10000000-0000-4000-8000-000000000002",
@@ -574,14 +584,24 @@
                   "input": 3000,
                   "output": 500,
                   "cached": 2000,
-                  "cacheWrite": null
+                  "cacheWrite": null,
+                  "cost": {
+                    "usdMicros": 7200,
+                    "lowerBound": true
+                  },
+                  "costUnavailable": []
                 },
                 {
                   "modelId": "gpt-6-astra",
                   "input": 2000,
                   "output": 300,
                   "cached": 1000,
-                  "cacheWrite": null
+                  "cacheWrite": null,
+                  "cost": {
+                    "usdMicros": 26000,
+                    "lowerBound": true
+                  },
+                  "costUnavailable": []
                 }
               ],
               "series": [
@@ -612,7 +632,12 @@
                 "startsAtMs": 1799913600000,
                 "complete": true,
                 "gap": false
-              }
+              },
+              "cost": {
+                "usdMicros": 33200,
+                "lowerBound": true
+              },
+              "costUnavailable": []
             },
             {
               "id": "10000000-0000-4000-8000-000000000003",
@@ -645,7 +670,11 @@
                 "startsAtMs": 1799917200000,
                 "complete": false,
                 "gap": true
-              }
+              },
+              "cost": null,
+              "costUnavailable": [
+                "unattributed"
+              ]
             },
             {
               "id": "10000000-0000-4000-8000-000000000005",
@@ -665,7 +694,12 @@
                   "input": 50,
                   "output": 10,
                   "cached": 0,
-                  "cacheWrite": null
+                  "cacheWrite": null,
+                  "cost": {
+                    "usdMicros": 200,
+                    "lowerBound": true
+                  },
+                  "costUnavailable": []
                 }
               ],
               "series": [
@@ -685,7 +719,12 @@
                 "startsAtMs": 1799913600000,
                 "complete": false,
                 "gap": false
-              }
+              },
+              "cost": {
+                "usdMicros": 200,
+                "lowerBound": true
+              },
+              "costUnavailable": []
             }
           ],
           "unavailable": [
@@ -2028,7 +2067,12 @@
                   "input": 1000,
                   "output": 200,
                   "cached": 600,
-                  "cacheWrite": 100
+                  "cacheWrite": 100,
+                  "cost": {
+                    "usdMicros": 5820,
+                    "lowerBound": false
+                  },
+                  "costUnavailable": []
                 }
               ],
               "series": [
@@ -2057,7 +2101,12 @@
                 "startsAtMs": 1799913600000,
                 "complete": true,
                 "gap": false
-              }
+              },
+              "cost": {
+                "usdMicros": 5820,
+                "lowerBound": false
+              },
+              "costUnavailable": []
             },
             {
               "id": "10000000-0000-4000-8000-000000000002",
@@ -2077,14 +2126,24 @@
                   "input": 3000,
                   "output": 500,
                   "cached": 2000,
-                  "cacheWrite": null
+                  "cacheWrite": null,
+                  "cost": {
+                    "usdMicros": 7200,
+                    "lowerBound": true
+                  },
+                  "costUnavailable": []
                 },
                 {
                   "modelId": "gpt-6-astra",
                   "input": 2000,
                   "output": 300,
                   "cached": 1000,
-                  "cacheWrite": null
+                  "cacheWrite": null,
+                  "cost": {
+                    "usdMicros": 26000,
+                    "lowerBound": true
+                  },
+                  "costUnavailable": []
                 }
               ],
               "series": [
@@ -2115,7 +2174,12 @@
                 "startsAtMs": 1799913600000,
                 "complete": true,
                 "gap": false
-              }
+              },
+              "cost": {
+                "usdMicros": 33200,
+                "lowerBound": true
+              },
+              "costUnavailable": []
             },
             {
               "id": "10000000-0000-4000-8000-000000000003",
@@ -2135,7 +2199,12 @@
                   "input": 100,
                   "output": 20,
                   "cached": 0,
-                  "cacheWrite": null
+                  "cacheWrite": null,
+                  "cost": {
+                    "usdMicros": 300,
+                    "lowerBound": false
+                  },
+                  "costUnavailable": []
                 }
               ],
               "series": [
@@ -2155,7 +2224,12 @@
                 "startsAtMs": 1799917200000,
                 "complete": false,
                 "gap": true
-              }
+              },
+              "cost": {
+                "usdMicros": 300,
+                "lowerBound": false
+              },
+              "costUnavailable": []
             },
             {
               "id": "10000000-0000-4000-8000-000000000005",
@@ -2175,7 +2249,11 @@
                   "input": 50,
                   "output": 10,
                   "cached": 0,
-                  "cacheWrite": null
+                  "cacheWrite": null,
+                  "cost": null,
+                  "costUnavailable": [
+                    "no_price"
+                  ]
                 }
               ],
               "series": [
@@ -2195,7 +2273,11 @@
                 "startsAtMs": 1799913600000,
                 "complete": false,
                 "gap": false
-              }
+              },
+              "cost": null,
+              "costUnavailable": [
+                "no_price"
+              ]
             }
           ],
           "unavailable": [

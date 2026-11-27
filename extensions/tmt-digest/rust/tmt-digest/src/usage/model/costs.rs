@@ -67,14 +67,30 @@ struct Model {
     cost: Cost,
 }
 
-/// The `usage.models` rows, ascending by model id, and each line's cost by line name.
-pub(super) fn section(
-    seats: &[Seat],
-    prices: &Table,
-    at_ms: u64,
-) -> Result<(Vec<Value>, BTreeMap<&'static str, Value>), Error> {
+/// One seat's costs: `cost` and `costUnavailable` for each `byModel` row in order, and for
+/// the seat. The seat's total sums the rows with tokens; an unpriced one, or tokens no row
+/// covers (`unattributed`), leaves it null with every reason.
+pub(super) struct SeatCosts {
+    pub rows: Vec<Value>,
+    pub total: Value,
+}
+
+/// The report's costs. Every seat share is quoted once and summed into all three.
+pub(super) struct Costs {
+    /// The `usage.models` rows, ascending by model id.
+    pub models: Vec<Value>,
+    /// Each line's `cost` and `costUnavailable`, by line name.
+    pub lines: BTreeMap<&'static str, Value>,
+    /// Each seat's costs, in seat order.
+    pub seats: Vec<SeatCosts>,
+}
+
+pub(super) fn section(seats: &[Seat], prices: &Table, at_ms: u64) -> Result<Costs, Error> {
     let mut models = BTreeMap::<&str, Model>::new();
+    let mut seat_costs = Vec::with_capacity(seats.len());
     for seat in seats {
+        let mut total = Cost::default();
+        let mut row_fields = Vec::new();
         for model in seat.by_model.iter().flatten() {
             let row = models.entry(&model.model_id).or_insert_with(|| Model {
                 line: line_of(&model.model_id),
@@ -97,7 +113,8 @@ pub(super) fn section(
             }
             // Each seat's share is quoted on its own, so one seat's unreported cache writes
             // make only its own share a floor.
-            row.cost.add(prices.quote(
+            let mut share = Cost::default();
+            share.add(prices.quote(
                 &model.model_id,
                 at_ms,
                 pricing::Tokens {
@@ -107,7 +124,24 @@ pub(super) fn section(
                     output: model.tokens.output,
                 },
             ));
+            row.cost.merge(&share);
+            // A row with no tokens costs nothing and never blocks its seat's total.
+            if !model.tokens.is_zero() {
+                total.merge(&share);
+            }
+            let mut fields = json!({});
+            share.fields(&mut fields);
+            row_fields.push(fields);
         }
+        if !seat.unattributed()?.is_zero() {
+            total.reasons.insert(UNATTRIBUTED);
+        }
+        let mut fields = json!({});
+        total.fields(&mut fields);
+        seat_costs.push(SeatCosts {
+            rows: row_fields,
+            total: fields,
+        });
     }
     let mut lines = BTreeMap::<&'static str, Cost>::new();
     let mut rows = Vec::with_capacity(models.len());
@@ -132,5 +166,9 @@ pub(super) fn section(
             (name, fields)
         })
         .collect();
-    Ok((rows, line_costs))
+    Ok(Costs {
+        models: rows,
+        lines: line_costs,
+        seats: seat_costs,
+    })
 }
