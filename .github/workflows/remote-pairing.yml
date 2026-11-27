@@ -4,6 +4,9 @@ on:
     paths:
       - 'extensions/tmt-remote/rust/**'
       - 'extensions/tmt-remote/typescript/remote-client/**'
+      - 'extensions/tmt-digest/pricing/**'
+      - 'extensions/tmt-digest/contracts/**'
+      - 'contracts/owner-reads-v1.json'
       - '.github/workflows/remote-pairing.yml'
       - '.github/actions/setup-tooling/**'
       - '.github/actions/install-chromium-deps/**'
