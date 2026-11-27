@@ -20,8 +20,9 @@ use toml_edit::{Item, TableLike};
 const MAX_COLUMNS: usize = 12;
 const MAX_LINES: usize = 4;
 const MAX_WIDTH: i64 = 200;
-/// Fields kept as Squad-owned data. A bound value cannot replace them.
-/// Legacy names remain reserved when parsing existing configuration.
+/// Fields kept as Squad's own data (the name, free-text role, a state's
+/// order and color, a decision owed). A bound value replaces the field of its
+/// column's name, so these cannot be bound. Retired `note` remains reserved.
 pub(crate) const OWN_FIELDS: &[&str] = &["member", "role", "state", "pending", "note"];
 /// Where a growing column starts, and the least an unsized one keeps.
 pub(super) const NARROWEST: usize = 4;
@@ -219,7 +220,7 @@ pub struct Rows {
 }
 
 impl Rows {
-    /// Every preset's rows: the name, state and pull request.
+    /// Every preset's rows: the name, state, task and pull request.
     pub fn preset() -> Self {
         // On a narrow board the link steps aside before anything is cut off.
         let mut link = Column::sized("pr_link", "PR", Some(Basis::Cells(12)));
@@ -227,6 +228,7 @@ impl Rows {
         Self::with_one_line(vec![
             Column::sized("member", "MEMBER", Some(Basis::Cells(14))),
             Column::sized("state", "STATE", Some(Basis::Cells(10))),
+            Column::sized("task", "TASK", None),
             link,
         ])
     }
@@ -237,6 +239,7 @@ impl Rows {
             Column::sized("squad", "SQUAD", Some(Basis::Cells(14))),
             Column::sized("member", "LEAD", Some(Basis::Cells(14))),
             Column::sized("state", "STATE", Some(Basis::Cells(10))),
+            Column::sized("task", "TASK", None),
         ])
     }
 
@@ -590,69 +593,7 @@ pub fn read_with_windows(
             )));
         }
     }
-    result.omit_retired();
     Ok(result)
-}
-
-impl Rows {
-    fn omit_retired(&mut self) {
-        use crate::squad::{retired_field, retired_metadata};
-        let retired_sources = |source: &ColumnSource| {
-            source.path.strip_prefix("meta.").is_some_and(|key| {
-                retired_metadata(key) || key.strip_prefix("squad.").is_some_and(retired_field)
-            }) || source
-                .path
-                .strip_prefix("fields.")
-                .is_some_and(retired_field)
-        };
-        let retired: std::collections::HashSet<_> = self
-            .columns
-            .iter()
-            .filter(|column| {
-                retired_field(&column.field) || column.from.as_ref().is_some_and(retired_sources)
-            })
-            .map(|column| column.field.clone())
-            .collect();
-        let kept: Vec<_> = self
-            .columns
-            .iter()
-            .map(|column| !retired.contains(&column.field))
-            .collect();
-        for line in &mut self.lines {
-            let mut offset = 0;
-            line.retain_mut(|cell| {
-                let end = offset + cell.span;
-                cell.span = kept[offset..end].iter().filter(|keep| **keep).count();
-                offset = end;
-                if cell
-                    .field
-                    .as_ref()
-                    .is_some_and(|field| retired_field(field) || retired.contains(field))
-                {
-                    cell.field = None;
-                    cell.token = None;
-                }
-                cell.span > 0
-            });
-        }
-        self.lines
-            .retain(|line| line.iter().any(|cell| cell.field.is_some()));
-        self.columns
-            .retain(|column| !retired.contains(&column.field));
-        self.hidden_columns.retain(|key| !retired.contains(key));
-        if self.lines.is_empty() {
-            *self = Self::with_one_line(vec![Column::sized(
-                "member",
-                "MEMBER",
-                Some(Basis::Cells(14)),
-            )]);
-        } else if self.columns[..self.covered_tracks()]
-            .iter()
-            .all(|column| self.hidden_columns.contains(&column.field))
-        {
-            self.hidden_columns.clear();
-        }
-    }
 }
 
 fn read_rows(
@@ -764,16 +705,7 @@ fn read_column(
                 column.from = Some(
                     value
                         .as_str()
-                        .and_then(|path| {
-                            ColumnSource::parse(
-                                path,
-                                |field| {
-                                    field_name(field)
-                                        || crate::squad::retired_metadata(&format!("squad.{field}"))
-                                },
-                                provided,
-                            )
-                        })
+                        .and_then(|path| ColumnSource::parse(path, field_name, provided))
                         .ok_or_else(|| invalid(format!("`{place}` must be one of: {PATHS}.")))?,
                 );
             }

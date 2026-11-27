@@ -167,14 +167,11 @@ fn first_observation_is_fresh_and_the_exact_threshold_is_stale_across_reopens() 
 }
 
 #[test]
-fn only_manual_state_or_changed_note_content_reset_their_own_clock() {
+fn only_raw_task_state_or_changed_note_content_reset_their_own_clock() {
     let fixture = Fixture::new();
     let mut rows = members();
     fixture.record(&rows, Some(&notes("one")), None, 1000);
     rows[1].fields.insert("note".into(), "new row note".into());
-    rows[1]
-        .fields
-        .insert("task".into(), "old task edited".into());
     rows[1]
         .fields
         .insert("pr_link".into(), "https://example.com/pull/1".into());
@@ -444,7 +441,7 @@ fn successful_pr_transitions_persist_evidence_until_the_raw_row_changes() {
         expired.members[MEMBER]["reasons"],
         merged.members[MEMBER]["reasons"]
     );
-    rows[1].fields.insert("state".into(), "review".into());
+    rows[1].fields.insert("task".into(), "next task".into());
     let updated = fixture
         .observer()
         .record(&rows, &providers, &cache, None, None, 71_000);
@@ -514,7 +511,7 @@ fn unchanged_observation_keeps_cache_until_the_watermark_is_due() {
     assert_ne!(fs::read(&path).unwrap(), bytes);
     let watermark_bytes = fs::read(&path).unwrap();
     let mut changed = rows.clone();
-    changed[1].fields.insert("state".into(), "review".into());
+    changed[1].fields.insert("task".into(), "new task".into());
     let update = fixture.record(
         &changed,
         Some(&content),
@@ -610,7 +607,7 @@ fn reminder_requires_eligible_age_and_commits_each_generation_before_returning()
         None,
         "ordinary observations preserve claims"
     );
-    rows[1].fields.insert("state".into(), "review".into());
+    rows[1].fields.insert("task".into(), "new task".into());
     assert_eq!(fixture.claim(&rows, None, 66_000), None);
     rows[1]
         .fields
@@ -877,7 +874,7 @@ fn only_authoritative_idle_after_the_update_is_retained_for_the_roster_only_hook
         LEAD,
     );
     assert_eq!(claim.unwrap().members, [MEMBER]);
-    rows[1].fields.insert("state".into(), "review".into());
+    rows[1].fields.insert("task".into(), "new task".into());
     let doc = fixture.document(&fixture.record(&rows, None, None, 62_000), &rows);
     assert_eq!(
         doc["sections"][0]["rows"][0]["staleness"]["reasons"],

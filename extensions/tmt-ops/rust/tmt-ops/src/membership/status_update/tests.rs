@@ -19,6 +19,7 @@ fn preview(fixture: &Fixture) -> Preview {
 fn submit(preview: Preview) -> Submit {
     Submit {
         preview,
+        clear_pending: true,
         state: Some("working".into()),
         reason: "Approval recorded".into(),
     }
@@ -46,7 +47,7 @@ fn exact_selected_fields_apply_before_one_uuid_announcement() {
     let model = fixture.model();
     assert_eq!(
         model["members"][2]["metadata"],
-        json!({"squad.product.state":"working","squad.product.pending":"approve","squad.product.task":"review","squad.other.pending":"unrelated"})
+        json!({"squad.product.state":"working","squad.product.task":"review","squad.other.pending":"unrelated"})
     );
     let notice = &model["notices"][0];
     assert_eq!(notice["identity"], USER);
@@ -54,7 +55,7 @@ fn exact_selected_fields_apply_before_one_uuid_announcement() {
     assert_eq!(notice["input"]["kind"], "announcement");
     assert_eq!(
         notice["input"]["message"],
-        "Ben updated board status for product/worker\nstate: blocked → working\nReason: Approval recorded"
+        "Ben updated board status for product/worker\npending: approve → (empty)\nstate: blocked → working\nReason: Approval recorded"
     );
     let sequence: Vec<_> = model["calls"]
         .as_array()
@@ -68,7 +69,7 @@ fn exact_selected_fields_apply_before_one_uuid_announcement() {
     );
 }
 #[test]
-fn conflict_keeps_state_refreshes_raw_preview_and_never_notifies() {
+fn conflict_changes_neither_field_refreshes_raw_preview_and_never_notifies() {
     let fixture = fixture();
     let draft = submit(preview(&fixture));
     fixture.change_model(|model| {
@@ -79,6 +80,7 @@ fn conflict_keeps_state_refreshes_raw_preview_and_never_notifies() {
         panic!("{outcome:?}")
     };
     assert_eq!(current.state.as_deref(), Some("review"));
+    assert_eq!(current.pending.as_deref(), Some("approve"));
     assert_eq!(calls(&fixture, "dispatch.create"), 0);
     assert_eq!(calls(&fixture, "identity.meta.apply"), 1);
     assert!(matches!(
@@ -211,7 +213,7 @@ fn namespace_room_actor_and_retired_uuid_changes_refuse_before_apply() {
         let mut opening = preview(&fixture);
         match field {
             "namespace" => opening.namespace = "squad.other.".into(),
-            "key" => opening.key = "squad.other.state".into(),
+            "key" => opening.keys[0] = "squad.other.pending".into(),
             "room" => fixture.change_model(|model| model["room"] = json!("different")),
             "actor" => opening.target.actor = WORKER.into(),
             "retired" => fixture.change_model(|model| model["retired"] = json!([WORKER])),
@@ -226,20 +228,22 @@ fn namespace_room_actor_and_retired_uuid_changes_refuse_before_apply() {
     }
 }
 #[test]
-fn state_updates_require_an_explicit_replacement_and_compare_absence() {
+fn absence_is_not_legacy_empty_and_pending_clear_never_infers_state() {
     let fixture = fixture();
     let opening = preview(&fixture);
     for raw in ["", "bad\nvalue"] {
         let mut draft = submit(opening.clone());
-        draft.preview.state = Some(raw.into());
+        draft.preview.pending = Some(raw.into());
         assert!(
             matches!(apply(&fixture.core,&draft),Outcome::Refused(message) if message.contains("Unsupported"))
         );
     }
     let mut draft = submit(opening);
     draft.state = None;
-    assert!(matches!(apply(&fixture.core, &draft), Outcome::Refused(_)));
-    assert_eq!(calls(&fixture, "identity.meta.apply"), 0);
+    assert!(matches!(
+        apply(&fixture.core, &draft),
+        Outcome::Applied { .. }
+    ));
     assert_eq!(
         fixture.model()["members"][2]["metadata"]["squad.product.state"],
         "blocked"
@@ -248,6 +252,7 @@ fn state_updates_require_an_explicit_replacement_and_compare_absence() {
     absent.state = None;
     let changes = Submit {
         preview: absent,
+        clear_pending: false,
         state: Some("done".into()),
         reason: "explicit choice".into(),
     }
@@ -264,29 +269,58 @@ fn state_updates_require_an_explicit_replacement_and_compare_absence() {
 }
 
 #[test]
-fn retired_metadata_changes_do_not_conflict_with_a_state_replacement() {
+fn selected_noop_values_still_guard_the_atomic_update_against_intervening_changes() {
+    for absent_pending in [false, true] {
+        let fixture = fixture();
+        if absent_pending {
+            fixture.change_model(|model| {
+                model["members"][2]["metadata"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("squad.product.pending");
+            });
+        }
+        let mut draft = submit(preview(&fixture));
+        let key = if absent_pending {
+            "squad.product.pending"
+        } else {
+            draft.state = draft.preview.state.clone();
+            "squad.product.state"
+        };
+        fixture.change_model(|model| {
+            model["members"][2]["metadata"][key] = json!("intervening");
+        });
+        let before = fixture.model()["members"][2]["metadata"].clone();
+        assert!(matches!(
+            apply(&fixture.core, &draft),
+            Outcome::Conflict(Ok(_))
+        ));
+        assert_eq!(fixture.model()["members"][2]["metadata"], before);
+        assert_eq!(calls(&fixture, "dispatch.create"), 0);
+    }
+}
+
+#[test]
+fn selected_noops_are_checked_but_only_changed_fields_are_announced() {
     let fixture = fixture();
-    let draft = submit(preview(&fixture));
-    fixture.change_model(|model| {
-        model["members"][2]["metadata"]["squad.product.pending"] = json!("intervening");
-    });
+    let mut draft = submit(preview(&fixture));
+    draft.state = draft.preview.state.clone();
     assert!(matches!(
         apply(&fixture.core, &draft),
         Outcome::Applied { .. }
     ));
+    let model = fixture.model();
     assert_eq!(
-        fixture.model()["members"][2]["metadata"]["squad.product.pending"],
-        "intervening"
+        model["members"][2]["metadata"]["squad.product.state"],
+        "blocked"
     );
+    assert_eq!(
+        model["notices"][0]["input"]["message"],
+        "Ben updated board status for product/worker\npending: approve → (empty)\nReason: Approval recorded"
+    );
+    let mut noop = submit(preview(&fixture));
+    noop.state = noop.preview.state.clone();
+    assert!(matches!(apply(&fixture.core, &noop), Outcome::Refused(_)));
     assert_eq!(calls(&fixture, "identity.meta.apply"), 1);
-}
-
-#[test]
-fn replacing_state_with_the_same_value_never_writes_or_notifies() {
-    let fixture = fixture();
-    let mut draft = submit(preview(&fixture));
-    draft.state = draft.preview.state.clone();
-    assert!(matches!(apply(&fixture.core, &draft), Outcome::Refused(_)));
-    assert_eq!(calls(&fixture, "identity.meta.apply"), 0);
-    assert_eq!(calls(&fixture, "dispatch.create"), 0);
+    assert_eq!(calls(&fixture, "dispatch.create"), 1);
 }

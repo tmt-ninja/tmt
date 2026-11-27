@@ -1,5 +1,5 @@
 //! Section filters: a small boolean language over row fields, e.g.
-//! `waiting_on_you or state = blocked`, `not presence = offline and (role != lead)`.
+//! `pending or state = blocked`, `not presence = offline and (role != lead)`.
 //! It compares text only; it never evaluates code or reaches outside a row.
 
 const MAX_LENGTH: usize = 1024;
@@ -20,7 +20,6 @@ impl<T: Row + ?Sized> Row for &T {
 impl Row for serde_json::Value {
     fn value(&self, field: &str) -> Option<&str> {
         match field {
-            field if crate::squad::retired_field(field) => None,
             "name" | "member" => self["name"].as_str(),
             "waiting_on_you" => self["waitingOnYou"]
                 .as_array()

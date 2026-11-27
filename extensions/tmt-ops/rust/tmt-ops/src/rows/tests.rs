@@ -16,12 +16,12 @@ const HANDBOOK: &str = r#"
 columns = [
   { name = "member", min = 10 },
   { name = "state",  width = 9 },
-  { name = "topic",   grow = 1, min = 12 },
+  { name = "task",   grow = 1, min = 12 },
   { name = "pr",     width = 10, align = "right", priority = 2 },
 ]
 lines = [
-  ["member", "state", "topic", "pr"],
-  ["",       { field = "summary", span = 3 }],
+  ["member", "state", "task", "pr"],
+  ["",       { field = "pending", span = 3 }],
 ]
 "#;
 
@@ -33,7 +33,7 @@ fn the_handbook_example_reads_as_columns_and_lines_with_a_span() {
             .iter()
             .map(|c| c.field.as_str())
             .collect::<Vec<_>>(),
-        ["member", "state", "topic", "pr"]
+        ["member", "state", "task", "pr"]
     );
     assert_eq!(rows.columns[3].align, Align::Right);
     assert_eq!(rows.columns[3].priority, Some(2));
@@ -47,17 +47,17 @@ fn the_handbook_example_reads_as_columns_and_lines_with_a_span() {
                 token: None
             },
             Cell {
-                field: Some("summary".into()),
+                field: Some("pending".into()),
                 span: 3,
                 token: None
             }
         ]
     );
-    assert_eq!(rows.fields(), ["member", "state", "topic", "pr", "summary"]);
+    assert_eq!(rows.fields(), ["member", "state", "task", "pr", "pending"]);
     let value = rows.value();
     assert_eq!(value["columns"][2]["grow"], 1);
     assert_eq!(value["columns"][3]["align"], "right");
-    assert_eq!(value["lines"][1][1], json!({"field": "summary", "span": 3}));
+    assert_eq!(value["lines"][1][1], json!({"field": "pending", "span": 3}));
     assert_eq!(value["lines"][1][0], json!({"field": null, "span": 1}));
 }
 
@@ -77,11 +77,8 @@ fn columns_become_solver_tracks() {
         }
     );
     assert_eq!(rows.columns[1].track(99), Track::fixed(9).with_max(None));
-    let topic = rows.columns[2].track(40);
-    assert_eq!(
-        (topic.basis, topic.min, topic.grow),
-        (Basis::Cells(0), 12, 1)
-    );
+    let task = rows.columns[2].track(40);
+    assert_eq!((task.basis, task.min, task.grow), (Basis::Cells(0), 12, 1));
     let bare = parse("[p.rows]\ncolumns = [{ name = \"note\" }]\n").unwrap();
     assert_eq!(
         bare.columns[0].track(2).min,
@@ -109,13 +106,8 @@ fn the_preset_and_the_older_columns_table_read_as_the_same_model() {
     assert_eq!(preset.lines.len(), 1);
     // A width is fixed; no width grows into what is left, from four cells.
     assert_eq!(preset.columns[0].track(3), Track::fixed(14).with_max(None));
-    assert_eq!(
-        preset.columns[2].track(80),
-        Track {
-            priority: Some(1),
-            ..Track::fixed(12).with_max(None)
-        }
-    );
+    let task = preset.columns[2].track(80);
+    assert_eq!((task.basis, task.min, task.grow), (Basis::Cells(0), 4, 1));
     let legacy = parse(
         "[p.columns]\nshow = [\"member\", \"note\"]\nnote = { title = \"WHY\", width = 30 }\n",
     )
@@ -141,7 +133,7 @@ fn the_preset_and_the_older_columns_table_read_as_the_same_model() {
     );
     assert_eq!(link.columns[0].priority, None);
     let tables = parse(
-        "[[p.rows.columns]]\nname = \"member\"\n[[p.rows.columns]]\nname = \"topic\"\ngrow = 2\n",
+        "[[p.rows.columns]]\nname = \"member\"\n[[p.rows.columns]]\nname = \"task\"\ngrow = 2\n",
     )
     .unwrap();
     assert_eq!(tables.columns[1].grow, 2);
@@ -333,7 +325,7 @@ fn percentage_and_overflow_settings_are_validated_and_published() {
     let rows = parse(
         r#"[p.rows]
 columns = [{ name = "member", width = "30%", min = 3, max = 20 },
-           { name = "topic", width = "70%", overflow = "wrap" }]
+           { name = "task", width = "70%", overflow = "wrap" }]
 "#,
     )
     .unwrap();
@@ -352,9 +344,9 @@ columns = [{ name = "member", width = "30%", min = 3, max = 20 },
     assert_eq!(decoded.track(90), rows.columns[0].track(90));
     let legacy = parse(
         r#"[p.columns]
-show = ["member", "topic"]
+show = ["member", "task"]
 member = { width = "30%" }
-topic = { width = "70%", overflow = "wrap", max_lines = 8 }
+task = { width = "70%", overflow = "wrap", max_lines = 8 }
 "#,
     )
     .unwrap();
@@ -376,13 +368,13 @@ topic = { width = "70%", overflow = "wrap", max_lines = 8 }
         "overflow = \"wrap\", max_lines = 0",
         "overflow = \"wrap\", max_lines = 9",
     ] {
-        let input = format!("[p.rows]\ncolumns = [{{ name = \"topic\", {settings} }}]\n");
+        let input = format!("[p.rows]\ncolumns = [{{ name = \"task\", {settings} }}]\n");
         assert!(error(&input).contains("p.rows.columns"), "{input}");
     }
     assert!(
         error(
             r#"[p.rows]
-columns = [{ name = "member", width = "60%" }, { name = "topic", width = "41%" }]
+columns = [{ name = "member", width = "60%" }, { name = "task", width = "41%" }]
 "#
         )
         .contains("100%")
@@ -393,7 +385,7 @@ columns = [{ name = "member", width = "60%" }, { name = "topic", width = "41%" }
 fn percent_tracks_keep_a_flexible_minimum_among_fixed_cell_columns() {
     let rows = parse(
         r#"[p.rows]
-columns = [{ name = "member", width = 6 }, { name = "topic", width = "60%" }]
+columns = [{ name = "member", width = 6 }, { name = "task", width = "60%" }]
 "#,
     )
     .unwrap();
@@ -413,7 +405,7 @@ columns = [{ name = "member", width = 6 }, { name = "topic", width = "60%" }]
     }
     let bounded = parse(
         r#"[p.rows]
-columns = [{ name = "topic", width = "60%", max = 2 }]
+columns = [{ name = "task", width = "60%", max = 2 }]
 "#,
     )
     .unwrap();
@@ -421,7 +413,7 @@ columns = [{ name = "topic", width = "60%", max = 2 }]
     assert_eq!(tmt_cli_style::grid::solve(&[track], Some(80), 1), [Some(2)]);
     let explicit = parse(
         r#"[p.rows]
-columns = [{ name = "topic", width = "60%", min = 1 }]
+columns = [{ name = "task", width = "60%", min = 1 }]
 "#,
     )
     .unwrap();
@@ -434,7 +426,7 @@ fn published_column_settings_round_trip_into_projected_display_settings() {
 columns = [
     { name = "member", width = 10, min = 4, max = 14, grow = 1, align = "center", truncate = "middle", overflow = "ellipsis", priority = 3 },
     { name = "state", width = "30%", min = 2, max = 20, grow = 2, align = "right", overflow = "wrap", max_lines = 7 },
-    { name = "topic", width = "25%", max = 2, overflow = "wrap" },
+    { name = "task", width = "25%", max = 2, overflow = "wrap" },
     { name = "note", min = 1, max = 12, grow = 2, align = "center", truncate = "middle", priority = 1 },
 ]
 "#).unwrap();
@@ -484,7 +476,7 @@ fn empty_cells_and_spans_publish_positional_track_coverage() {
             .iter()
             .all(|c| c.get("valueOnly").is_none())
     );
-    let rows = parse("[p.rows]\ncolumns=[{name=\"member\"},{name=\"state\"},{name=\"topic\"},{name=\"model\"}]\nlines=[[\"member\"],[\"\",{field=\"model\",span=3}]]\n").unwrap();
+    let rows = parse("[p.rows]\ncolumns=[{name=\"member\"},{name=\"state\"},{name=\"task\"},{name=\"model\"}]\nlines=[[\"member\"],[\"\",{field=\"model\",span=3}]]\n").unwrap();
     assert_eq!(
         rows.covered_tracks(),
         4,
@@ -502,14 +494,14 @@ fn empty_cells_and_spans_publish_positional_track_coverage() {
 fn cell_tokens_are_semantic_located_and_optional_in_metadata() {
     for role in Role::ALL {
         let rows = parse(&format!(
-            "[p.rows]\ncolumns=[{{name='topic'}}]\nlines=[[{{field='topic',token='{}'}}]]\n",
+            "[p.rows]\ncolumns=[{{name='task'}}]\nlines=[[{{field='task',token='{}'}}]]\n",
             role.name()
         ))
         .unwrap();
         assert_eq!(rows.lines[0][0].token, Some(role));
         assert_eq!(
             rows.value()["lines"][0][0],
-            json!({"field":"topic","span":1,"token":role.name()})
+            json!({"field":"task","span":1,"token":role.name()})
         );
     }
     for token in [
@@ -524,7 +516,7 @@ fn cell_tokens_are_semantic_located_and_optional_in_metadata() {
         "{}",
     ] {
         let message = error(&format!(
-            "[p.rows]\ncolumns=[{{name='topic'}}]\nlines=[[{{field='topic',token={token}}}]]\n"
+            "[p.rows]\ncolumns=[{{name='task'}}]\nlines=[[{{field='task',token={token}}}]]\n"
         ));
         assert!(
             message.starts_with("`squad.p.rows.lines[0][0].token` must be a semantic theme token:"),
@@ -547,19 +539,4 @@ fn cell_tokens_are_semantic_located_and_optional_in_metadata() {
                 .all(|cell| cell.get("token").is_none())
         );
     }
-}
-
-#[test]
-fn legacy_config_keeps_supported_tracks_and_recomputes_spans() {
-    let rows = parse(r#"[p.rows]
-columns = [{name="member"}, {name="task"}, {name="alias", from="meta.squad.other.next"}, {name="state"}]
-lines = [["member", "task", "alias", "state"], ["", {field="pending", span=3}], [{field="state", span=4}]]
-[p.board]
-hidden_columns = ["task"]
-"#).unwrap();
-    assert_eq!(rows.fields(), ["member", "state"]);
-    assert_eq!(rows.columns.len(), 2);
-    assert_eq!(rows.lines.len(), 2);
-    assert_eq!(rows.lines[1][0].span, 2);
-    assert!(rows.hidden_columns.is_empty());
 }

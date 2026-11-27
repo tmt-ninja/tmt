@@ -153,10 +153,7 @@ fn prepare(core: &Core) -> Result<Preview, SquadError> {
                 let value = value
                     .as_str()
                     .ok_or_else(|| invalid("Core returned invalid member metadata."))?;
-                if let Some(field) = key
-                    .strip_prefix(&prefix)
-                    .filter(|field| !crate::squad::retired_field(field))
-                {
+                if let Some(field) = key.strip_prefix(&prefix) {
                     fields.insert(field.to_owned(), value.to_owned());
                 }
             }

@@ -175,7 +175,7 @@ fn prepare(
         let mut fields = serde_json::Map::new();
         for (key, value) in current
             .iter()
-            .filter(|(key, _)| key.starts_with(&old_prefix) && !squad::retired_metadata(key))
+            .filter(|(key, _)| key.starts_with(&old_prefix))
         {
             let new = format!("{new_prefix}{}", &key[old_prefix.len()..]);
             if new.len() > 64 || current.contains_key(&new) || !value.is_string() {
@@ -215,9 +215,6 @@ fn apply_metadata(core: &Core, request: &Rename, journal: &Value) -> Result<(), 
             let suffix = old
                 .strip_prefix(&old_prefix)
                 .ok_or_else(|| invalid("Journal metadata escaped its squad namespace."))?;
-            if squad::retired_field(suffix) {
-                continue;
-            }
             let new = format!("{new_prefix}{suffix}");
             match (current.get(old), current.get(&new)) {
                 (None, Some(already)) if already == value => continue,

@@ -231,14 +231,13 @@ fn a_resize_that_rewraps_the_transcript_ends_the_selection_and_its_keys() {
         Effect::None
     );
     app.focus = 1;
-    if let Effect::Act(Request::Copy { text, .. }) =
-        app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE))
-    {
-        assert!(
-            !text.contains("literal"),
-            "y must not copy the cleared selection"
-        );
-    }
+    assert!(
+        !matches!(
+            app.key(KeyEvent::new(KeyCode::Char('y'), KeyModifiers::NONE)),
+            Effect::Act(Request::Copy { .. })
+        ),
+        "y copies nothing once the selection ended"
+    );
 }
 
 #[test]
@@ -359,6 +358,162 @@ fn capture_rendered_quote_chip_packet() {
         }
         std::fs::write(output, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
     });
+}
+
+fn task_field_fixture(look: crate::look::Look) -> App {
+    squad_fields_fixture(look, json!({"task": "task proof"}))
+}
+
+fn squad_fields_fixture(look: crate::look::Look, fields: serde_json::Value) -> App {
+    let mut app = fixture_with_look("separate reply", look);
+    let target = app.workspace.selected.clone().unwrap();
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .rows
+        .get_mut(&target)
+        .unwrap()["fields"] = fields;
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster
+        .squads[0]
+        .lead = Some(MEMBER.into());
+    app.choose(crate::board::app::Choice::WorkspaceTarget(
+        crate::board::workspace::OpsTarget::Squad(crate::board::app::workspace::tests::ROOM.into()),
+    ));
+    app.focus = 0;
+    app
+}
+
+fn task_field_start(app: &App, buffer: &ratatui::buffer::Buffer) -> (u16, u16) {
+    let area = app
+        .conversation
+        .borrow()
+        .source_surfaces
+        .iter()
+        .find(|surface| surface.text().contains("task proof"))
+        .expect("the actual task painter publishes its displayed cells")
+        .area;
+    for y in area.y..area.bottom() {
+        let line: String = (area.x..area.right())
+            .map(|x| buffer[(x, y)].symbol())
+            .collect();
+        if let Some(x) = line.find("task proof") {
+            return (area.x + x as u16, y);
+        }
+    }
+    panic!("the published task field contains its displayed text");
+}
+
+fn seeded_agents_state(
+    look: crate::look::Look,
+    phase: crate::board::activity::Phase,
+    state: &str,
+) -> App {
+    let mut app = squad_fields_fixture(look, json!({"task": "Fix X", "next": "Ship Y"}));
+    let workspace = &mut app.view.as_mut().unwrap().home.as_mut().unwrap().workspace;
+    workspace.roster.squads[0]
+        .member_states
+        .get_mut(MEMBER)
+        .unwrap()
+        .state = Some(state.to_owned());
+    workspace
+        .roster
+        .members
+        .get_mut(MEMBER)
+        .unwrap()
+        .activity
+        .phase = phase;
+    app
+}
+
+fn agents_test_row(buffer: &ratatui::buffer::Buffer) -> (usize, String) {
+    buffer
+        .content
+        .chunks(usize::from(buffer.area.width))
+        .enumerate()
+        .find_map(|(y, cells)| {
+            let line: String = cells.iter().map(|cell| cell.symbol()).collect();
+            let row = line.split('│').next().unwrap();
+            row.contains("worker").then(|| (y, row.to_owned()))
+        })
+        .expect("the seeded member is visible in the Agents list")
+}
+
+#[test]
+fn agents_list_uses_observed_state_and_keeps_task_and_next_in_squad_board() {
+    use crate::board::activity::Phase;
+
+    for (phase, manual_state, observed) in [
+        (Phase::Unknown, "Inspect quota", "?"),
+        (Phase::Working, "Audit", "working"),
+    ] {
+        let mut app = seeded_agents_state(crate::look::Look::default(), phase, manual_state);
+        let buffer = draw(&mut app, 160, 36);
+        let (_, row) = agents_test_row(&buffer);
+        assert!(row.contains(observed), "observed activity must stay: {row}");
+        for hidden in [manual_state, "Fix X", "Ship Y"] {
+            assert!(!row.contains(hidden), "Agents row shows {hidden}: {row}");
+        }
+        assert!(locate(&buffer, "TASK / NEXT ACTION").is_none());
+        let detail = buffer
+            .content
+            .chunks(160)
+            .filter_map(|cells| {
+                let line: String = cells.iter().map(|cell| cell.symbol()).collect();
+                line.split_once('│').map(|(_, detail)| detail.to_owned())
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        for retained in ["Board", manual_state, "Fix X", "Ship Y"] {
+            assert!(
+                detail.contains(retained),
+                "squad detail missing {retained}: {detail}"
+            );
+        }
+    }
+}
+
+#[test]
+fn task_fields_select_their_rendered_text_without_opening_a_source_view() {
+    for look in selection_looks() {
+        let mut app = task_field_fixture(look);
+        app.focus = 1;
+        let roster = draw(&mut app, 100, 36);
+        assert!(locate(&roster, "TASK / NEXT ACTION").is_none());
+        app.focus = 0;
+        let buffer = draw(&mut app, 100, 36);
+        let (x, y) = task_field_start(&app, &buffer);
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+        mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 10, y);
+        let highlighted = draw(&mut app, 100, 36);
+        assert!(matches!(
+            app.conversation.borrow().selection,
+            Some(Selection::Cells(_))
+        ));
+        assert_ne!(highlighted[(x, y)], buffer[(x, y)], "{look:?}");
+        if look.depth == tmt_cli_style::Depth::None {
+            assert!(
+                highlighted[(x, y)]
+                    .modifier
+                    .contains(ratatui::style::Modifier::REVERSED)
+            );
+        }
+        assert_eq!(selected(&app).as_deref(), Some("task proof"));
+        assert!(
+            matches!(mouse(&mut app,MouseEventKind::Up(MouseButton::Left),x+10,y),
+            Effect::Act(Request::Copy{text,..}) if text=="task proof")
+        );
+    }
 }
 
 #[test]
@@ -1442,6 +1597,24 @@ fn capture_selection_fallback_packet() {
                     "passage 070",
                 ));
             }
+            let mut app = task_field_fixture(look);
+            let buffer = draw(&mut app, 100, 36);
+            let (x, y) = task_field_start(&app, &buffer);
+            mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+            mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 10, y);
+            assert!(matches!(
+                app.conversation.borrow().selection,
+                Some(Selection::Cells(_))
+            ));
+            assert_eq!(selected(&app).as_deref(), Some("task proof"));
+            frames.push(selection_frame(
+                &mut app,
+                look,
+                "task-field",
+                100,
+                36,
+                "task proof",
+            ));
         }
         std::fs::write(output, serde_json::to_vec_pretty(&frames).unwrap()).unwrap();
     });
@@ -1456,7 +1629,11 @@ fn selection_frame(
     needle: &str,
 ) -> serde_json::Value {
     let buffer = draw(app, width, height);
-    let start = locate(&buffer, needle);
+    let start = if scene == "task-field" {
+        Some(task_field_start(app, &buffer))
+    } else {
+        locate(&buffer, needle)
+    };
     let highlighted: Vec<_> = start
         .into_iter()
         .flat_map(|(x, y)| (x..x + needle.len() as u16).map(move |x| (x, y)))
@@ -1505,7 +1682,16 @@ fn selection_private_terminal_evidence() {
         other => panic!("unsupported fixture look: {other}"),
     };
     let scene = std::env::var("TMT_SELECTION_TERMINAL_SCENE").unwrap();
-    assert!(["selected-top", "selected-bottom", "input-grown", "help"].contains(&scene.as_str()));
+    assert!(
+        [
+            "selected-top",
+            "selected-bottom",
+            "input-grown",
+            "task-field",
+            "help"
+        ]
+        .contains(&scene.as_str())
+    );
     let _no_commands = crate::runner::forbid_commands();
     crate::board::terminal::restore_before_panic_reports();
     let mut screen =
@@ -1517,16 +1703,32 @@ fn selection_private_terminal_evidence() {
         ratatui::layout::Size::new(width, 36)
     );
     let position = crate::status::with_now_ms(1_791_600_000_000, || {
-        let mut app = fixture_with_look(&long(80), look);
+        let mut app = if scene == "task-field" {
+            task_field_fixture(look)
+        } else {
+            fixture_with_look(&long(80), look)
+        };
         draw(&mut app, width, 36);
         let needle = match scene.as_str() {
+            "task-field" => "task proof",
             "selected-top" => {
                 app.scroll_pane(Pane::Replies, Step::Top);
                 "passage 001"
             }
             _ => "passage 078",
         };
-        select_at_width(&mut app, needle, width);
+        if scene == "task-field" {
+            let buffer = draw(&mut app, width, 36);
+            let (x, y) = task_field_start(&app, &buffer);
+            mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x, y);
+            mouse(&mut app, MouseEventKind::Drag(MouseButton::Left), x + 10, y);
+            assert!(matches!(
+                app.conversation.borrow().selection,
+                Some(Selection::Cells(_))
+            ));
+        } else {
+            select_at_width(&mut app, needle, width);
+        }
         assert_eq!(selected(&app).as_deref(), Some(needle));
         if scene == "input-grown" {
             app.perform(&crate::action::Action::parse("talk").unwrap());
@@ -1539,6 +1741,8 @@ fn selection_private_terminal_evidence() {
         let preview = draw(&mut app, width, 36);
         let position = if scene == "help" {
             (0, 0)
+        } else if scene == "task-field" {
+            task_field_start(&app, &preview)
         } else {
             locate(&preview, needle).expect("selected passage is visible")
         };

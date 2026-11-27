@@ -10,15 +10,12 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
   `squad.<name>.<field>`, so one identity can belong to several squads and removal
   clears exactly one namespace.
 - The per-member `note` field is retired. `membership::parse_change` refuses a
-  nonempty `note=` with `SQUAD_NOTE_RETIRED` and a notebook hint during
+  nonempty `note=` with `SQUAD_NOTE_RETIRED` and a notebook/task/pending hint during
   all-pairs validation, before core calls or writes; an empty `note=` still clears
   stored metadata. `Squad::roster_with` drops legacy note values from member fields
   without mutating storage, row JSON omits `note`, and `rows::OWN_FIELDS` keeps the
   name reserved so providers and bound columns cannot reuse it. Member context lives
   in each member's own saved-identity notebook (`tmt notes path --identity <member>`).
-- `task`, `next` and `pending` are retired. Ops refuses writes and clears, omits
-  their read projection and preserves existing metadata when removing members or
-  renaming squads. The status update form compares and writes only `state`.
 - Leadership is the reserved metadata key `squad.<name>.lead.marker` (`true` or
   `false`), outside the user field/column grammar. The roster parses it into
   `Member::lead_marker` and omits it from public `fields`. `Member::is_lead` reads
@@ -46,7 +43,8 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
 - Membership commands are sequences of idempotent core commands, not a transaction:
   each reports what it applied and a re-run converges. A metadata write that lands
   after preflight can still split a sequence. `add` reports `added: false` for an
-  existing member (including a repeated name in one call) and preserves its state; only a missing state gets the configured initial value. `lead --none` reports
+  existing member (including a repeated name in one call) and preserves its state and
+  task; only a missing state gets the configured initial value. `lead --none` reports
   a null lead and the former leads in `replaced`.
 
 ## The user (`me`)
@@ -118,7 +116,7 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
   consumes tokens rather than keeping a second state-color map. `ls` text is uncolored
   and shares state sorting (including section sort keys) with the board.
 - `attention::Attention` is the one definition of a squad's tab state: members waiting
-  on the user (`waitingOnYou`) and members `blocked`, each counted once.
+  on the user (`pending` or `waitingOnYou`) and members `blocked`, each counted once.
   `ls` publishes it as `squad.attention`.
 - `requests` derives per-row `annotation` (the sender's newest open tagged request)
   from `requests.list` for the squad room (at most `PAGES` 4 of `PAGE` 50) and
@@ -169,7 +167,7 @@ skill (`extensions/tmt-ops/skills/tmt-ops/SKILL.md`).
 
 ## Staleness and reminders
 
-- `staleness` owns observed raw state age and exact lead-notebook content age,
+- `staleness` owns observed raw task/state age and exact lead-notebook content age,
   separate from providers and column bindings. `observe` is the one read sequence for
   a squad's status, shared by `ls` and the board's squad tabs: it takes the nonblocking
   cache lock before the roster read, reads the lead's notes through public `notes.read`

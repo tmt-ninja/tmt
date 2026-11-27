@@ -7612,13 +7612,7 @@ mod token_window_tests {
         app.project_usage(Instant::now());
         for selected in [0, 1, 2, 0] {
             let view = app.view.as_ref().unwrap();
-            let columns = view
-                .rows
-                .columns
-                .iter()
-                .filter(|column| column.field.starts_with("tok_"));
-            assert_eq!(columns.clone().count(), 3);
-            for (index, column) in columns.enumerate() {
+            for (index, column) in view.rows.columns[5..].iter().enumerate() {
                 assert_eq!(column.priority == Some(1), index == selected);
             }
             assert_eq!(

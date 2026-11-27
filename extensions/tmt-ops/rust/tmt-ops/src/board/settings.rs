@@ -2133,7 +2133,7 @@ pub(in crate::board) mod tests {
             ("board.panes", "[\"rows\",\"detail\"]"),
             ("board.refresh", "off"),
             ("notes.render", "plain"),
-            ("board.hidden_columns", "[\"model\"]"),
+            ("board.hidden_columns", "[\"task\"]"),
             ("states.working.color", "red"),
             ("tabs.order", "[\"product\",\"infra\"]"),
             ("tabs.hide", "[\"infra\"]"),
@@ -2158,7 +2158,7 @@ pub(in crate::board) mod tests {
                 "notes.render" => assert_eq!(view.render, crate::config::NotesRender::Plain),
                 "board.hidden_columns" => assert_eq!(
                     view.rows.hidden_columns,
-                    ["model", "tok_1", "tok_2", "tok_3"]
+                    ["task", "tok_1", "tok_2", "tok_3"]
                 ),
                 "states.working.color" => assert_eq!(
                     view.document["sections"][0]["rows"][0]["colors"]["state"],

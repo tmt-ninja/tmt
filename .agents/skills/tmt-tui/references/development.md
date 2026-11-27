@@ -97,7 +97,7 @@ sends the decoded cell/style/hit diff to the owning UX lead and gets approval **
 regenerating the baseline. The regeneration is its own commit in that PR.
 
 The read-only inspector decodes cell runs and styles, reports hit/tab/row-start changes,
-and prints any text or JSON list delta. The regular parity test checks the exact frozen bytes:
+and requires list text/JSON to stay byte-identical:
 
 ```bash
 CARGO_BUILD_JOBS=2 cargo test --locked -p tmt-ops inspect_markup_parity_diff -- --ignored --nocapture

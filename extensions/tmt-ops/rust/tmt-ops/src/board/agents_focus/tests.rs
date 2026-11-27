@@ -203,6 +203,7 @@ fn squad_actions_follow_only_the_verified_current_lead_from_either_pane() {
         let text = screen(&draw(&mut app, 148, 51));
         for value in [
             "lead worker",
+            "Board",
             "Usage",
             "Timers",
             "Conversation",
@@ -210,7 +211,6 @@ fn squad_actions_follow_only_the_verified_current_lead_from_either_pane() {
         ] {
             assert!(text.contains(value), "{value}:\n{text}");
         }
-        assert!(!text.contains("── Board "));
         assert!(app.composer_start().is_some());
         assert_eq!(
             app.workspace_bindings()["z"].verb,

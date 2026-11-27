@@ -191,7 +191,6 @@ pub fn read(
     }
     table
         .iter()
-        .filter(|(field, _)| !crate::squad::retired_field(field))
         .map(|(field, settings)| {
             let here = format!("{place}.{field}");
             if !field_name(field) {

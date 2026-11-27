@@ -80,11 +80,10 @@ fn fields(core: &Core, squad: &Squad, id: &str) -> Result<BTreeMap<String, Strin
         .into_iter()
         .flatten()
         .filter_map(|(key, value)| {
-            let field = key.strip_prefix(&squad.prefix())?;
-            if crate::squad::retired_field(field) {
-                return None;
-            }
-            Some((field.to_owned(), value.as_str()?.to_owned()))
+            Some((
+                key.strip_prefix(&squad.prefix())?.to_owned(),
+                value.as_str()?.to_owned(),
+            ))
         })
         .collect())
 }
@@ -320,14 +319,6 @@ fn parse_change(squad: &Squad, pair: &str) -> Result<Change, SquadError> {
             format!("Expected field=value, got '{pair}'."),
         )
     })?;
-    if squad::retired_field(field) {
-        return Err(SquadError::new(
-            "SQUAD_FIELD_RETIRED",
-            format!(
-                "Field '{field}' is retired and old values are ignored: set only state, put progress on the issue, and use a real request or Colab question to ask the user."
-            ),
-        ));
-    }
     let key = squad.key(field)?;
     if value.is_empty() {
         return Ok(Change::Clear(key));
@@ -337,7 +328,7 @@ fn parse_change(squad: &Squad, pair: &str) -> Result<Change, SquadError> {
             "SQUAD_NOTE_RETIRED",
             "The per-member note is retired",
             "; use ",
-            "tmt notes path --identity <member> for the member's notebook (note= still clears an old value).",
+            "tmt notes path --identity <member> for the member's notebook, task= for what the member is doing, and pending= for what it waits on you for (note= still clears an old value).",
         ));
     }
     if value.len() > 1024 || value.chars().any(char::is_control) {

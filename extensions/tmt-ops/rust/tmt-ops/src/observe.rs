@@ -384,6 +384,7 @@ esac
                 member("SOL", json!({"squad.p.lead.marker": "true"})),
                 member("RIN", json!({"squad.p.state": "working"})),
                 member("ZED", json!({"squad.p.pending": "approve?"})),
+                member("MIA", json!({})),
                 member("KAI", json!({})),
             ]),
         );
@@ -392,7 +393,7 @@ esac
         fs::write(
             fixture.root.join("ls"),
             json!({"identities": [idle("SOL", since), idle("RIN", since), idle("ZED", since - 1),
-                idle("KAI", since + 3_000_000)]})
+                idle("MIA", since - 2), idle("KAI", since + 3_000_000)]})
             .to_string(),
         )
         .unwrap();
@@ -413,7 +414,10 @@ esac
         fs::write(
             fixture.root.join("inbox"),
             json!({
-                "items":[{"from":{"identityId":"ZED"},"requestId":"req-question"}],
+                "items":[
+                    {"from":{"identityId":"ZED"},"requestId":"req-pending-and-waiting"},
+                    {"from":{"identityId":"MIA"},"requestId":"req-waiting-only"}
+                ],
                 "more":false
             })
             .to_string(),
@@ -442,7 +446,11 @@ esac
         );
         assert_eq!(
             mark("zed"),
-            Some(json!({"state": "excepted", "reason": "waitingOnYou", "sinceMs": since - 1}))
+            Some(json!({"state": "excepted", "reason": "pending", "sinceMs": since - 1}))
+        );
+        assert_eq!(
+            mark("mia"),
+            Some(json!({"state": "excepted", "reason": "waitingOnYou", "sinceMs": since - 2}))
         );
         assert_eq!(
             mark("kai"),

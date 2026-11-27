@@ -29,12 +29,14 @@ const SCAN_EVERY_MS: i64 = 60_000;
 const WAKE_GAP_MS: i64 = 300_000;
 /// Each row value is cut at this many characters.
 const VALUE_CHARS: usize = 120;
-/// The state line fits this many bytes.
+/// The row line (state, task, pending) fits this many bytes.
 const ROW_BYTES: usize = 600;
 
 /// Why an idle member is not announced.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Exception {
+    /// The row's `pending` is set: the member waits on the owner.
+    Pending,
     /// Core reports a request waiting on the user.
     WaitingOnYou,
     /// The row's `state` is `hold`: a resting seat.
@@ -92,7 +94,9 @@ fn assess(
         return None;
     }
     let field = |name: &str| member.fields.get(name).map(String::as_str);
-    let excepted = if waiting.senders.contains(&member.id) {
+    let excepted = if field("pending").is_some_and(|pending| !pending.trim().is_empty()) {
+        Some(Exception::Pending)
+    } else if waiting.senders.contains(&member.id) {
         Some(Exception::WaitingOnYou)
     } else if field("state").is_some_and(|state| state.eq_ignore_ascii_case("hold")) {
         Some(Exception::Hold)
@@ -171,7 +175,7 @@ fn mark(row: &mut Value, overs: &HashMap<String, Over>) {
         None => json!({"state": "over", "sinceMs": over.since_ms}),
         Some(reason) => json!({
             "state": "excepted",
-            "reason": match reason { Exception::WaitingOnYou => "waitingOnYou", Exception::Hold => "hold", Exception::Sleep => "sleep" },
+            "reason": match reason { Exception::Pending => "pending", Exception::WaitingOnYou => "waitingOnYou", Exception::Hold => "hold", Exception::Sleep => "sleep" },
             "sinceMs": over.since_ms,
         }),
     };
@@ -247,16 +251,30 @@ fn body(squad: &Squad, member: &Member, since_ms: u64, after: Duration, zone: &T
                     .to_string()
             },
         );
-    let mut state = one_line(
-        member.fields.get("state").map_or("", String::as_str),
-        VALUE_CHARS,
-    );
+    let value = |name: &str| {
+        one_line(
+            member.fields.get(name).map_or("", String::as_str),
+            VALUE_CHARS,
+        )
+    };
+    let mut values = [value("state"), value("task"), value("pending")];
     let row = loop {
-        let row = format!("state={}", state_text(&state));
+        let row = format!(
+            "state={} · task={} · pending={}",
+            state_text(&values[0]),
+            quoted(&values[1]),
+            quoted(&values[2])
+        );
         if row.len() <= ROW_BYTES {
             break row;
         }
-        state.pop();
+        // Row text is the only part that can be long; trim the longest value first.
+        match values.iter_mut().max_by_key(|value| value.len()) {
+            Some(longest) if !longest.is_empty() => {
+                longest.pop();
+            }
+            _ => break row,
+        }
     };
     format!(
         "Idle alert · squad {squad}\n\
