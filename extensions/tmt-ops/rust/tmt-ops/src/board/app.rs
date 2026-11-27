@@ -4550,12 +4550,9 @@ impl App {
             .or_else(|| self.terminal_typing_key(key))
         {
             if matches!(owner, TerminalKeyOwner::Child) {
-                *repaint = false;
-                if let Some(bytes) =
-                    tmt_tui::components::terminal::key_bytes(&key, self.terminal.modes())
-                {
-                    self.terminal.send(&bytes);
-                }
+                *repaint = self.send_terminal_input(|modes| {
+                    tmt_tui::components::terminal::key_bytes(&key, modes)
+                });
             }
             return effect;
         }

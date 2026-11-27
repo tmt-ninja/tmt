@@ -29,8 +29,17 @@ pub(in crate::board) fn frame(frame: &mut ratatui::Frame, app: &App) {
     if area.is_empty() {
         return;
     }
+    let input_notice = app
+        .terminal
+        .framed()
+        .and_then(|identity| app.terminal.input_notice(identity));
     if area.height < 2 || area.width < 20 {
-        tiny_header(frame.buffer_mut(), app, Rect { height: 1, ..area });
+        tiny_header(
+            frame.buffer_mut(),
+            app,
+            Rect { height: 1, ..area },
+            input_notice,
+        );
         return;
     }
     let buffer = frame.buffer_mut();
@@ -77,6 +86,18 @@ pub(in crate::board) fn frame(frame: &mut ratatui::Frame, app: &App) {
             look,
         );
     }
+    if let Some(notice) = input_notice {
+        let row = Rect::new(
+            screen_area.x,
+            screen_area.bottom() - 1,
+            screen_area.width,
+            1,
+        );
+        for x in row.x..row.right() {
+            buffer[(x, row.y)].reset();
+        }
+        say(buffer, row, notice, look);
+    }
     header(buffer, app, Rect::new(area.x, area.y, area.width, 1), &name);
     if let Some(dialog) = app.frame_dialog() {
         paint_dialog(frame, app, screen_area, dialog, &name);
@@ -85,17 +106,17 @@ pub(in crate::board) fn frame(frame: &mut ratatui::Frame, app: &App) {
     }
 }
 
-fn tiny_header(buffer: &mut Buffer, app: &App, row: Rect) {
-    const NOTICE: &str = "Terminal too small";
+fn tiny_header(buffer: &mut Buffer, app: &App, row: Rect, notice: Option<&str>) {
+    let notice = notice.unwrap_or("Terminal too small");
     let look = app.look();
     let track = look.role(Role::Track);
     buffer.set_style(row, track);
-    say(buffer, row, NOTICE, look);
+    say(buffer, row, notice, look);
 
     let back = app.member_back_label();
     let hint = format!("{back}  Board");
     let width = hint.width();
-    if NOTICE.width() + 1 + width <= usize::from(row.width) {
+    if notice.width() + 1 + width <= usize::from(row.width) {
         let width = width as u16;
         let hit = Rect::new(row.right() - width, row.y, width, 1);
         strip::paint_left(

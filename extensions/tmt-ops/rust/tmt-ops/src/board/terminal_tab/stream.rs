@@ -40,12 +40,19 @@ pub(in crate::board) enum StreamEvent {
     Refused(Refusal),
     /// The stream could not be had again after the allowed tries, for this reason.
     Lost(String),
+    /// A member input command was rejected before writing to the supervisor.
+    InputNotSent,
+    /// A write failed after the input may have reached the supervisor.
+    InputUnconfirmed,
 }
 
 /// What the board tells the thread.
 #[derive(Debug)]
 enum Command {
-    Input(Vec<u8>),
+    Input {
+        attempt: Option<u32>,
+        bytes: Vec<u8>,
+    },
     Resize(Size),
 }
 
@@ -107,9 +114,23 @@ impl Stream {
     /// Keystrokes or a paste, in order, in frames the protocol allows. Input queued before
     /// `Welcome` was applied is dropped, never sent late.
     pub fn input(&self, bytes: &[u8]) {
-        for chunk in input_chunks(bytes) {
-            let _ = self.commands.send(Command::Input(chunk.to_vec()));
-        }
+        self.enqueue_input(None, bytes);
+    }
+
+    /// Input for the member screen shown on this connection attempt.
+    pub fn input_at(&self, attempt: u32, bytes: &[u8]) -> bool {
+        self.enqueue_input(Some(attempt), bytes)
+    }
+
+    fn enqueue_input(&self, attempt: Option<u32>, bytes: &[u8]) -> bool {
+        bytes.is_empty()
+            || self
+                .commands
+                .send(Command::Input {
+                    attempt,
+                    bytes: bytes.to_vec(),
+                })
+                .is_ok()
     }
 
     /// The window the frame gives the program: the board less its header row. A reconnect
@@ -173,7 +194,7 @@ fn run(
         }
         attempt += 1;
         sink(StreamEvent::Connecting { attempt });
-        match session(address, timing, sink, commands, stop, &mut window) {
+        match session(address, timing, sink, commands, stop, &mut window, attempt) {
             End::Stopped | End::Closed => return,
             End::Over(event) => {
                 sink(event);
@@ -231,13 +252,33 @@ fn pump(
     window: &mut Option<Size>,
     connected: bool,
     discard_input: bool,
+    ready_attempt: Option<u32>,
+    sink: &impl Fn(StreamEvent),
 ) -> Result<(), String> {
+    let mut rejected = false;
     loop {
         match commands.try_recv() {
-            Ok(Command::Input(bytes)) if connected && !discard_input => {
-                send(socket, &ClientMessage::Input(bytes))?;
+            Ok(Command::Input { attempt, bytes }) => {
+                if let Some(expected) = attempt {
+                    if ready_attempt != Some(expected) {
+                        if !rejected {
+                            sink(StreamEvent::InputNotSent);
+                            rejected = true;
+                        }
+                        continue;
+                    }
+                } else if !connected || discard_input {
+                    continue;
+                }
+                for chunk in input_chunks(&bytes) {
+                    if let Err(error) = send(socket, &ClientMessage::Input(chunk.to_vec())) {
+                        if attempt.is_some() {
+                            sink(StreamEvent::InputUnconfirmed);
+                        }
+                        return Err(error);
+                    }
+                }
             }
-            Ok(Command::Input(_)) => {}
             Ok(Command::Resize(size)) => {
                 *window = Some(size);
                 if connected {
@@ -256,6 +297,7 @@ fn session(
     commands: &Receiver<Command>,
     stop: &AtomicBool,
     window: &mut Option<Size>,
+    attempt: u32,
 ) -> End {
     let lost = |reason: String| End::Lost {
         reason,
@@ -287,7 +329,16 @@ fn session(
             return End::Stopped;
         }
         let connected = !matches!(phase, Phase::Handshake(_));
-        if let Err(error) = pump(commands, &mut socket, window, connected, false) {
+        let ready_attempt = (matches!(phase, Phase::Live(_))).then_some(attempt);
+        if let Err(error) = pump(
+            commands,
+            &mut socket,
+            window,
+            connected,
+            false,
+            ready_attempt,
+            sink,
+        ) {
             return End::Lost {
                 reason: error,
                 live: shown,
@@ -326,7 +377,8 @@ fn session(
                             if handshaking && !matches!(phase, Phase::Handshake(_)) {
                                 // `Welcome` was just applied: whatever was typed before it
                                 // predates the first screen, so it is dropped, not sent late.
-                                if let Err(error) = pump(commands, &mut socket, window, true, true)
+                                if let Err(error) =
+                                    pump(commands, &mut socket, window, true, true, None, sink)
                                 {
                                     return End::Lost {
                                         reason: error,

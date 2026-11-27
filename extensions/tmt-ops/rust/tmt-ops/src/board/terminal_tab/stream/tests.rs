@@ -284,31 +284,56 @@ fn a_paste_is_never_cut_through_a_character() {
 }
 
 #[test]
-fn input_before_the_connection_is_welcomed_is_dropped_not_queued() {
+fn member_input_is_refused_until_the_first_screen_then_arrives_in_order() {
     let fake = Fake::new();
-    let (stream, events) = fake.viewer(quick());
-    stream.input(b"too early");
+    let (stream, events) = fake.viewer(Timing {
+        handshake: WAIT,
+        ..quick()
+    });
     let mut peer = fake.accept();
     assert_eq!(next(&events), StreamEvent::Connecting { attempt: 1 });
-    peer.attach(size(10, 2), b"x");
+    assert_eq!(peer.expect(), ClientMessage::Hello { version: VERSION });
+    assert!(stream.input_at(1, b"before welcome"));
+    assert_eq!(next(&events), StreamEvent::InputNotSent);
+
+    let size = size(10, 2);
+    peer.send(ServerMessage::Welcome {
+        version: VERSION,
+        size,
+    });
+    assert_eq!(peer.expect(), ClientMessage::Snapshot);
+    peer.send(ServerMessage::SnapshotStart);
+    assert!(stream.input_at(1, b"before screen"));
+    assert_eq!(next(&events), StreamEvent::InputNotSent);
+
+    peer.send(ServerMessage::SnapshotEnd(size));
     screen(&events);
-    stream.input(b"on time");
-    let mut got = Vec::new();
-    loop {
-        match peer.expect() {
-            ClientMessage::Input(bytes) => {
-                got.push(bytes);
-                break;
-            }
-            ClientMessage::Hello { .. } | ClientMessage::Snapshot => {}
-            other => panic!("unexpected {other:?}"),
-        }
-    }
-    assert_eq!(
-        got,
-        vec![b"on time".to_vec()],
-        "only what was typed while attached"
-    );
+    assert!(stream.input_at(1, b"ls\r"));
+    let paste = b"\x1b[200~lines\x1b[201~";
+    assert!(stream.input_at(1, paste));
+    assert_eq!(peer.expect(), ClientMessage::Input(b"ls\r".to_vec()));
+    assert_eq!(peer.expect(), ClientMessage::Input(paste.to_vec()));
+    // The two live inputs were the only Input frames on this socket.
+    assert!(peer.quiet());
+}
+
+#[test]
+fn member_input_from_the_old_attempt_never_reaches_the_new_connection() {
+    let fake = Fake::new();
+    let (stream, events) = fake.viewer(quick());
+    let mut old = fake.accept();
+    old.attach(size(10, 2), b"old");
+    screen(&events);
+    drop(old);
+
+    let mut new = fake.accept();
+    assert_eq!(next(&events), StreamEvent::Connecting { attempt: 2 });
+    new.attach(size(10, 2), b"new");
+    screen(&events);
+    assert!(stream.input_at(1, b"stale"));
+    assert!(stream.input_at(2, b"current"));
+    assert_eq!(new.expect(), ClientMessage::Input(b"current".to_vec()));
+    assert_eq!(next(&events), StreamEvent::InputNotSent);
 }
 
 #[test]

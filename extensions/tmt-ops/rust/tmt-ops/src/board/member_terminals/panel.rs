@@ -26,6 +26,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         None if !row.ended => Some("Connecting"),
         _ => None,
     };
+    let input_notice = app.terminal.input_notice(&row.id);
     app.terminal.place_caret(None);
     let member = app
         .workspace_snapshot()
@@ -40,7 +41,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
         let Some(state) = waiting else {
             return;
         };
-        let title = format!("{state} · {title}");
+        let title = input_notice.map_or_else(|| format!("{state} · {title}"), str::to_owned);
         section_rule::paint(
             frame.buffer_mut(),
             Rect { height: 1, ..area },
@@ -124,14 +125,18 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             screen_area,
         );
     }
-    let words = match (row.ended, typing, waiting) {
-        (true, _, _) => format!(" {} ended · x removes it", row.title()),
-        (false, _, Some(_)) => " z full screen".into(),
-        (false, true, None) => format!(" Typing into {}", row.title()),
-        (false, false, None) => format!(
-            " {} live · click to type · ⏎ type in · z full screen",
-            row.title()
-        ),
+    let words = if let Some(notice) = input_notice {
+        format!(" {notice}")
+    } else {
+        match (row.ended, typing, waiting) {
+            (true, _, _) => format!(" {} ended · x removes it", row.title()),
+            (false, _, Some(_)) => " z full screen".into(),
+            (false, true, None) => format!(" Typing into {}", row.title()),
+            (false, false, None) => format!(
+                " {} live · click to type · ⏎ type in · z full screen",
+                row.title()
+            ),
+        }
     };
     muted(frame, footer, &words, app);
 }

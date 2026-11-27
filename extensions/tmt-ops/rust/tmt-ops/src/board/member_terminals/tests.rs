@@ -524,7 +524,10 @@ mod board {
             assert_eq!(app.focus, 0);
             assert_eq!(app.terminals.typing(), None);
             assert_eq!(app.workspace.selected, selected);
-            assert_eq!(app.notice.as_deref(), Some("Connecting…"));
+            assert_eq!(
+                app.notice.as_deref(),
+                Some("You can type when the terminal is ready.")
+            );
             app.terminal_sync();
         }
 
@@ -544,7 +547,10 @@ mod board {
         );
         assert_eq!(app.focus, 0);
         assert_eq!(app.terminals.typing(), None);
-        assert_eq!(app.notice.as_deref(), Some("Connecting…"));
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("You can type when the terminal is ready.")
+        );
 
         let screen = Screen::new(40, 6);
         assert!(app.apply_terminal(1, StreamEvent::Screen(Arc::new(screen.frame()))));
@@ -570,6 +576,60 @@ mod board {
         );
         app.key(KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL));
         assert!(!app.framed());
+    }
+
+    #[test]
+    fn pending_member_input_has_visible_feedback() {
+        use crate::board::terminal_tab::stream::StreamEvent;
+        use ratatui::{Terminal, backend::TestBackend};
+        use std::sync::Arc;
+        use tmt_tui::components::terminal::Screen;
+
+        for (framed, paste, reconnect, width) in [
+            (true, false, false, 160),
+            (true, true, true, 18),
+            (false, false, true, 160),
+            (false, true, true, 160),
+        ] {
+            let (mut app, member) = listed_board();
+            select(&mut app, &member, 1);
+            assert!(app.terminal_sync());
+            if reconnect {
+                let screen = Screen::new(40, 6);
+                assert!(app.apply_terminal(1, StreamEvent::Screen(Arc::new(screen.frame()))));
+            }
+            if framed {
+                press(&mut app, KeyCode::Char('z'));
+                assert!(app.framed());
+            } else {
+                press(&mut app, KeyCode::Enter);
+                assert!(app.terminals.typing().is_some());
+            }
+            if reconnect {
+                assert!(app.apply_terminal(1, StreamEvent::Connecting { attempt: 2 }));
+            }
+            if paste {
+                app.paste("pending paste");
+            } else {
+                press(&mut app, KeyCode::Char('q'));
+            }
+
+            let mut terminal = Terminal::new(TestBackend::new(width, 36)).unwrap();
+            terminal
+                .draw(|frame| crate::board::view::render(frame, &app))
+                .unwrap();
+            let visible: String = terminal
+                .backend()
+                .buffer()
+                .content
+                .iter()
+                .map(|cell| cell.symbol())
+                .collect();
+            assert!(
+                visible.contains("Input not sent"),
+                "framed={framed}, paste={paste}, reconnect={reconnect}, width={width}: {visible}"
+            );
+        }
     }
 
     #[test]

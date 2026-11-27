@@ -683,8 +683,10 @@ not end the stream: a supervisor that keeps its terminal stays connected and the
 program's output follows; an older supervisor's close ends it. A lost connection or a `TooSlow`
 eviction reconnects with a fresh `Hello` and `Snapshot` after a bounded backoff; `TakenOver` and a
 refusal do not. A viewer never sends `TakeSole`, sends `Resize` only for the window the frame asks
-for (again after a reconnect), drops input while not attached, and never sends or reads Core's
-control frames. The screen model and key encoder are `tmt-tui`'s `components::terminal`; this
+for (again after a reconnect), and never sends or reads Core's control frames. Member keys and
+paste require the first screen of the current connection attempt. The board shows a refusal
+while waiting, and the worker refuses input stamped for a different attempt. A failed write
+reports unconfirmed delivery. Input is never replayed. The screen model and key encoder are `tmt-tui`'s `components::terminal`; this
 module depends on `tmt-pty-protocol` for frames only.
 
 ### Member frame
