@@ -797,20 +797,24 @@ for (const gesture of ['drag', 'completed selection C'] as const)
     expect((await run(page, 'proof')).sends).toEqual([]);
   });
 
-for (const [width, theme] of [
-  [1280, 'light'],
-  [1440, 'light'],
-  [1440, 'dark'],
-  [390, 'light'],
-  [390, 'dark'],
-  [2200, 'light'],
+for (const [width, theme, collapsed] of [
+  [1280, 'light', false],
+  [1440, 'light', false],
+  [1440, 'light', true],
+  [1440, 'dark', false],
+  [390, 'light', false],
+  [390, 'dark', false],
+  [2200, 'light', false],
 ] as const)
-  test(`an open Discussion leaves the low block comment reachable at ${width} ${theme}`, async ({
+  test(`an open Discussion leaves the low block comment reachable at ${width} ${theme}${collapsed ? ' with the side menu collapsed' : ''}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.emulateMedia({ colorScheme: theme });
+    if (collapsed)
+      await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
     await page.goto('/');
+    if (collapsed) await page.mouse.move(width / 2, 450);
     await run(page, 'mount', { structuredOutline: true, commentOnly: true });
     await run(page, 'seedStructuredDiscussion');
     const stage = page.locator('.structured-page-stage');
@@ -818,7 +822,13 @@ for (const [width, theme] of [
     const low = stage.getByRole('button', { name: 'Open comment 2', exact: true });
     const discussion = page.locator('[data-panel="comments"][data-floating-discussion]');
     await expect(first).toBeVisible();
+    const strip = page.locator('.page-outline[data-strip] .page-outline-strip');
+    if (collapsed) {
+      await expect(page.locator('.tmt-ui-shell')).toHaveAttribute('data-rail', 'collapsed');
+      await expect(strip).toBeVisible();
+    }
     const before = (await stage.boundingBox())!;
+    const naturalMarker = (await low.boundingBox())!;
     await first.click();
     await expect(discussion.getByText('Comment on paragraph 0.', { exact: true })).toBeVisible();
     if (width === 2200 || width === 390) {
@@ -826,6 +836,14 @@ for (const [width, theme] of [
       expect([after.x, after.width]).toEqual([before.x, before.width]);
     }
     const card = (await discussion.boundingBox())!;
+    if (collapsed) {
+      const after = (await stage.boundingBox())!;
+      expect(after.x).toBe(before.x);
+      if (naturalMarker.x + naturalMarker.width + 8 <= card.x)
+        expect(after.width).toBe(before.width);
+      const outlineStrip = (await strip.boundingBox())!;
+      expect(card.x + card.width).toBeLessThan(outlineStrip.x);
+    }
     // On desktop the marker can stay vertically alongside the card. On the phone,
     // a reader scrolls the last marker into the exposed part of the page.
     const target = width === 390 ? Math.max(150, card.y - 36) : card.y + card.height / 2;
@@ -835,7 +853,9 @@ for (const [width, theme] of [
     }, target);
     await expect(low).toBeInViewport();
     if (width === 1440 || width === 390) {
-      await page.screenshot({ path: capturePath(`6832-discussion-${width}-${theme}.png`) });
+      await page.screenshot({
+        path: capturePath(`6832-discussion-${width}-${theme}${collapsed ? '-collapsed' : ''}.png`),
+      });
     }
     const hit = await low.evaluate((button) => {
       const box = button.getBoundingClientRect();
@@ -848,6 +868,7 @@ for (const [width, theme] of [
       };
     });
     expect(hit.marker, JSON.stringify({ ...hit, card })).toBe(true);
+    if (collapsed) expect(hit.at.right).toBeLessThan(card.x);
     await low.click();
     await expect(discussion.getByText('Comment on paragraph 1.', { exact: true })).toBeVisible();
   });
