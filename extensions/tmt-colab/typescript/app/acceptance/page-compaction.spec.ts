@@ -26,8 +26,8 @@ async function settled(step: Promise<unknown>): Promise<boolean> {
     clearTimeout(timer);
   }
 }
-/** The probe's median on a CI runner of normal speed (#6693): see `slowdown`. */
-const REFERENCE_MS = 22;
+/** The probe's median on a CI runner of normal speed, timed after the writes (#6693). */
+const REFERENCE_MS = 23;
 /**
  * How much slower this runner's app window is than CI's normal one, from a fixed parse timed in
  * the window itself, between 1 and 3. A task the browser reports as long (over 50 ms) counts only
@@ -366,12 +366,6 @@ for (const [kind, top] of [
       const prepareStarted = Date.now();
       await expect(frame.locator('html[data-colab-prepared]')).toHaveCount(1, { timeout: 60_000 });
       const prepareMs = Date.now() - prepareStarted;
-      // Timed before the long-task observer starts, so the probe is never one of its tasks.
-      const calibration = await slowdown(page);
-      if (calibration.capped)
-        console.log(
-          `colab-large-slow the runner is over 3x slower: ${JSON.stringify(calibration)}`,
-        );
       const finishTrace = await traceLargeWrites(page, kind ? 'open' : 'regular');
       const clock = await page.evaluate(() => {
         const long: { duration: number; start: number; owner: string }[] = [];
@@ -430,6 +424,13 @@ for (const [kind, top] of [
           (window as unknown as { longTasks: { duration: number; start: number; owner: string }[] })
             .longTasks,
       );
+      // Timed once the long tasks are read, so the probe is never one of them, and after the
+      // writes: a slow runner slows under their load, and a probe before them read it as normal.
+      const calibration = await slowdown(page);
+      if (calibration.capped)
+        console.log(
+          `colab-large-slow the runner is over 3x slower: ${JSON.stringify(calibration)}`,
+        );
       const busy = JSON.stringify({
         longTasks: long.map((task) => ({
           duration: Math.round(task.duration),
