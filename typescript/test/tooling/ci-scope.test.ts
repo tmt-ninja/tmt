@@ -1142,7 +1142,7 @@ describe('CI area selection', () => {
     expect(workflow).toContain('test:browser');
   });
 
-  it('derives the Remote pairing workflow paths from component ownership', () => {
+  it('pins the Remote pairing workflow paths to owners and consumed inputs', () => {
     const map = parseComponentMap(
       readFileSync(new URL('../../../.github/components.json', import.meta.url), 'utf8')
     );
@@ -1156,6 +1156,11 @@ describe('CI area selection', () => {
       (name) => map.components.find((component) => component.name === name)?.owns ?? []
     );
     expect(owned).toHaveLength(2);
+    const digestInputs = [
+      'extensions/tmt-digest/pricing/**',
+      'extensions/tmt-digest/contracts/**',
+      'contracts/owner-reads-v1.json',
+    ];
     const shared = [
       '.github/workflows/remote-pairing.yml',
       '.github/actions/setup-tooling/**',
@@ -1168,13 +1173,27 @@ describe('CI area selection', () => {
       'rust/Cargo.lock',
     ];
     const paths = [...workflow.matchAll(/^      - '([^']+)'$/gm)].map((m) => m[1]);
-    expect(paths.sort()).toEqual([...owned.map((root) => `${root}/**`), ...shared].sort());
+    expect(paths.sort()).toEqual(
+      [...owned.map((root) => `${root}/**`), ...digestInputs, ...shared].sort()
+    );
     const filters = paths.map((glob) => globToRegExp(glob));
     const selected = (file: string) => filters.some((filter) => filter.test(file));
     for (const root of owned) {
       expect(selected(`${root}/src/lib.rs`), root).toBe(true);
       expect(selected(`${root}-other/src/lib.rs`), root).toBe(false);
     }
+    for (const file of [
+      'extensions/tmt-digest/pricing/pricing-v2.json',
+      'extensions/tmt-digest/contracts/vectors/usage-report-v1.json',
+      'contracts/owner-reads-v1.json',
+    ])
+      expect(selected(file), file).toBe(true);
+    for (const file of [
+      'extensions/tmt-digest/pricing-other/pricing-v2.json',
+      'extensions/tmt-digest/contracts-other/usage-v1.md',
+      'contracts/owner-reads-v1.json.orig',
+    ])
+      expect(selected(file), file).toBe(false);
   });
 
   it('selects native checks for shared design tokens without narrowing look-alikes', () => {
