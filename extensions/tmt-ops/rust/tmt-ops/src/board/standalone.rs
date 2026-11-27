@@ -72,7 +72,7 @@ struct Form {
 }
 
 enum Page {
-    Form(Form),
+    Form(Box<Form>),
     Running {
         command: String,
         cwd: String,
@@ -197,7 +197,7 @@ impl Controller {
         } else {
             Vec::new()
         };
-        self.show(Page::Form(Form {
+        self.show(Page::Form(Box::new(Form {
             saved: None,
             command,
             targets,
@@ -206,7 +206,7 @@ impl Controller {
             member,
             talk,
             history: None,
-        }));
+        })));
         effect
     }
 
@@ -225,7 +225,7 @@ impl Controller {
         {
             targets.push(local);
         }
-        self.show(Page::Form(Form {
+        self.show(Page::Form(Box::new(Form {
             command,
             saved: None,
             targets,
@@ -234,7 +234,7 @@ impl Controller {
             observing: false,
             talk: None,
             history: None,
-        }));
+        })));
         Effect::Standalone(Task::Discard)
     }
 
@@ -489,11 +489,11 @@ impl Controller {
             DialogInput::Choose(index) => self.choose(index),
             DialogInput::Cancel => self.close(),
             DialogInput::Field(_, key) => {
-                if let Some(Page::Form(form)) = &mut self.page {
-                    if form.talk.is_none() {
-                        let width = self.hits.borrow().content.width.saturating_sub(2).max(1);
-                        form.command.key(key, width, MAX_COMMAND);
-                    }
+                if let Some(Page::Form(form)) = &mut self.page
+                    && form.talk.is_none()
+                {
+                    let width = self.hits.borrow().content.width.saturating_sub(2).max(1);
+                    form.command.key(key, width, MAX_COMMAND);
                 }
                 Effect::None
             }

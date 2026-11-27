@@ -573,7 +573,7 @@ impl App {
             KeyCode::Char('r') => {
                 let mut target = row.expected();
                 target["kind"] = "saved".into();
-                self.standalone.show(Page::Form(Form {
+                self.standalone.show(Page::Form(Box::new(Form {
                     command: Editor::from(row.command),
                     saved: Some(json!({"target": target})),
                     targets: vec![Target {
@@ -585,7 +585,7 @@ impl App {
                     talk: None,
                     selected: 0,
                     history: None,
-                }));
+                })));
                 return Some(Effect::None);
             }
             KeyCode::Char('s') => SavedTask::Shell(row),
