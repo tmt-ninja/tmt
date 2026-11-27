@@ -48,10 +48,10 @@ for (const width of [1440, 390])
       await expect(records.last().locator('a')).toHaveCount(0);
       await expect(records.last().locator('.tmt-settings-help')).toHaveCount(0);
       const actions = page.locator('.tmt-settings-record a');
-      await expect(actions).toHaveText(['Settings', 'Settings', 'Settings', 'Settings']);
+      await expect(actions).toHaveText(['Settings', 'Settings', 'Settings']);
       expect(
         await actions.evaluateAll((links) => links.map((link) => link.getAttribute('href'))),
-      ).toEqual(['/colab/settings/', '/remote/settings/', '/ops/settings/', '/digest/settings/']);
+      ).toEqual(['/colab/settings/', '/remote/settings/', '/digest/settings/']);
       await expect(page.getByRole('link', { name: 'Open Remote settings →' })).toHaveAttribute(
         'href',
         '/remote/settings/',

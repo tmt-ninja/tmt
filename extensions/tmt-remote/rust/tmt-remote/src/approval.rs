@@ -42,13 +42,8 @@ impl Approval {
             id,
             owned.frozen.as_deref().ok_or_else(invalid)?,
         )?;
-        let mut preview = json!({"event":"held","operationId":id,"clientId":grant.client_id,"deviceName":grant.name,
+        let preview = json!({"event":"held","operationId":id,"clientId":grant.client_id,"deviceName":grant.name,
             "recipientId":frozen.recipient_ids[0],"message":frozen.message});
-        if let Some(room) = frozen.room {
-            preview["recipientIds"] = json!(frozen.recipient_ids);
-            preview["room"] = serde_json::to_value(room).map_err(|_| invalid())?;
-            preview["kind"] = json!(frozen.kind);
-        }
         Ok((grant.clone(), preview))
     }
     pub(crate) fn confirm(&self, id: &str, grant: &Grant) -> Result<Value, RemoteError> {

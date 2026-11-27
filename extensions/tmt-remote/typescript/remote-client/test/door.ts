@@ -169,8 +169,6 @@ export class Door {
   messageState?: unknown;
   /** What `requests.sendNow` answers; the request ID is filled in. */
   sendNowReply: Record<string, unknown> = { state: 'sent' };
-  conversationReply?: (input: Record<string, unknown>) => unknown;
-  formsReply?: (operation: string, input: Record<string, unknown>) => unknown;
   managementReply?: (operation: string, payload: Record<string, unknown>) => unknown;
   sendState = 'accepted';
   error?: {
@@ -234,7 +232,6 @@ export class Door {
             recipientIds: string[];
             message: string;
             kind: string;
-            room?: { kind: string; roomId: string; revision: number };
           };
           assert.deepEqual(Object.keys(payload).sort(), [
             'input',
@@ -250,21 +247,18 @@ export class Door {
             'message',
             'operationId',
             'recipientIds',
-            ...(input.room ? ['room'] : []),
           ]);
           assert.equal(input.operationId, body.id);
           assert.ok(['request', 'announcement'].includes(input.kind));
-          assert.ok(input.room ? input.recipientIds.length >= 1 : input.recipientIds.length === 1);
+          assert.equal(input.recipientIds.length, 1);
           if (this.intents.has(input.operationId))
             assert.equal(this.intents.get(input.operationId), bytes.toString('utf8'));
           this.intents.set(input.operationId, bytes.toString('utf8'));
-          const requestIds = input.recipientIds.map(() => `req_${crypto.randomUUID()}`);
+          const requestId = `req_${crypto.randomUUID()}`;
           result = {
             state: this.sendState,
             operationId: body.id,
-            ...(this.sendState === 'accepted'
-              ? { requestId: requestIds[0], ...(input.room ? { requestIds } : {}) }
-              : {}),
+            ...(this.sendState === 'accepted' ? { requestId } : {}),
           };
           result = this.receipts.get(input.operationId) ?? result;
           this.receipts.set(input.operationId, result as Record<string, unknown>);
@@ -299,28 +293,6 @@ export class Door {
             ...this.sendNowReply,
           };
           break;
-        case 'requests.list':
-          assert.ok(this.conversationReply, 'Conversation fixture is explicitly configured.');
-          assert.equal(payload.version, 1);
-          assert.equal(payload.operation, 'requests.list');
-          result = this.conversationReply(payload.input as Record<string, unknown>);
-          break;
-        case 'forms.list':
-        case 'changes.cursor':
-        case 'forms.answer': {
-          assert.ok(this.formsReply, 'Forms fixture is explicitly configured.');
-          assert.equal(payload.version, 1);
-          assert.equal(payload.operation, body.operation);
-          const input = payload.input as Record<string, unknown>;
-          if (body.operation === 'forms.answer') {
-            const operationId = input.operationId;
-            assert.ok(typeof operationId === 'string');
-            assert.equal(operationId, body.id);
-            result = this.receipts.get(operationId) ?? this.formsReply(body.operation, input);
-            this.receipts.set(operationId, result as Record<string, unknown>);
-          } else result = this.formsReply(body.operation, input);
-          break;
-        }
         case 'agents.list':
           assert.deepEqual(payload, {});
           result = { identities: this.agents };

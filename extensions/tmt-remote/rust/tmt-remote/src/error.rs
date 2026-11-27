@@ -19,18 +19,6 @@ pub struct RemoteError {
     detail: Option<Box<ErrorDetail>>,
 }
 impl RemoteError {
-    pub(crate) fn room_history_denied(reason: &'static str) -> Self {
-        let mut error = Self::new("REMOTE_SCOPE_DENIED", "Room history is not permitted.");
-        error.detail = Some(Box::new(ErrorDetail::RoomHistory(reason)));
-        error
-    }
-    pub(crate) fn room_history_reason(&self) -> Option<&'static str> {
-        match self.detail.as_deref() {
-            Some(ErrorDetail::RoomHistory(reason)) => Some(*reason),
-            _ => None,
-        }
-    }
-
     pub fn new(code: &str, message: &str) -> Self {
         Self {
             code: code.into(),
@@ -43,16 +31,6 @@ impl RemoteError {
     pub(crate) fn with_owned_read(mut self, failure: OwnedReadFailure) -> Self {
         self.detail = Some(Box::new(ErrorDetail::OwnedRead(failure)));
         self
-    }
-    pub(crate) fn with_unconfirmed_terminal_id(mut self, id: &str) -> Self {
-        self.detail = Some(Box::new(ErrorDetail::UnconfirmedTerminalId(id.into())));
-        self
-    }
-    pub(crate) fn unconfirmed_terminal_id(&self) -> Option<&str> {
-        match self.detail.as_deref() {
-            Some(ErrorDetail::UnconfirmedTerminalId(id)) => Some(id),
-            _ => None,
-        }
     }
     pub fn json_value(&self) -> serde_json::Value {
         let mut value =
@@ -256,11 +234,9 @@ pub struct CloudProviderDiagnostic {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum ErrorDetail {
-    RoomHistory(&'static str),
     DeployPreview(serde_json::Value),
     DeployInputs(crate::deploy_input::RequiredInputs),
     OwnedRead(OwnedReadFailure),
-    UnconfirmedTerminalId(String),
     DeployProvider(DeployProviderDiagnostic),
     CloudProvider(CloudProviderDiagnostic),
     CloudDocument(CloudDocumentReason),

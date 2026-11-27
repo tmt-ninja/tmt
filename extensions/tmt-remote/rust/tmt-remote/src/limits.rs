@@ -104,30 +104,15 @@ pub const SPLICE_WRITE: Duration = Duration::from_secs(5);
 /// Deadline for one fixed public core subprocess, followed by the runner's bounded cleanup.
 pub const CORE_CALL: Duration = Duration::from_secs(15);
 
-/// Owner browser reads (`x/-/ops`, `x/-/digest`): a finished read, ok or not, answers every
+/// Owner browser reads (Digest usage, limits and savings): a finished read, ok or not, answers every
 /// request in this window, so open tabs never multiply subprocesses.
 pub const READ_FRESH: Duration = Duration::from_secs(5);
 /// One read from the first request to its answer, inside the mounted-route budget.
 pub const READ_WAIT: Duration = Duration::from_secs(12);
 /// Captured stdout of one read subprocess.
 pub const READ_SUBPROCESS_BYTES: usize = 2 * 1024 * 1024;
-pub const READ_OPS_BYTES: usize = 512 * 1024;
 pub const READ_DIGEST_BYTES: usize = 1024 * 1024;
 pub const READ_LIMITS_BYTES: usize = 512 * 1024;
-pub const READ_OPS_SQUADS: usize = 32;
-/// Bound optional checklist pipe/process pressure within the shared board deadline.
-pub const READ_OPS_CHECKLIST_PARALLEL: usize = 4;
-pub const READ_OPS_AGENTS: usize = 256;
-/// Core's public consumption.history admits at most 32 UUIDs per read. The board
-/// therefore starts at most READ_OPS_AGENTS / READ_OPS_USAGE_IDENTITIES parallel reads.
-pub const READ_OPS_USAGE_IDENTITIES: usize = 32;
-pub const READ_OPS_TIMERS: usize = 64;
-/// Longest projected Ops text, in Unicode scalars.
-pub const READ_OPS_NAME: usize = 64;
-pub const READ_OPS_STATE: usize = 80;
-pub const READ_OPS_TEXT: usize = 200;
-pub const READ_OPS_LINK: usize = 300;
-pub const READ_OPS_WHAT: usize = 120;
 /// Largest registered-ID-shaped runtime driver disclosed in agents.list.
 pub const RUNNING_DRIVER_BYTES: usize = 32;
 /// Bounded SQLite contention admission. Expiry refuses; it never bypasses an effect fence.
@@ -346,48 +331,3 @@ pub const SQUAD_SUMMARY_MACHINES: usize = 32;
 /// Allow routing/status JSON overhead per row, without enlarging any carrier.
 pub const SQUAD_DIRECTORY_CONTROL_BYTES: usize =
     SQUAD_SUMMARY_MACHINES * (SQUAD_SUMMARY_BYTES + 1024) + 1024;
-
-/// Owner-browser conversation projection; Core owns the opaque cursor and retention.
-pub const CONVERSATION_PAGE_DEFAULT: u64 = 20;
-pub const CONVERSATION_PAGE_MAX: u64 = 50;
-pub const CONVERSATION_POSITION_BYTES: usize = 64;
-pub const CONVERSATION_PREVIEW_SCALARS: usize = 160;
-pub const CONVERSATION_PREVIEW_BYTES: usize = 640;
-pub const CONVERSATION_WITHDRAWAL_BYTES: usize = 1024;
-pub const CONVERSATION_RESPONSE_ID_BYTES: usize = 128;
-
-/// Existing message-state reason bound; budget it even alongside both previews and a
-/// withdrawal, although not every final state carries all those fields together.
-const CONVERSATION_REASON_BYTES: usize = 256;
-/// A JSON string byte may require six ASCII bytes (`\u0000`). One KiB per row
-/// covers field names, maximal IDs/positions, numeric metadata and punctuation;
-/// one further KiB covers the page/cursor and the Core output newline.
-const CONVERSATION_JSON_ESCAPE_BYTES: usize = 6;
-const CONVERSATION_METADATA_BYTES: usize = 1024;
-pub const CONVERSATION_RESPONSE_BYTES: usize = CONVERSATION_PAGE_MAX as usize
-    * (CONVERSATION_JSON_ESCAPE_BYTES
-        * (2 * CONVERSATION_PREVIEW_BYTES
-            + CONVERSATION_WITHDRAWAL_BYTES
-            + CONVERSATION_REASON_BYTES)
-        + CONVERSATION_METADATA_BYTES)
-    + CONVERSATION_METADATA_BYTES;
-
-/// The largest Core answer the owner browser's orchestration read or write returns (#4894): an
-/// overview of every member, or one 256-row routes page, with room to spare.
-pub const ORCHESTRATION_RESPONSE_BYTES: usize = 1024 * 1024;
-
-/// Maximum audience of one Core roster dispatch.
-pub const DISPATCH_RECIPIENTS: usize = 64;
-
-/// Bounded owner-browser provider forms, including retained 64-KiB plans; never truncated here.
-pub const FORMS_RESPONSE_BYTES: usize = 1024 * 1024;
-/// Core documents at most four 2-KiB Other answers, plus choice indices and framing.
-pub const FORMS_ANSWER_BYTES: usize = 16 * 1024;
-
-// The public Core Provider forms contract owns these content bounds; never truncate here.
-pub const FORM_TEXT_BYTES: usize = 2048;
-pub const FORM_LABEL_BYTES: usize = 256;
-pub const FORM_PLAN_BYTES: usize = 64 * 1024;
-
-pub const FORM_QUESTIONS: usize = 4;
-pub const FORM_OPTIONS: usize = 8;

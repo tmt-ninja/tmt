@@ -71,7 +71,6 @@ export function rootAppFamily(family: string): boolean {
     ![
       'colab',
       'remote',
-      'ops',
       'digest',
       'settings',
       'sdk',

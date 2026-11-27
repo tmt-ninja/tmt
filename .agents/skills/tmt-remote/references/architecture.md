@@ -47,7 +47,7 @@ Module owners (put a change in the existing owner; `canonical`, `crypto`, `wire`
 | `authority`, `members`, `store`, `state`                          | Scoped members/machines and typed grants in one Store; schema history, layout/machine key/serve lock                                                                                                                                                |
 | `pairing`, `control`, `devices`                                   | One pairing offer per run, owner-only control socket for discovery/stop and shared grant/session cleanup and revision-fenced member/machine effects                                                                                                 |
 | `mount`, `shell`, `pages`                                         | Allowlisted mounts, bounded display-only describe composition, static pages and embedded assets                                                                                                                                                     |
-| `reads`, `reads::ops`                                             | Owner browser reads: fixed public `ops`/`digest` argv, single-flight 5 s reuse, Ops allowlist projection ([contract](../../../../contracts/remote-channel-v1.md#owner-browser-reads)); public CLI only, no state or worker                          |
+| `reads`                                                           | Owner browser reads: Digest usage, savings and limits, with serve-local single flight ([contract](../../../../contracts/remote-channel-v1.md#owner-browser-reads)); public CLI only, no state or worker                                             |
 | `objects`                                                         | Object backend trait and `LocalFs`: the `objects.db` ledger and extension-private payload trees under the serve lease; the channel and config belong to `object_service`                                                                            |
 | `declaration`, `deploy_plan`, `hosting`, `rules`                  | Strict backend declaration parse; digest-addressed `sharing` deploy plan; allow-listed Rules/indexes and frozen Hosting composition (verified identities in; acquisition belongs to `hosting_files`)                                                |
 | `deploy_command`, `deploy_record`, `remote_link`                  | Plan/authorization/output over captured inputs/provider; private deployment identity/run file, atomic replacement under its writer lock; lock-free per-request status evidence                                                                      |
@@ -80,38 +80,10 @@ transport sockets outside the origin registry lock, including a late transport b
 for sealed-document consumers, including Colab. It has no Core authority. Native carrier
 bytes/admission remain in `cloud_hpke`/`cloud_inbox`, while HTTP/Auth/budget is shared.
 
-`operations::conversation` validates the fixed viewer-resolved public Core query and
-allowlists its bounded response. The operation owner admits only the owner's own-origin
-browser with `results.read` and the selected member UUID for a DM, or an every-agent
-grant for a room, under the existing permit checks. Room reads project only Core's
-room history and prepared-time cursor; unavailable change tracking stays unknown.
-Room dispatch keeps roster revision and every recipient in the existing frozen intent,
-held approval and transactional effect fence. Core positions remain opaque; no identity creation, acknowledgment or new store
-belongs to the projection. The Core subprocess, projected response and SDK share the derived maximum-page byte
-bound in `limits::CONVERSATION_RESPONSE_BYTES`; escaped text and fixed metadata are included.
-
-`reads::ops` projects only the bounded board's members into at most eight parallel
-32-UUID `consumption.history` reads. Core owns each closed-day cut and coverage;
-Remote adds no sampler or cross-chunk aggregate. Cron owns next-run/state;
-`ops squad config show --json` owns the no-squad idle default. Failures leave only
-their source fields unavailable.
-Checklist counts use Ops' public read-only `squad checklist counts` route, one call
-per admitted squad room (at most 32), with at most four concurrent calls under the
-same read deadline. The existing projection supplies private acquisition targets;
-no second roster or private-store reader is introduced. Counts join by squad and member UUID, and
-unavailable observations stay null independently of Core room revision metadata.
-All acquisitions share the existing read deadline and serve-local cache.
+`reads` also supplies the independent native squad summary from the public roster.
 
 `operations` forwards Core list evidence; the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
 owns activity validation, post-read observation time and advisory decoding.
-
-`operations::forms` projects only public Core provider-form fields and cursor/usage
-integers for the owner browser with every agent. Core owns option validation and
-provider delivery; Remote's pre-read gates missing, permission and truncated forms.
-The existing operations ledger commits uncertainty before Core can answer and keeps
-same-device form outcomes through retention/pruning; replay and `operation.show`
-never send. The effect uses the existing durable grant fence, not a second ledger,
-provider key map or UI owner. The channel contract owns scopes and response bounds.
 
 `Operations::read` brackets fallible Core observations with `MessagePermit::revalidate`.
 Core runs outside the live-session and Store mutexes, with no SQLite authorization transaction
@@ -238,16 +210,6 @@ confined Colab import per entry and a disposable route/session registry; Navigat
 the same live composition as the rail. Colab's search-session entry owns its transport and dialog,
 so the root neither implements Colab admission nor adds a keyboard listener. Existing Remote
 Session observations invalidate search; the existing management hold reason fences navigation.
-The same root retains a verified signed Session for owner reads and DM history, joins
-admission within the route lifetime, and retires only the failed handle rather than a newer
-observation. `conversations` owns SDK decoding; `conversation-history` owns bounded paging
-and the selected/last-opened DM poll; `talk-stream` owns the shared stream rows and the one Talk
-outbox (frozen operation ID, observe-only unknown outcomes); `channel-stream` owns the room read
-and room posts; `conversation-seen` stores only the browser-local
-machine/viewer/member position. Positions are opaque. A visible newest-page read alone
-advances seen; background/older-page reads do not. The operations contract owns unread
-semantics. These UI lifetimes add no native endpoint, stored authority or provider observation.
-
 `create-page` is the global setup guide, outside the current-door tab frame. Its inputs are
 memory-only; naming delegates to the registry CAS owner. `settings-page` passes the existing
 validated optional layers/budget observation and refresh, without a second management client.

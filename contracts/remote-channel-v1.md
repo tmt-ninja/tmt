@@ -111,7 +111,7 @@ register entries in that static table; declared `rootAppFamily` navigation is se
 Browser assets live at the door root, disjoint from the route prefix, under the same Host, path and
 framing rules. The door serves one TMT web app: GET/HEAD of exactly `/`, `/settings`, `/settings/`,
 `/remote`, `/remote/`, `/remote/create`, `/remote/join`, `/remote/overview`, `/remote/members`, `/remote/invites`, `/remote/my-devices`, `/remote/settings`, `/remote/service`,
-`/ops`, `/ops/`, `/digest`, `/digest/`, `/colab`, `/colab/`, `/colab/<segments>`,
+`/digest`, `/digest/`, `/colab`, `/colab/`, `/colab/<segments>`,
 and root app families admitted from an extra module description below (each suffix segment
 `[A-Za-z0-9_-]+`, at most 160 bytes after the family plus `/`) answer the same static
 `shell.html`, whose only script is `/sdk/shell.js`. Roots require an explicit admitted
@@ -125,7 +125,7 @@ malformed `/p` path receives the generic HTML 404 page. App/`/p/<id>` queries: `
 Remote never decodes; app/308 queries are byte-exact. The client router switches routes in that
 one document: each route is a module mounted into the shared web shell, and Colab's module is
 loaded only from the composed shell's `entry` (below), never without an owner session. The rail is
-Home, Colab, Remote, Ops, Digest and other described modules in their composed order, with
+Home, Colab, Remote, Digest and other described modules in their composed order, with
 TMT settings last, filled from the [composed shell](#module-descriptions-and-composed-shell) when the
 browser holds an owner session; a module the answer does not describe stays listed, disabled, with
 its reason. Design follows Colab's availability; the composed rail order places it
@@ -136,8 +136,8 @@ described `home` cards; it reads nothing else. When exactly one primary module's
 carries a valid `homePage` (#6474), the Home rail item and `/` open that page instead, and Home is
 current there; no claim, an invalid claim or more than one keeps this Home. The pairing offer stays
 the shell's notification on every route. `/settings` and `/settings/` are TMT settings, its
-sections listed in the module menu. `/ops` and `/digest` are Ops and Digest; their data have
-their [owner browser reads](#owner-browser-reads). Until a page has a browser read, the page says it is not in the browser yet, names the terminal command
+sections listed in the module menu. Digest uses
+[owner browser reads](#owner-browser-reads). Until a page has a browser read, the page says it is not in the browser yet, names the terminal command
 that shows the same facts and shows no values. Home preferences remain a
 separate consumer. Remote has two levels under one app route. `/remote/` (`/remote` names the same entry)
 is My Remotes, the origin-local public registry. Its rows open the selected door's `/remote/overview`.
@@ -1308,8 +1308,6 @@ framework, agent/held-work recovery exception or general recovery route exists.
 
 The Remote-owned management tabs use the existing page CSP, origin checks and no-store policy.
 `/sdk/settings-v1.js` imports `/sdk/remote-v1.js`; it does not embed another signer/channel implementation.
-`/sdk/ops-composer-v1.js` (the Ops message box, loaded only when a channel or DM opens) is served with
-the same headers; it renders text input only and holds no signer, channel or Session.
 Settings consolidates Browser opening, Session limit per device, the origin-local catalog name
 (labelled Name in this browser) and the admitted current browser/device name (labelled with that scope).
 A Remote-wide name has no browser setter here. Catalog naming reuses the existing
@@ -1618,239 +1616,15 @@ applies its published public Core mapping after narrowing supported operations a
 | `squads.summary`                                                                                | Native-only one-way metadata, gated by `agents.read` and filtered by the `agents.list` canonical UUID allowlist; never a Core final, agent message or talk grant.                                                                                         |
 | `identities.status`                                                                             | `status.read`; input restricted to permitted UUIDs. Self-report is not readiness or completion.                                                                                                                                                           |
 | `check`                                                                                         | `check.read`; one permitted agent, the bounded capture `tmt check --capture-only --json` returns locally. Read-only; it never writes to a pane.                                                                                                                          |
-| `dispatch.create`                                                                               | `talk`; one permitted direct recipient or 1–64 distinct permitted recipients with a roster room, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. Request or announcement; roster admission remains Core-owned. |
+| `dispatch.create`                                                                               | `talk`; one permitted direct recipient, core originator per Identity attribution (below) plus remote provenance (below). `direct` grants dispatch after admission; `hold` grants hold for local approval. |
 | `dispatch.show`, `operation.show`                                                               | `talk`; only journal-owned operation IDs; core immutable receipt or remote held state.                                                                                                                                                                    |
 | `requests.show`, `result`                                                                       | `results.read`; any request the local `tmt result` can read, through the public API or `tmt result --json`.                                                                                                                                               |
-| `requests.list`                                                                                 | `results.read`; the owner's own-origin browser only, one permitted member UUID for DM history, or a room UUID with an every-agent grant; fixed public Core queries below.                                                                                                                   |
 | `requests.sendNow`                                                                              | `talk`; the owner's own browser only, for a request this device sent ([Send now](#send-now)). Core runs `requests.sendNow` for the person.                                                                                                                |
-| `orchestration.read`                                                                            | `agents.read`; the owner's own-origin browser holding every agent only; Core's input passes through unchanged (Owner-browser orchestration below).                                                                              |
-| `orchestration.write`                                                                           | `talk`; the same grant; only `focus.set`, `focus.clear`, `route.allow`, `talks.resume` and on/off-only `plan.set`, never with an `actorId`; Core's preview and apply pass through unchanged.                                                                                      |
 | `references.resolve`, `rooms.roster`                                   | Unsupported in v1; later projections need explicit scoped admission.                                                                                                                                                                                      |
 | `notes.read`, `rooms.write`, `rooms.retire`                                                     | Unsupported in v1.                                                                                                                                                                                                                                        |
 | `identityHooks.*`, `skills.install`, `skills.remove`                                            | Never remotely callable; JSON consent cannot manufacture local lifecycle/install authority.                                                                                                                                                               |
 | Core message reply/answer, X acknowledgment, core/provider config, pair, run/resume, approvals, installation | Never remotely callable. Result/log ack does not reply or acknowledge core work.                                                                                                                                                                          |
 | any other command, argv or shell                                                                | Never; there is no generic command endpoint.                                                                                                                                                                                                              |
-
-**Terminal commands from web Ops.** The signed operations use the existing
-`{version:1,operation,input}` envelope. They require a live Local Session for the
-current designated browser on its own door, with direct Talk for all agents and
-the `terminal.command` scope. CLI devices, add-ons, cloud/relay, mounted app
-content and shared pages have no such authority. The scope is never issued by
-pairing, invitations, membership roles or cloud receipts. The owner alone can
-toggle it locally with `tmt remote members terminal-command <client-id> on|off`.
-Re-pairing grants no command scope. Turning Talk off or replacing its designation
-removes the scope. A held, narrowed, expired or revoked grant has no command
-authority. Grant changes use the existing revision and session fences.
-
-- `terminal.command.targets` takes `{identityId}` for one canonical Core identity.
-  It calls `terminal.list` once between authority checks and returns
-  `{identityId,terminals:[{terminalId,ordinal,busy}]}`. Ordinals start at one
-  in Core's order. The response contains no socket, pane, shell, process, or
-  directory. A targets read grants no authority to run.
-- `terminal.command.run` takes `{operationId,identityId,target,command}`.
-  `operationId` is a UUIDv4 equal to the envelope ID. The target is
-  `{kind:"existing",terminalId}` or `{kind:"new"}`. A command meets the public
-  [Core terminal admission](extension-api.md#terminals-under-a-member). Only an
-  explicit user's selection with the entire single-line input visible can submit.
-  Preview-only, clipped, multiline and unknown-scope views offer Copy.
-- Adoption freezes the exact bytes and consumes the ID in the existing operation
-  journal. Each Core `terminal.open` or `terminal.run` call gets its own authorized
-  IMMEDIATE transaction and audit row, with the terminal ID when known, a payload
-  digest, and the decision. A new target runs only after a confirmed open, with that
-  exact terminal and a fresh authority check. A refusal or unconfirmed run leaves
-  the opened terminal in place. An unconfirmed open never runs.
-- Submitted is `{operationId,state:"submitted",identityId,terminalId}`, which
-  acknowledges queued input. A proven effect refusal is
-  `{operationId,state:"refused",stage,code,terminalId?}`; admission refusals use
-  the signed error envelope. Unknown outcomes use
-  `{operationId,state:"unconfirmed",stage,terminalId?}` with stage `open`, `run`
-  or `unknown`. Repeat IDs and `operation.show {operationId}` only observe the
-  retained outcome under the same browser fence and existing recovery horizon.
-  Losing a response never authorizes replay, opening another terminal, sending
-  raw input or choosing a replacement operation ID.
-
-**Owner-browser provider forms.** These signed operations use the existing
-`{version:1,operation,input}` envelope and [Core Provider forms](extension-api.md#provider-forms):
-
-- `forms.list` `{identityId?}` and `changes.cursor` `{}` require `agents.read`.
-- `forms.answer` `{operationId,formId,answer}` requires `talk`.
-
-All three require this door's own-origin owner browser and a grant covering every
-agent, as for orchestration; CLI, add-on, foreign-browser and subset grants are
-refused before Core. Recovery of a form answer through `operation.show`
-`{operationId}` has the same owner/every-agent gate and existing `talk` scope.
-Reads use the existing permit pre/post revalidation and own no effect fence.
-Only Core's `cursor` and optional `usage` nonnegative JavaScript-safe integers cross
-`changes.cursor`; compare opaque values for equality within one data root only.
-Forms advance Core's ordinary cursor, with no Remote form event or polling owner.
-
-`forms.list` returns `{forms:[...]}` with Core's documented form IDs, identity IDs,
-opened time, kind, optional questions/options/tool/plan, `truncated`, `answerable`
-and `answerIn`. No provider tool-use ID or other private fields cross the projection.
-Remote and the SDK keep Core's 4-question/8-option, 2-KiB text, 256-byte label and
-64-KiB plan bounds. The full forms response is bounded at 1 MiB; excess or malformed
-output is unavailable, never truncated by Remote. A truncated or terminal-only
-form stays a terminal action; only the person answers a provider form, never an agent.
-
-The answer takes Core's documented choice lists and optional Other texts, or the
-plan decision. Remote validates only the bounded structural shape (answer JSON at
-most 16 KiB), not whether an option exists or fits the form; Core remains the
-validator. A pre-read refuses a missing form, any truncated form (including a plan)
-or a terminal-only form before forwarding an answer. It does not replace Core's
-freshness, sent-state, host/version or option checks. Only `{formId,answer}` reaches
-Core; Remote's `operationId` must equal the signed envelope ID. The actual Core
-answer runs under the existing live-grant and durable effect fence.
-
-Core `forms.answer` has **no operation-ID idempotency**. Remote deduplicates an
-admitted frozen answer by `operationId` only for the same paired device in the
-existing operation ledger. Persist the ID and exact answer before sending. A
-committed uncertain marker precedes every possible Core answer call; only the
-fresh adoption may invoke it. The result is `{operationId,formId,state:"accepted",
-delivered:true}`, or `{operationId,formId,state:"refused"|"uncertain",reason,message?}`.
-Documented Core `FORM_*` codes, including `FORM_DELIVERY_UNSUPPORTED` and
-`FORM_DELIVERY_UNCERTAIN`, are preserved; a bounded plain Core message may accompany
-them. A failed, malformed or oversized pre-read settles as `refused` with
-`REMOTE_CORE_UNAVAILABLE` and no Core message because no answer was attempted.
-Unknown/malformed or lost outcomes during or after an answer call stay uncertain.
-Same-ID replay and
-`operation.show` observe the stored first outcome and never call Core again, even
-after restart or journal pruning. An unfinished/crashed marker is uncertain;
-only its original in-flight invocation may settle Core's result. A settled
-uncertain outcome never authorizes resend. Reusing an ID for another answer is
-`REMOTE_INTENT_CONFLICT`. The existing 30-day recovery horizon and operation cap
-apply; capacity pruning keeps form outcomes during retention and never drops live
-uncertain answers. Retaining form outcomes can exhaust the shared operation cap
-and block new adoptions until finished records age out; live uncertain answers
-remain retained. There is no automatic answer retry or new control endpoint.
-
-The SDK `forms(session)` reuses the verified Session lane and exposes `list`,
-`cursor`, `answer({operationId,formId,answer})` and `operation(operationId)`; creating
-it opens nothing. GUI owns the eventual form controls, separately from this API.
-
-**Owner-browser orchestration.** Signed `orchestration.read` and `orchestration.write` (#4894) take
-Core's own input (`{version:1,operation,input}`, [Orchestration v1](orchestration-v1.md)) and
-return Core's answer, bounded at 1 MiB. Each successful read adds top-level
-`personId`: the configured owner's canonical identity UUID from Core's read-only
-`user.person`, or `null` when unknown or unavailable. This lookup never creates or
-marks an identity and remains inside the existing permit revalidation window;
-it does not change the Core view's rows or a write/refusal answer. Core's own `ORCH_*` refusal (such as `ORCH_CONFLICT`) is
-returned as `{refused:{code,message?}}`, its sentence only when it is one bounded line. Only
-this machine's own-origin owner browser whose grant permits every agent is admitted: a cli, add-on
-or foreign-origin browser grant, or one limited to some agents, is refused `REMOTE_SCOPE_DENIED`
-before Core. A read names one of Core's views. A write is a mutation the browser page offers
-(`focus.set`, `focus.clear`, `route.allow`, `talks.resume`, and the on/off-only `plan.set` below);
-plan creation/removal/other edits and leads changes stay local-only.
-The owner browser is the person, so a mutation naming an `actorId` is refused. Preview and apply
-stay two calls: the browser sends Core's `expectedConfigurationRevision`, `previewAtMs`,
-`previewDigest` and `consent:true` itself, and Remote never synthesizes consent or a preview.
-
-For `plan.set` in both preview and apply, the candidate must equal Core's current plan in every
-field except the boolean `enabled`. Remote reads `orchestration.read` `{view:"plans"}` through the existing bounded
-Core API with permit revalidation before and after the read, then compares the full candidate
-(including nested and unknown fields) with the matching plan. A different field, missing plan,
-`plan.add` or `plan.rm` is `REMOTE_SCOPE_DENIED`. Core's preview `configurationRevision` must equal
-the observed plans revision; otherwise the existing `ORCH_CONFLICT` refusal asks for a new preview.
-At apply, Remote reads and compares the current plan again and requires the observed revision to
-equal the input's `expectedConfigurationRevision` (`ORCH_CONFLICT` otherwise). A broadened apply is
-`REMOTE_SCOPE_DENIED` before any Core write, even with a client-computed digest. Core's deterministic
-`previewDigest` binds content but grants no authority. Core still validates its digest and revision
-at apply, under the existing Store effect fence.
-
-**Room posts.** `dispatch.create` retains the ordinary operation envelope and anonymous
-client originator. Its input is `{operationId,recipientIds,message,kind,room?}`; `kind`
-is `request` or `announcement`. Without a room there is exactly one recipient. A room
-is exactly `{kind:"roster",roomId,revision}`, with a canonical room UUID and positive
-JavaScript-safe integer revision. A room post has 1–64 distinct canonical recipient UUIDs.
-Every recipient must pass the device's talk allowlist again under the existing effect
-fence; the browser cannot grant roster membership. Core validates the selected roster
-revision and each recipient's membership. Roster posts may select any non-empty subset of the
-current roster. A stale revision or any non-member returns `ROOM_ROSTER_CHANGED`, preserved as
-durable `state:"refused"`. Remote also forwards `ROOM_RECIPIENT_NOT_MEMBER` as refused if Core
-returns it; roster posts do not depend on Core emitting that code.
-A malformed or uncertain Core answer remains uncertain, never permission to send again.
-Room accepted state adds `requestIds` in the frozen `recipientIds` order, one Core
-request per recipient, while retaining `requestId = requestIds[0]`. A DM's accepted
-state is unchanged. Held previews name every recipient, the room and message kind;
-confirmation charges each recipient in the same transaction. All paths retain one
-operation ID, frozen room/revision/audience, original lookup and single dispatch;
-recovery never partially resends to a recipient.
-
-**Owner-browser room history.** Signed `requests.list` also takes
-`{version:1,operation:"requests.list",input:{roomId,limit?,before?,since?}}`. It requires the
-same own-origin owner browser and `results.read`, with an every-agent grant because
-a room can include any member. A refusal is `REMOTE_SCOPE_DENIED` with
-`scope:"results.read"` and a closed `reason`: `owner_browser_required` or
-`all_agents_required`. An absent `results.read` returns `code:"REMOTE_SCOPE_DENIED"`,
-`scope:"results.read"` and no `reason`; the SDK exposes that code and scope with
-`RefusalError.reason` undefined. The SDK retains these fields so
-the browser can explain the missing authority. It maps only to Core's public
-`{roomId,limit,before?,since?}` history scope, excluding unscoped DM traffic. Page
-default, maximum, response byte bound and prepared-time `before` cursor match the
-DM page. The result is `{roomId,items,nextBefore,changePosition,changedSince?}`.
-`changePosition` is Core's opaque room-scoped page position; carry it only within
-the same Core data root. `changedSince` is present exactly when `since` was sent:
-Core's `{count,more}` with the DM count/more bounds, or `"unknown"` for foreign,
-ahead-of-store or pruned positions. Unknown coverage calls for a full read, never
-an inferred zero. Remote never reconstructs positions or change counts.
-Room items allow only `roomId`, `requestId`, `recipientId`, `sender`, `kind`, `origin`,
-`preparedAtMs`, `delivery`, `messageState`, `final`, `preview`, `responsePreview`,
-`previewTruncated`, `parentRequestId` and `replyCount`. Core's anonymous sender remains
-`{kind:"unknown",identityId:null}`. `parentRequestId` is Core's root request ID or
-`null`; `replyCount` is Core's nonnegative safe integer count. Response previews and
-final metadata use the same validation as DMs, without nested full response bodies.
-Room items have no `direction`, `changePosition` or `responseId`: Core's room
-position belongs to the page. Read full replies through `result(requestId)`.
-The SDK exposes `send({operationId,message,room:{roomId,revision},recipientIds,kind?})`
-and `conversations(session).readRoom(roomId,{limit?,before?,since?})`. It uses the same
-signed Session lane and original operation recovery as DMs, without new state or
-authority. Channel refreshes carry the last newest-page position; older pagination
-does not move that baseline. The channel still renders the returned newest page,
-including when coverage is unknown; this adds no inferred unread count.
-
-**Owner-browser DM history.** Signed `requests.list` takes
-`{version:1,operation:"requests.list",input:{memberId,limit?,before?,since?}}`.
-Only this machine's own-origin browser grant with `results.read` and the selected
-canonical member UUID is admitted, under the existing live-grant observation fence.
-Native, CLI, add-on and foreign-browser grants refuse before Core. Browser input cannot
-choose a viewer, originator or another view in a DM query. Remote fixes Core's `view:"conversation"`;
-Core resolves only the existing configured person, without identity creation, and filters
-the viewer/member pair before pagination. Missing Core support/person or a failed or
-malformed read is unavailable; there is no broader-history fallback or compatibility probe.
-
-The default page is 20, maximum 50. Core subprocess output, the projected response
-and SDK decoding share the 801-KiB response bound: 50 rows times six-byte JSON escaping
-for two 640-byte previews, a 1-KiB withdrawal reason and a 256-byte state reason, plus
-1 KiB of metadata per row and per page. The response is `{viewerId,member,items,nextBefore,changePosition,changedSince?}`:
-`viewerId` is Core's server-derived canonical person UUID, disclosed only to this admitted
-browser; `member` is `active`, `unknown` or `retired` (the latter two have no items).
-Items allow only the Core results-view fields `requestId`, `recipientId`, `sender`, `kind`,
-`origin`, `preparedAtMs`, `delivery`, `messageState`, `final`, `preview`, `responsePreview`,
-`previewTruncated`, plus `direction` (`toMember`/`fromMember`), `changePosition` and optional
-`responseId`. Remote checks both parties against the resolved viewer/selected member. Room-dispatched rows are excluded from the DM stream.
-Final states and metadata keep their Core meanings; nested final text, receipts, pane/cwd,
-provider data and unknown fields are excluded. Previews are at most 160 Unicode scalars /
-640 UTF-8 bytes; unavailable content stays null. Reads never renew retention, acknowledge
-Core work, send, or expand into full-text detail.
-
-`nextBefore` is null or `{preparedAtMs,requestId}`; pass it unchanged as `before` for the
-same scope. No string cursor is accepted. Item/top-level `changePosition` and `since` are
-opaque strings matching `^[A-Za-z0-9_-]{1,64}$`: store and echo only, never parse, compare
-or perform arithmetic. Malformed positions refuse; a well-formed foreign or pre-pruning
-baseline returns `changedSince:"unknown"`. Only a request with `since` has `changedSince`:
-`{count,more}` counts distinct changed in-scope requests, exact up to 50 (`more:true`
-means 50+), or `"unknown"`; late finals on older requests count as changes.
-
-The Ops DM view keeps only a browser-local seen position keyed by machine + server
-`viewerId` + member UUID, never previews or whole pages. No baseline or a storage failure
-means unread unknown. Unread comes only from Core's `changedSince`: N, 50+, or unknown;
-zero is shown only when Core proves it. Seen advances to a verified response's top-level
-position only after its newest page renders in a visible DM panel and visible document.
-Opening that newest page counts as seeing the conversation; background reads, older-page
-navigation and hidden documents never advance it. No per-item maximum watermark is used.
-The Ops page refreshes only the selected/last-opened conversation on its existing visible
-five-second cadence, with one read in flight and failure backoff; it does not fan out across
-members or invent a global unread total. Viewer/machine changes isolate the seen key and
-clear old sidebar observations. Only verified positive counts add the shared unread emphasis.
 
 `agents.list`, `check`, `operation.show` and `result` are adapter helpers over ordinary public JSON
 commands, not new core API operations. SDK `api(op,input)` cannot reach local management/argv
@@ -2374,7 +2148,7 @@ lowercase alphanumeric/hyphen name falls back to `box`, never an SVG or URL. Pat
 escape. The door resolves paths inside that module's own mount, never another module,
 with one declared navigation exception: an extra's optional `rootAppFamily` is one
 absolute segment `/[a-z0-9-]{1,32}`, without a trailing slash. It cannot claim the door's
-reserved roots (`colab`, `remote`, `ops`, `digest`, `settings`, `sdk`, `x`, `r`, `read`,
+reserved roots (`colab`, `remote`, `digest`, `settings`, `sdk`, `x`, `r`, `read`,
 `pair`, `p`, `join`); `/__` and other nonmatching segments are invalid too. Invalid claims
 refuse the whole description. If multiple live descriptions claim the same family,
 none receives that root: their extra navigation stays mounted and the composed claim
@@ -2465,14 +2239,13 @@ Visibility is the extension's rule, not a remote grant.
 
 ### Owner browser reads
 
-Four owner-session, read-only door GETs give the web app real Ops, limit-history, Digest usage and Digest savings data. They reuse the
+Three owner-session, read-only door GETs give Digest web its limit history, usage and savings data. They reuse the
 public JSON the terminal already reads; they add no grant, scope, pairing rule, write or push
 channel, and dispatch stays unreachable from them. They are siblings of the composed shell's
 `GET <prefix>/x/-/shell` and share its admission:
 
 | Route                             | Reads (fixed argv through the supplied `tmt`, no generic command endpoint)        |
 | --------------------------------- | --------------------------------------------------------------------------------- |
-| `GET <prefix>/x/-/ops` | `ops squad ls --json`, `ops squad cron ls --json` and `ops squad config show --json` in parallel; then one bounded `room list --json` for nonempty squads and bounded Core `consumption.history` batches |
 | `GET <prefix>/x/-/limits`         | `ops limits --json`                                                               |
 | `GET <prefix>/x/-/digest/<range>` | `digest usage report --since <range> --json`, with `<range>` `24h`, `7d` or `30d` |
 | `GET <prefix>/x/-/digest/savings/<range>` | `digest decisions --report --since <range> --json`, the same ranges; never `--recompute` |
@@ -2484,10 +2257,6 @@ generic 404 (a query string is refused by the edge before any session check). Cr
 same device and grant revision are rechecked after the read and a changed or ended session gets the
 generic 404, never the data. Replies carry the door's security headers (`no-store`, `nosniff`).
 Remote reaches Ops and Digest through the public CLI only, with no crate or state-file dependency.
-A read writes nothing in an initialized store. The first read on a fresh machine performs the same one-time,
-idempotent initialization as opening the board (the core store, Ops's path markers and the owner's saved
-identity through `user.identity`, which the [extension API](extension-api.md#the-persons-identity) scopes to
-owner-authenticated sessions).
 
 Every answer is HTTP 200 with one JSON document:
 
@@ -2503,54 +2272,6 @@ report for another range, and for savings `members` that is not an array or `tot
 object), `too_large` and, for limits only, `not_sampled` (the board has kept no samples). An unavailable read is never an empty list and never
 sample data; each reason is one empty state in the web app, and a client treats an unknown reason as
 a generic unavailable. `observedAtMs` is the owner's clock when the read finished.
-
-**Ops payload** (`state:"ok"`) is an allowlist projection, not the board document:
-
-- `squads[]`: `name`, `layout?`, `lead? {id,name}`, `idleAlertMs?` (only when the squad's idle alert is
-  enabled), `attention? {state,waiting,blocked}`, `room: {roomId,revision} | null`. The room joins the squad's stable UUID to Core's existing room list by exact ID and `squad-<name>`; it is null when missing, retired, malformed or unavailable. A stale revision is Core's roster refusal when posting.
-- `agents[]`, the squad's lead first (`role:"lead"`) then its members (`role:"member"`): `id`, `name`,
-  `squad`, `role`, `presence?`, `activity? {state,sinceMs}` (the four-state rule of `agents.list`),
-  `state?` (the board's raw state text, at most 80 scalars, so free text stays readable), `stateTone?`
-  (the board's colour token for it, `[a-z0-9-]` up to 24 bytes; a client maps tokens it knows and treats
-  the rest as neutral), `task?`, `next?`, `model?`, `link?` (`https://` only, no whitespace),
-  `pending?`, `waitingOnYou` (a count), `digest? {active,remainingMs,heldCount}`, `staleness?`,
-  `tokens1d: {tokens,complete} | null` and `checklistCount: number | null`. Tokens are Core's closed
-  24-hour input-plus-output aggregate; cached inputs are already included. `complete:false` marks
-  a known lower bound, never exact full-day usage. Missing observations or an incomplete zero are
-  null. `checklistCount` is the member's observed open, unarchived item count from Ops' read-only
-  `ops squad checklist counts --room <roomId> --json` (no `--member`), matched by the squad's
-  stable room UUID and member UUID. A measured zero stays zero. A root or member unavailable
-  reason (including an unknown reason), missing or malformed evidence, an unknown command or
-  a failed call leaves the affected count null. Remote never creates a person, calls the
-  per-member list command or copies Ops' private store reader. These counts do not depend on
-  the optional Core room revision used by the composer.
-- `timers[]`, or `null` when the schedule read failed: `id`, `squad`, `scheduleText`, `owner?`, `state`,
-  `nextMs: number | null` (the owner's first next run) and `what?` (the first line of the job message).
-  `state` is `on`, `paused` or null. A paused or owner-missing timer has `nextMs:null`, even if a
-  stale next time was supplied; no browser or Remote schedule calculation is permitted. Unknown
-  state or unavailable next-run evidence stays null.
-- `truncated`: true when a bound below cut `squads`, `agents` or `timers`.
-- `defaultIdleAlertMs: number | null`: the effective workspace default, once per payload, from
-  `ops squad config show --json` with no squad or tab context (`idle_alert.after`). Unknown context,
-  duplicate/malformed setting or a failed read is null; Remote never guesses a default.
-
-Board, cron and configuration reads share the existing deadline. Once the bounded board supplies
-its UUIDs, distinct projected members are split into at most eight parallel Core
-`consumption.history` calls of at most 32 UUIDs each (the 256-agent board cap), with
-`windowsMs:[86400000]` and `maxBuckets:1`. Each chunk uses Core's own closed-window cut and
-coverage; rows are independent observations, not a new cross-chunk aggregate. There is no silent
-32-member truncation or per-member usage call. A failed chunk leaves only its members' tokens
-null. Checklist acquisition runs one public counts call per admitted squad room, with at most four
-concurrent calls, bounded by the 32-squad board cap and the same deadline. A failed room call leaves
-only that room's checklist counts null; an unavailable member leaves only that member's count null.
-There is no polling worker or new telemetry store. Other optional source failures leave only
-their own fields unavailable; the board itself still renders. The SDK retains these values and
-explicit nulls for the web consumer.
-
-Never forwarded: a pane's id, target, cwd or location, process data, unrelated room IDs, owner IDs, unlisted row
-fields, the rest of a schedule message and the person's own identity. Text has control and
-bidirectional-control characters removed (controls become spaces), is trimmed and is cut to the limit
-below; the browser renders it as inert text.
 
 **Limits payload** (`state:"ok"`): `limitHistory[]`, the weekly-limit samples the board keeps in its local cache,
 as printed by `tmt ops limits --json` (a read-only command; it needs no Core and never writes): `provider` (a driver
@@ -2580,12 +2301,10 @@ the browser causes no network request and no write.
 requests wait for it (at most 12 seconds in total, then `timeout`), and a finished answer, ok or
 unavailable, answers every request for the next 5 seconds, so any number of tabs cost at most one read
 per route per 5 seconds. Nothing runs between requests and nothing is persisted. Each subprocess
-captures at most 2 MiB of stdout; an answer is at most 512 KiB (Ops, limits) or 1 MiB (Digest) and a larger
-one is `too_large`; the savings read shares the Digest cap. Ops projects at most 32 squads, 256 agents and 64 timers; text fields are cut to
-64 scalars (names, model), 80 (state, schedule text), 200 (task, next, pending), 300 bytes (link) and
-120 scalars (`what`). The browser refreshes only while its route is visible and at the terminal's own
-cadence: Ops every 5 seconds (the board's default reload) and Digest usage and savings every 60 seconds, backing off
-after failures. The SDK owns that timer and stops it with the route; the door has none.
+captures at most 2 MiB of stdout; an answer is at most 512 KiB (limits) or 1 MiB (Digest) and a larger
+one is `too_large`; savings shares the Digest cap. The browser refreshes Digest usage and savings
+every 60 seconds while the route is visible, backing off after failures. The SDK owns that timer
+and stops it with the route; the door has none.
 
 **Vectors.** [`owner-reads-v1.json`](owner-reads-v1.json) holds, per case, what the public commands
 print and the exact answer, the reasons, the strings that must appear nowhere in an answer, the

@@ -101,7 +101,7 @@ it('asks to pair only without an owner mount; a mount that fails to answer is un
   let mount = 404;
   let read: () => Promise<Response> = async () =>
     Response.json({ version: 1, state: 'ok', observedAtMs: 1 });
-  vi.stubGlobal('location', new URL('https://door.test/ops'));
+  vi.stubGlobal('location', new URL('https://door.test/digest'));
   vi.stubGlobal('fetch', async (input: string) =>
     input === '/sdk/mount'
       ? mount === 200
@@ -109,9 +109,13 @@ it('asks to pair only without an owner mount; a mount that fails to answer is un
         : new Response('', { status: mount })
       : read(),
   );
-  expect(await ownerRead('ops', signal)).toEqual({ state: 'no-session' });
+  expect(await ownerRead('digest/24h', signal)).toEqual({ state: 'no-session' });
   mount = 200;
-  expect(await ownerRead('ops', signal)).toEqual({ state: 'ok', observedAtMs: 1, payload: {} });
+  expect(await ownerRead('digest/24h', signal)).toEqual({
+    state: 'ok',
+    observedAtMs: 1,
+    payload: {},
+  });
   // The door stopped, restarted or answered off the contract: unreachable, never no-session.
   for (const failure of [
     async () => {
@@ -121,14 +125,14 @@ it('asks to pair only without an owner mount; a mount that fails to answer is un
     async () => new Response('not json', { status: 200 }),
   ]) {
     read = failure;
-    expect(await ownerRead('ops', signal)).toEqual({ state: 'unreachable' });
+    expect(await ownerRead('digest/24h', signal)).toEqual({ state: 'unreachable' });
   }
 });
 
 it('a 404 reopens the session from the pairing before it names a missing session', async () => {
   const signal = new AbortController().signal;
   let open = false;
-  vi.stubGlobal('location', new URL('https://door.test/ops'));
+  vi.stubGlobal('location', new URL('https://door.test/digest'));
   vi.stubGlobal('fetch', async (input: string) =>
     input === '/sdk/mount'
       ? Response.json({ address: 'https://door.test/r/owner' })
@@ -140,19 +144,23 @@ it('a 404 reopens the session from the pairing before it names a missing session
   reopenSession.mockImplementationOnce(async () => {
     open = true;
   });
-  expect(await ownerRead('ops', signal)).toEqual({ state: 'ok', observedAtMs: 1, payload: {} });
+  expect(await ownerRead('digest/24h', signal)).toEqual({
+    state: 'ok',
+    observedAtMs: 1,
+    payload: {},
+  });
   open = false;
   reopenSession.mockRejectedValueOnce(Object.assign(new Error('unpaired'), { reason: 'unpaired' }));
-  expect(await ownerRead('ops', signal)).toEqual({ state: 'no-session' });
+  expect(await ownerRead('digest/24h', signal)).toEqual({ state: 'no-session' });
   reopenSession.mockRejectedValueOnce(
     Object.assign(new Error('unreachable'), { reason: 'unreachable' }),
   );
-  expect(await ownerRead('ops', signal)).toEqual({ state: 'unreachable' });
+  expect(await ownerRead('digest/24h', signal)).toEqual({ state: 'unreachable' });
 });
 
 it('reads that meet the same door restart share one reopen until it settles', async () => {
   let open = false;
-  vi.stubGlobal('location', new URL('https://door.test/ops'));
+  vi.stubGlobal('location', new URL('https://door.test/digest'));
   vi.stubGlobal('fetch', async (input: string) =>
     input === '/sdk/mount'
       ? Response.json({ address: 'https://door.test/r/owner' })
@@ -184,7 +192,7 @@ it('reads that meet the same door restart share one reopen until it settles', as
   open = false;
   const missing = Promise.all([
     ownerRead('limits', new AbortController().signal),
-    ownerRead('ops', new AbortController().signal),
+    ownerRead('digest/24h', new AbortController().signal),
   ]);
   await vi.waitFor(() => expect(reopenSession).toHaveBeenCalledTimes(2));
   fail(Object.assign(new Error('unpaired'), { reason: 'unpaired' }));
@@ -192,7 +200,7 @@ it('reads that meet the same door restart share one reopen until it settles', as
   // A read whose route left goes at once; the reopen goes on for the read still waiting.
   const leaving = new AbortController();
   const left = ownerRead('limits', leaving.signal);
-  const staying = ownerRead('ops', new AbortController().signal);
+  const staying = ownerRead('digest/24h', new AbortController().signal);
   await vi.waitFor(() => expect(reopenSession).toHaveBeenCalledTimes(3));
   const shared = reopenSession.mock.calls[2]![1].signal;
   leaving.abort();
@@ -203,12 +211,12 @@ it('reads that meet the same door restart share one reopen until it settles', as
   // Once every waiting read left, the reopen stops and the next read starts a fresh one.
   open = false;
   const only = new AbortController();
-  const alone = ownerRead('ops', only.signal);
+  const alone = ownerRead('digest/24h', only.signal);
   await vi.waitFor(() => expect(reopenSession).toHaveBeenCalledTimes(4));
   only.abort();
   expect(await alone).toEqual({ state: 'unreachable' });
   expect(reopenSession.mock.calls[3]![1].signal.aborted).toBe(true);
-  const next = ownerRead('ops', new AbortController().signal);
+  const next = ownerRead('digest/24h', new AbortController().signal);
   await vi.waitFor(() => expect(reopenSession).toHaveBeenCalledTimes(5));
   settle();
   expect(await next).toEqual(ok);
@@ -238,7 +246,7 @@ it('owner reads join the root signer and retire only the stale handle after a re
       forgotten.push(value);
     },
   });
-  vi.stubGlobal('location', new URL('https://door.test/ops'));
+  vi.stubGlobal('location', new URL('https://door.test/digest'));
   vi.stubGlobal('fetch', async (input: string) =>
     input === '/sdk/mount'
       ? Response.json({ address: 'https://door.test/r/owner' })
@@ -248,7 +256,7 @@ it('owner reads join the root signer and retire only the stale handle after a re
   );
   try {
     const answers = await Promise.all([
-      ownerRead('ops', route.signal),
+      ownerRead('digest/24h', route.signal),
       ownerRead('limits', route.signal),
     ]);
     expect(answers.every((answer) => answer.state === 'ok')).toBe(true);
@@ -256,7 +264,7 @@ it('owner reads join the root signer and retire only the stale handle after a re
     expect(reopenSession).not.toHaveBeenCalled();
     open = false;
     admit = false;
-    expect(await ownerRead('ops', route.signal)).toEqual({ state: 'unreachable' });
+    expect(await ownerRead('digest/24h', route.signal)).toEqual({ state: 'unreachable' });
     expect(forgotten).toEqual([session]);
     expect(reopenSession).not.toHaveBeenCalled();
   } finally {

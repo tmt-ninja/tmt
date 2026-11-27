@@ -17,7 +17,6 @@ import home from '../../../rust/tmt-remote/assets/home.html?raw';
 import landing from '../../../rust/tmt-remote/assets/landing.html?raw';
 import settings from '../../../rust/tmt-remote/assets/settings.html?raw';
 import tmtSettings from '../../../rust/tmt-remote/assets/tmt-settings.html?raw';
-import ops from '../../../rust/tmt-remote/assets/ops.html?raw';
 import digest from '../../../rust/tmt-remote/assets/digest.html?raw';
 import { digestPage } from './digest-page.js';
 import {
@@ -27,8 +26,6 @@ import {
   rootModules,
   type ModuleLoad,
 } from './module-entry.js';
-import { opsPage } from './ops-page.js';
-import { forgetDrafts } from './ops-composer-slot.js';
 import { remoteApp } from './remote-app.js';
 import { REMOTE_PATHS, remoteItem } from './remote-routes.js';
 import { homePage, hostRemote, remoteShell, setRouteTitle } from './remote-shell.js';
@@ -568,12 +565,6 @@ export const routes: ShellRoute[] = [
     },
   },
   {
-    id: 'ops',
-    paths: ['/ops', '/ops/'],
-    rail: 'ops',
-    load: async () => remotePage(ops, () => opsPage(remoteShell()!)),
-  },
-  {
     id: 'digest',
     paths: ['/digest', '/digest/'],
     rail: 'digest',
@@ -646,7 +637,6 @@ let heldBy: (() => string) | undefined;
  * them first; and no unsent Ops words stay for the next session to see (#6757). */
 function sessionChanging(): void {
   started?.sessionChanging();
-  forgetDrafts();
 }
 
 /** A verified replacement retires the old search transport/providers; it grants no access. */

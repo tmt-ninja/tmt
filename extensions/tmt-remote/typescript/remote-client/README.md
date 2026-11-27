@@ -554,26 +554,3 @@ listener tail, never zero reads. Native transport/credentials and Colab's relay 
 separate slices; this API enables neither agent operations nor cloud attachment glue.
 The [contract](../../../../contracts/remote-channel-v1.md#extension-scoped-sealed-document-client)
 owns catch-up, bounds, same-ID recovery and the smaller cloud object profile.
-
-Room posts use `operations(session).send({operationId, message, room: {roomId, revision},
-recipientIds, kind: "request"})`; persist the operation UUID before sending. An accepted
-room post includes `requestIds` in recipient order and the first as `requestId`.
-`conversations(session).readRoom(roomId, {limit, before, since})` returns
-`{roomId, items, nextBefore, changePosition, changedSince?}`. Carry Core's opaque page
-position into the next `since`; `changedSince` is `{count, more}` or `"unknown"`
-only when `since` was sent. Unknown coverage requires a full read, never an inferred
-zero. Room items carry `responsePreview`, `previewTruncated`, `parentRequestId` and
-`replyCount`, without DM direction or per-item positions. Read a full reply with
-`result(requestId)`.
-See the [operations contract](../../../../contracts/remote-channel-v1.md#operations)
-for owner-browser authority, room fields and original-only recovery.
-
-Provider forms use `forms(session)` on the existing owner-browser Session. `list({identityId?})`
-reads Core's bounded forms; `cursor()` returns only its opaque cursor/usage integers.
-The person may call `answer({operationId,formId,answer})` for an answerable, complete
-form. Persist the UUID and exact input first. On lost or uncertain delivery call
-`operation(originalId)`; never allocate another ID or resend an answer automatically.
-Core validates the option and returns its original `FORM_*` refusal. Truncated and
-permission forms stay terminal-only. Remote's same-device operation ledger owns
-recovery because Core forms.answer has no operation-ID idempotency. See the
-[provider forms contract](../../../../contracts/remote-channel-v1.md#operations).

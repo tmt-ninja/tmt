@@ -1,15 +1,3 @@
-export { forms } from './forms.js';
-export type {
-  FormOption,
-  FormQuestion,
-  ProviderForm,
-  FormAnswer,
-  FormAnswerInput,
-  FormAnswerState,
-  FormsCursor,
-  RemoteForms,
-} from './forms.js';
-export { invitationPage } from './invitation-page.js';
 import { pairingGuidance } from './remote-state.js';
 export { invitePage } from './invite-page.js';
 export {
@@ -104,19 +92,7 @@ export type {
 import { channelFor } from './session-channel.js';
 import { RefusalError, parseCapabilities, verifiedSessionRequest } from './operations.js';
 export { operations, ClientError, RefusalError } from './operations.js';
-export { conversations } from './conversations.js';
-export type {
-  RoomInput,
-  RoomPage,
-  RoomItem,
-  RemoteConversations,
-  ConversationInput,
-  ConversationPage,
-  ConversationItem,
-  ConversationFinal,
-  ConversationCursor,
-  ConversationChanges,
-} from './conversations.js';
+
 export { management } from './management.js';
 export { members } from './members.js';
 export { invitations } from './invitations.js';
@@ -163,7 +139,6 @@ export type {
   RemoteAgent,
   SendInput,
   DirectSendInput,
-  RoomSendInput,
   SendState,
   ResultState,
   MessageState,

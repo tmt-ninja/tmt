@@ -9,7 +9,6 @@ import type { Session } from './device.js';
 
 export type OwnerReadRange = '24h' | '7d' | '30d';
 export type OwnerReadName =
-  | 'ops'
   | 'limits'
   | `digest/${OwnerReadRange}`
   | `digest/savings/${OwnerReadRange}`;

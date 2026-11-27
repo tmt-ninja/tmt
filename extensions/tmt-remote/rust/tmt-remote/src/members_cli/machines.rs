@@ -7,7 +7,6 @@ pub(super) fn commands() -> Vec<Command> {
         target(CommandSpec {name:"rename-machine",summary:"Rename one machine",examples:&[Example {command:"tmt remote members rename-machine <client-id> <name> --json",note:"Keep the person name and authority unchanged"}],outputs:OutputModes::HumanAndJson,details:"Use an exact machine client ID shown by members machines. This does not rename the person."}).arg(Arg::new("name").required(true)),
         target(CommandSpec {name:"remove-machine",summary:"Revoke one exact machine",examples:&[Example {command:"tmt remote members remove-machine <client-id> --json",note:"Keep the person's other machines"}],outputs:OutputModes::HumanAndJson,details:"Only the selected machine is revoked. The person is revoked only when no machine remains active."}),
         target(CommandSpec {name:"designate",summary:"Designate the owner's browser",examples:&[Example {command:"tmt remote members designate <client-id> --json",note:"Authorize this exact local browser to manage Remote"}],outputs:OutputModes::HumanAndJson,details:"Only a live browser for this door can be designated. Local owner only; no automatic designation. Pairing and agent policy stay unchanged."}),
-        target(CommandSpec {name:"terminal-command",summary:"Allow or refuse command submission from the designated browser",examples:&[Example {command:"tmt remote members terminal-command <client-id> on",note:"Enable terminal commands for this exact designated browser"}],outputs:OutputModes::HumanAndJson,details:"Local owner only. Enabling requires the designated browser with direct Talk for all agents. Pairing never grants this scope."}).arg(Arg::new("enabled").required(true).value_parser(["on", "off"])),
         revisions(tmt_cli_style::command(&CommandSpec {name:"undesignate",summary:"Remove browser management authority",examples:&[Example {command:"tmt remote members undesignate --json",note:"Keep browser pairing and agent grants"}],outputs:OutputModes::HumanAndJson,details:"Local recovery works while Remote is stopped. The captured designation and its member/machine revisions are checked before removal."})),
     ]
 }
@@ -36,7 +35,7 @@ fn target(spec: CommandSpec) -> Command {
 pub(super) fn handles(action: &str) -> bool {
     matches!(
         action,
-        "rename-machine" | "remove-machine" | "designate" | "undesignate" | "terminal-command"
+        "rename-machine" | "remove-machine" | "designate" | "undesignate"
     )
 }
 fn mutation(
@@ -74,12 +73,6 @@ fn mutation(
         },
         "remove-machine" => MemberMachineMutation::Remove { target },
         "designate" => MemberMachineMutation::Designate { target },
-        "terminal-command" => MemberMachineMutation::TerminalCommand {
-            target,
-            enabled: words
-                .get_one::<String>("enabled")
-                .is_some_and(|word| word == "on"),
-        },
         _ => unreachable!("typed exact-machine grammar"),
     })
 }
@@ -132,9 +125,6 @@ pub(super) fn run(
             && answer["machine"]["name"].as_str()
                 != words.get_one::<String>("name").map(String::as_str)
         || action == "remove-machine" && answer["machine"]["revoked"] != true
-        || action == "terminal-command"
-            && answer["machine"]["terminalCommand"].as_bool()
-                != words.get_one::<String>("enabled").map(|word| word == "on")
     {
         return Err(unconfirmed());
     }
@@ -144,7 +134,7 @@ pub(super) fn run(
         writeln!(output, "{answer}")?;
     } else {
         let terminal = output.terminal();
-        let mut fields = if action == "designate" || action == "undesignate" {
+        let fields = if action == "designate" || action == "undesignate" {
             vec![(
                 "browser",
                 answer["designatedClientId"]
@@ -171,17 +161,6 @@ pub(super) fn run(
                 ("revision", answer["machine"]["revision"].to_string()),
             ]
         };
-        if action == "terminal-command" {
-            fields.push((
-                "terminal command",
-                if answer["machine"]["terminalCommand"] == true {
-                    "On"
-                } else {
-                    "Off"
-                }
-                .to_owned(),
-            ));
-        }
         tmt_cli_style::detail::write(
             &mut output,
             terminal,

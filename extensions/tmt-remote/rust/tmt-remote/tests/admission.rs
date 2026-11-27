@@ -63,7 +63,6 @@ impl OwnerDoor {
     fn owner_browser(mode: &str) -> Self {
         let scopes = SUPPORTED_SCOPES
             .iter()
-            .filter(|scope| **scope != "terminal.command")
             .map(|scope| (*scope).into())
             .collect();
         Self::with_device(scopes, mode, "all".into(), None, "browser")
@@ -167,14 +166,6 @@ impl OwnerDoor {
         self.verify_reply(&reply, &wire);
         assert_eq!(reply["sequence"], "1");
         reply["sessionId"].as_str().unwrap().into()
-    }
-    /// Whether the door refuses this device's session before any operation.
-    fn open_refused(&self) -> bool {
-        let payload = json!({"clientNonce":uuid_v4().unwrap().replace('-',"")}).to_string();
-        let wire = self.wire("new", "0", "session.open", payload.as_bytes());
-        self.sessions
-            .open(self.request_origin(), &serde_json::to_vec(&wire).unwrap())
-            .is_none()
     }
     fn verify_reply(&self, reply: &Value, request: &Value) -> Value {
         let text = |key: &str| reply[key].as_str().unwrap();

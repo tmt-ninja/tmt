@@ -426,8 +426,6 @@ fn static_pages_and_styles_are_exact_and_refusals_remain_generic() {
             "\n",
             include_str!("../assets/pages.css"),
             "\n",
-            include_str!("../assets/ops-composer.css"),
-            "\n",
             include_str!("../assets/tmt-settings.css"),
         )
     );
@@ -738,26 +736,7 @@ fn settings_page_and_product_script_reuse_the_same_door_policy_and_sdk() {
     assert_eq!(page.header("cache-control"), Some("no-store"));
     let script = get(&h, "/sdk/settings-v1.js", "");
     assert_eq!(script.body, include_str!("../assets/settings-v1.js"));
-    // The Ops message box (#5704) is served beside it the same way. Only an opened Ops channel
-    // or DM loads it: the SDK names it for a lazy import and bundles none of it.
-    let composer = get(&h, "/sdk/ops-composer-v1.js", "");
-    assert_eq!(composer.body, include_str!("../assets/ops-composer-v1.js"));
-    assert_eq!(
-        composer.header("content-type"),
-        script.header("content-type")
-    );
-    assert_eq!(
-        composer.header("cache-control"),
-        script.header("cache-control")
-    );
-    let sdk = include_str!("../assets/remote-v1.js");
-    assert!(sdk.contains("\"/sdk/ops-composer-v1.js\""));
-    assert!(composer.body.contains("Mention an agent") && !sdk.contains("Mention an agent"));
-    assert!(
-        get(&h, "/sdk/pages.css", "")
-            .body
-            .contains(".rich-input-surface")
-    );
+    assert_eq!(get(&h, "/sdk/ops-composer-v1.js", "").status, 404);
     assert!(script.body.contains("from \"/sdk/remote-v1.js\""));
     assert!(!script.body.contains("class DeviceKey"));
     assert!(
@@ -897,7 +876,6 @@ fn remote_headers_carry_the_static_mark_only_outside_the_web_shell() {
 fn route_pages_leave_the_single_heading_to_the_shared_top_bar() {
     for (page, title) in [
         (include_str!("../assets/digest.html"), "Digest · TMT"),
-        (include_str!("../assets/ops.html"), "Ops · TMT"),
         (
             include_str!("../assets/tmt-settings.html"),
             "TMT settings · TMT",
@@ -1091,7 +1069,6 @@ fn door_routes_home_and_tmt_settings_load_only_the_shell_and_remote_pages_move()
         "/settings/",
         "/remote",
         "/remote/",
-        "/ops",
         "/digest/",
         "/colab/pages/x",
     ] {
@@ -1107,7 +1084,14 @@ fn door_routes_home_and_tmt_settings_load_only_the_shell_and_remote_pages_move()
         assert!(!shell.body.contains(&h.prefix));
     }
     // The explicit list never becomes a catch-all.
-    for path in ["/home", "/ops/x", "/colab/a.b", "/remote/other"] {
+    for path in [
+        "/home",
+        "/ops",
+        "/ops/",
+        "/ops/x",
+        "/colab/a.b",
+        "/remote/other",
+    ] {
         assert_eq!(get(&h, path, "").status, 404, "{path}");
     }
     let home = app_page(&h, "/", include_str!("../assets/home.html"));

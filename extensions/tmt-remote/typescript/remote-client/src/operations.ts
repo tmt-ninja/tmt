@@ -7,14 +7,7 @@ export interface DirectSendInput {
   agentId: string;
   message: string;
 }
-export interface RoomSendInput {
-  operationId: string;
-  message: string;
-  room: { roomId: string; revision: number };
-  recipientIds: string[];
-  kind?: 'request' | 'announcement';
-}
-export type SendInput = DirectSendInput | RoomSendInput;
+export type SendInput = DirectSendInput;
 /** How the serve attributed a send, present only when there is something to say (#4255): it went
  * out anonymously because Core refused the person's name (the message is Core's own and names the
  * fix), or Core resolved the person under a `-user` name because an agent holds the plain one. */
@@ -27,7 +20,7 @@ export type SendIdentity =
   | { state: 'person'; name: string; renamedFrom: string };
 export type SendState = (
   | { state: 'held'; operationId: string }
-  | { state: 'accepted'; operationId: string; requestId: string; requestIds?: string[] }
+  | { state: 'accepted'; operationId: string; requestId: string }
   | { state: 'uncertain'; operationId: string; requestId?: string }
   | {
       state: 'refused' | 'cancelled';
@@ -145,8 +138,7 @@ export class RefusalError extends Error {
     readonly retryAfterMs?: number,
     readonly limit?: number,
     readonly settingsUrl?: string,
-    readonly scope?: 'talk' | 'results.read',
-    readonly reason?: 'owner_browser_required' | 'all_agents_required',
+    readonly scope?: 'talk',
   ) {
     super(`Remote operation refused: ${code}.`);
     this.name = 'RefusalError';
@@ -295,23 +287,7 @@ function sendStateBase(value: unknown, id: string): SendState {
       return { state: 'held', operationId: id };
     case 'accepted':
       valid(requestId(state.requestId));
-      if (state.requestIds !== undefined)
-        valid(
-          Array.isArray(state.requestIds) &&
-            state.requestIds.length >= 1 &&
-            state.requestIds.length <= 64 &&
-            state.requestIds.every(requestId) &&
-            new Set(state.requestIds).size === state.requestIds.length &&
-            state.requestIds[0] === state.requestId,
-        );
-      return {
-        state: 'accepted',
-        operationId: id,
-        requestId: state.requestId,
-        ...(state.requestIds === undefined
-          ? {}
-          : { requestIds: [...state.requestIds] as string[] }),
-      };
+      return { state: 'accepted', operationId: id, requestId: state.requestId };
     case 'uncertain':
       valid(state.requestId === undefined || requestId(state.requestId));
       return {
@@ -416,16 +392,7 @@ export function remoteError(
       typeof error.message === 'string',
   );
   const scope = error.scope;
-  valid(
-    scope === undefined ||
-      (error.code === 'REMOTE_SCOPE_DENIED' && (scope === 'talk' || scope === 'results.read')),
-  );
-  const readReason = error.reason;
-  valid(
-    readReason === undefined ||
-      (scope === 'results.read' &&
-        ['owner_browser_required', 'all_agents_required'].includes(readReason as string)),
-  );
+  valid(scope === undefined || (error.code === 'REMOTE_SCOPE_DENIED' && scope === 'talk'));
   const limit = error.limit;
   valid(
     limit === undefined || (typeof limit === 'number' && Number.isSafeInteger(limit) && limit > 0),
@@ -490,8 +457,7 @@ export function remoteError(
     retry as number | undefined,
     limit as number | undefined,
     settingsUrl,
-    scope as 'talk' | 'results.read' | undefined,
-    readReason as RefusalError['reason'],
+    scope as 'talk' | undefined,
   );
 }
 function enqueue<T>(channel: Channel, action: () => Promise<T>): Promise<T> {
@@ -746,38 +712,17 @@ export function operations(
   return {
     listAgents: () => call('agents.list', crypto.randomUUID(), {}, agents),
     async send(value) {
-      const roomSend = 'room' in value;
+      const { operationId, agentId, message } = value;
       input(
-        typeof value.operationId === 'string' &&
-          V4.test(value.operationId) &&
-          typeof value.message === 'string' &&
-          strictUtf8.decode(utf8.encode(value.message)) === value.message &&
-          (roomSend
-            ? !('agentId' in value) &&
-              value.room !== null &&
-              typeof value.room === 'object' &&
-              Object.keys(value.room).sort().join() === 'revision,roomId' &&
-              coreId(value.room.roomId) &&
-              Number.isSafeInteger(value.room.revision) &&
-              value.room.revision > 0 &&
-              Array.isArray(value.recipientIds) &&
-              value.recipientIds.length >= 1 &&
-              value.recipientIds.length <= 64 &&
-              value.recipientIds.every(coreId) &&
-              new Set(value.recipientIds).size === value.recipientIds.length &&
-              (value.kind === undefined || ['request', 'announcement'].includes(value.kind))
-            : !('recipientIds' in value) && coreId(value.agentId)),
+        typeof operationId === 'string' &&
+          V4.test(operationId) &&
+          typeof message === 'string' &&
+          strictUtf8.decode(utf8.encode(message)) === message &&
+          !('room' in value) &&
+          !('recipientIds' in value) &&
+          coreId(agentId),
       );
-      const { operationId, message } = value;
-      const frozen = roomSend
-        ? {
-            operationId,
-            message,
-            recipientIds: [...value.recipientIds],
-            kind: value.kind ?? 'request',
-            room: { kind: 'roster', ...value.room },
-          }
-        : { operationId, recipientIds: [value.agentId], message, kind: 'request' };
+      const frozen = { operationId, recipientIds: [agentId], message, kind: 'request' };
       try {
         return await call(
           'dispatch.create',
@@ -788,12 +733,7 @@ export function operations(
             originator: 'anonymous',
             input: frozen,
           },
-          (value) => {
-            const state = sendState(value, operationId);
-            if (roomSend && state.state === 'accepted')
-              valid(state.requestIds?.length === frozen.recipientIds.length);
-            return state;
-          },
+          (value) => sendState(value, operationId),
         );
       } catch (error) {
         if (error instanceof RefusalError && PRE_EFFECT.has(error.code))

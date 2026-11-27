@@ -377,15 +377,13 @@ fn read_port(connection: &Connection) -> Result<Option<u16>, RemoteError> {
     .transpose()
 }
 /// Supported scopes, sorted bytewise; existing grants keep this vocabulary.
-pub const SUPPORTED_SCOPES: [&str; 6] = [
+pub const SUPPORTED_SCOPES: [&str; 5] = [
     "agents.read",
     "check.read",
     "results.read",
     "status.read",
     "talk",
-    TERMINAL_COMMAND_SCOPE,
 ];
-pub(crate) const TERMINAL_COMMAND_SCOPE: &str = "terminal.command";
 /// Read-only scopes issued by a bare pairing, sorted bytewise.
 pub const DEFAULT_SCOPES: [&str; 4] = ["agents.read", "check.read", "results.read", "status.read"];
 /// A trusted device grant as the channel contract names its fields.
@@ -695,33 +693,6 @@ pub(crate) fn talk_in(
 ) -> Result<Option<Grant>, RemoteError> {
     crate::members::sending_for_client(connection, client_id, enabled)
 }
-/// The local machine command owns this toggle. Callers already hold the writer transaction.
-pub(crate) fn terminal_command_grant_in(
-    connection: &Connection,
-    mut grant: Grant,
-    enabled: bool,
-) -> Result<Grant, RemoteError> {
-    if grant.permits_scope(TERMINAL_COMMAND_SCOPE) == enabled {
-        return Ok(grant);
-    }
-    if grant.revision >= 9_007_199_254_740_990 {
-        return Err(database("grant revision exhausted"));
-    }
-    grant.scopes.retain(|scope| scope != TERMINAL_COMMAND_SCOPE);
-    if enabled {
-        grant.scopes.push(TERMINAL_COMMAND_SCOPE.into());
-        grant.scopes.sort();
-    }
-    connection
-        .execute(
-            "UPDATE grants SET scopes=?2,revision=revision+1 WHERE client_id=?1",
-            params![grant.client_id, grant.scopes.join(" ")],
-        )
-        .map_err(database)?;
-    grant.revision += 1;
-    Ok(grant)
-}
-
 /// Change only the explicit sending scope. Other authority remains frozen.
 pub(crate) fn talk_grant_in(
     connection: &Connection,
@@ -737,15 +708,11 @@ pub(crate) fn talk_grant_in(
             "A revoked device cannot grant sending.",
         ));
     }
-    if grant.permits_scope("talk") != enabled
-        || (!enabled && grant.permits_scope(TERMINAL_COMMAND_SCOPE))
-    {
+    if grant.permits_scope("talk") != enabled {
         if grant.revision >= 9_007_199_254_740_990 {
             return Err(database("grant revision exhausted"));
         }
-        grant
-            .scopes
-            .retain(|scope| scope != "talk" && (enabled || scope != TERMINAL_COMMAND_SCOPE));
+        grant.scopes.retain(|scope| scope != "talk");
         if enabled {
             grant.scopes.push("talk".into());
             grant.scopes.sort();

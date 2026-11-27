@@ -408,9 +408,7 @@ pub(crate) fn confirm_member_grant_in(
         return Err(invalid());
     }
     let mut grant = grant.clone();
-    grant
-        .scopes
-        .retain(|s| s != "talk" && s != crate::store::TERMINAL_COMMAND_SCOPE);
+    grant.scopes.retain(|s| s != "talk");
     grant.mode = "direct".into();
     if let Some(previous) = grant_in(tx, &grant.client_id)? {
         if !previous.disabled {
