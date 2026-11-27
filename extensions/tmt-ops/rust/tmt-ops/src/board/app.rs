@@ -7727,7 +7727,11 @@ mod standalone_command_tests {
 
     #[test]
     fn run_command_accepts_both_keys_without_stealing_editor_text() {
-        use crate::board::shell::{OpsInputOwner, OpsTab, RightTab};
+        use crate::board::{
+            app::workspace::tests::MEMBER,
+            shell::{OpsInputOwner, OpsTab, RightTab},
+            standalone::Task,
+        };
         let press = |app: &mut App, code| app.key(KeyEvent::new(code, KeyModifiers::NONE));
         for (tab, focus, owner) in [
             (OpsTab::Agents, 0, OpsInputOwner::List),
@@ -7746,13 +7750,21 @@ mod standalone_command_tests {
                 Some(Overlay::Standalone),
                 "{tab:?}/{owner:?}"
             );
-            press(&mut app, KeyCode::Esc);
+            assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
             assert_eq!(app.overlay(), None);
-            assert_eq!(
-                press(&mut app, KeyCode::Char('！')),
-                ascii,
-                "{tab:?}/{owner:?}"
-            );
+            let full_width = press(&mut app, KeyCode::Char('！'));
+            match (ascii, full_width) {
+                (
+                    Effect::Standalone(Task::Target(first, member)),
+                    Effect::Standalone(Task::Target(latest, reopened_member)),
+                ) => {
+                    assert_eq!(member, MEMBER);
+                    assert_eq!(reopened_member, member);
+                    assert_ne!(latest, first, "a reopened form is a new lookup");
+                }
+                (Effect::None, Effect::None) => assert!(app.workspace_selected_member().is_none()),
+                effects => panic!("{tab:?}/{owner:?}: different Run targets {effects:?}"),
+            }
             assert_eq!(
                 app.overlay(),
                 Some(Overlay::Standalone),
