@@ -38,7 +38,7 @@ mod test_support;
 #[cfg(test)]
 mod tests;
 
-use rusqlite::Connection;
+use rusqlite::{Connection, config::DbConfig};
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -111,6 +111,8 @@ const WAL_ATTEMPT_TIMEOUT: Duration = Duration::from_millis(50);
 const HOOK_WRITER_WAIT: Duration = Duration::from_millis(500);
 const HOOK_COMPLETION_RESERVE: Duration = Duration::from_millis(100);
 const CONTEXT_READ_WAIT: Duration = Duration::from_millis(100);
+/// Bytes a reset write-ahead log is trimmed to: about SQLite's 1,000-page automatic checkpoint.
+const WAL_SIZE_LIMIT: i64 = 4 * 1024 * 1024;
 
 fn spent_allowance(error: StorageError, allowance: Instant) -> StorageError {
     if Instant::now() >= allowance && error.is_plain_busy() {
@@ -234,6 +236,7 @@ impl Storage {
                 .busy_timeout(wait)
                 .map_err(|error| classify(error, "Bound hook storage wait"))?;
             migrations::require_current(&connection)?;
+            configure_close(&connection)?;
             connection
                 .pragma_update(None, "foreign_keys", "ON")
                 .map_err(|error| classify(error, "Configure hook foreign keys"))?;
@@ -273,6 +276,7 @@ impl Storage {
                 .pragma_update(None, "foreign_keys", "ON")
                 .map_err(|error| classify(error, "Configure foreign keys"))?;
             configure_wal(&connection)?;
+            configure_close(&connection)?;
             connection
                 .pragma_update(None, "synchronous", "NORMAL")
                 .map_err(|error| classify(error, "Configure synchronous policy"))?;
@@ -378,7 +382,12 @@ impl Storage {
         let Some(connection) = self.connection.take() else {
             return Ok(());
         };
-        let checkpoint_result = checkpoint(&connection, &self.path, CheckpointMode::Passive);
+        // Copy the log into the file and empty it when no reader holds it, so the next
+        // process neither re-copies it nor reads it back; never wait for a reader.
+        let checkpoint_result = connection
+            .busy_timeout(Duration::ZERO)
+            .map_err(|error| classify(error, "Configure close checkpoint wait"))
+            .and_then(|()| checkpoint(&connection, &self.path, CheckpointMode::Truncate));
         let close_result = connection
             .close()
             .map_err(|(_connection, error)| classify(error, "Close storage"));
@@ -439,6 +448,23 @@ fn configure_wal(connection: &Connection) -> Result<(), StorageError> {
             }
         }
     }
+}
+
+/// A tmt process usually closes the store as its last connection. SQLite's default close then
+/// takes an exclusive lock to checkpoint and delete the log and shared memory, and a concurrent
+/// reader (a hook's bounded context read) fails with BUSY whenever that checkpoint's fsync
+/// outlasts its wait (#6313). Instead `close()` runs a TRUNCATE checkpoint that never waits
+/// and holds no database-file lock, so a reader that opens meanwhile reads the file; a log a
+/// reader still holds stays for the next connection and is trimmed to `WAL_SIZE_LIMIT` when it
+/// resets. Automatic checkpoints on commit are unchanged. Maintenance that needs one file
+/// (`database_rename`, compaction) checkpoints with TRUNCATE itself.
+fn configure_close(connection: &Connection) -> Result<(), StorageError> {
+    connection
+        .set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)
+        .map_err(|error| classify(error, "Configure close checkpoint"))?;
+    connection
+        .pragma_update(None, "journal_size_limit", WAL_SIZE_LIMIT)
+        .map_err(|error| classify(error, "Configure log size limit"))
 }
 
 fn checkpoint(

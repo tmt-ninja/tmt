@@ -4,7 +4,8 @@
 //! SQLite itself proves that nothing else holds the database: an exclusive
 //! lock cannot be taken while any other connection is open, idle WAL
 //! connections included. While that lock is held the database becomes a single
-//! file (no `-wal`, `-shm` or `-journal`; a finished process's stale ones are
+//! file (no `-wal`, `-shm` or `-journal`: the fence's TRUNCATE checkpoint and switch to the
+//! DELETE journal fold a finished process's log in first, so what remains is stale and is
 //! removed), gains its new name through a hard
 //! link, and the old name is replaced atomically by a relative link to the new
 //! one, so no name is ever missing. Old binaries and a rollback release open
@@ -288,6 +289,56 @@ mod tests {
         assert_eq!(
             current.health().unwrap().schema_version,
             Storage::compiled_schema().version
+        );
+    }
+
+    #[test]
+    fn a_log_a_closed_store_left_with_committed_rows_is_folded_in_before_any_sidecar_is_removed() {
+        // Storage closes without SQLite's close-time checkpoint (#6313), so a finished process
+        // can leave a log that still holds committed pages the file does not.
+        let directory = TestDirectory::new();
+        let path = directory.path.join(FORMER_DATABASE);
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .set_db_config(
+                rusqlite::config::DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE,
+                true,
+            )
+            .unwrap();
+        connection
+            .execute_batch(
+                "PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE marker(value TEXT);",
+            )
+            .unwrap();
+        for index in 0..100 {
+            connection
+                .execute("INSERT INTO marker VALUES (?)", [format!("row-{index}")])
+                .unwrap();
+        }
+        drop(connection);
+        let mut wal = path.as_os_str().to_os_string();
+        wal.push("-wal");
+        assert!(fs::metadata(PathBuf::from(wal)).unwrap().len() > 0);
+
+        assert_eq!(
+            rename_database(&directory.path).unwrap(),
+            DatabaseRename::Renamed
+        );
+
+        assert_eq!(names(&directory.path), [DATABASE, FORMER_DATABASE]);
+        let rows: Vec<String> = Connection::open(directory.path.join(DATABASE))
+            .unwrap()
+            .prepare("SELECT value FROM marker ORDER BY rowid")
+            .unwrap()
+            .query_map([], |row| row.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(
+            rows,
+            (0..100)
+                .map(|index| format!("row-{index}"))
+                .collect::<Vec<_>>()
         );
     }
 

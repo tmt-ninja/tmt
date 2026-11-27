@@ -11,7 +11,7 @@
 //! (`reclaim_free_pages`), so no further rewrite is needed.
 
 use super::{StorageError, classify};
-use rusqlite::{Connection, ErrorCode, OpenFlags};
+use rusqlite::{Connection, ErrorCode, OpenFlags, config::DbConfig};
 use std::{fs, io, path::Path, time::Duration};
 
 /// `PRAGMA auto_vacuum` as SQLite reports it.
@@ -202,6 +202,11 @@ fn compact_with(
     // Never wait for another writer: a busy database is refused, not queued.
     connection
         .busy_timeout(Duration::ZERO)
+        .map_err(io::Error::other)?;
+    // Like every Core store connection, closing leaves the log to the next one (#6313): a
+    // refused compaction changes nothing, and a finished one truncated the log itself.
+    connection
+        .set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)
         .map_err(io::Error::other)?;
     let outcome = compact_open(path, &connection, available);
     let closed = connection

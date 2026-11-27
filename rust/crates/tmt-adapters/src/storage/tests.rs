@@ -513,3 +513,102 @@ fn only_a_hook_connections_spent_writer_wait_is_its_spent_allowance() {
     assert_eq!(closed.code, StorageErrorCode::Busy);
     assert!(!closed.is_hook_allowance_spent());
 }
+
+/// A tmt process usually closes the store as its last connection. SQLite's default close then
+/// takes an exclusive lock on the database file to checkpoint and delete the log, and every
+/// reader that opens meanwhile, a hook's bounded context read included, waits behind that
+/// checkpoint's fsync (#6313). Closing must leave the log for the next connection instead,
+/// with every committed row still readable.
+#[test]
+fn a_last_connection_close_leaves_the_log_and_loses_no_row() {
+    let fixture = Fixture::new();
+    for close in [
+        Storage::close as fn(&mut Storage) -> Result<(), StorageError>,
+        |storage: &mut Storage| {
+            storage
+                .connection
+                .take()
+                .unwrap()
+                .close()
+                .map_err(|(_, error)| classify(error, "Close"))
+        },
+    ] {
+        let mut writer = Storage::open(&fixture.database).unwrap();
+        writer
+            .connection()
+            .unwrap()
+            .execute(
+                "INSERT INTO identities (id, name, canonical_name, created_at, updated_at) SELECT value, value, value, 'kept', 'now' FROM (SELECT lower(hex(randomblob(8))) AS value)",
+                [],
+            )
+            .unwrap();
+        close(&mut writer).unwrap();
+        for suffix in ["-wal", "-shm"] {
+            let mut sidecar = fixture.database.as_os_str().to_os_string();
+            sidecar.push(suffix);
+            assert!(
+                PathBuf::from(sidecar).exists(),
+                "the last close removed {suffix}"
+            );
+        }
+    }
+    let reader = rusqlite::Connection::open_with_flags(
+        &fixture.database,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    )
+    .unwrap();
+    let kept: i64 = reader
+        .query_row(
+            "SELECT count(*) FROM identities WHERE created_at = 'kept'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(kept, 2);
+}
+
+/// Without the close-time checkpoint the log is still checkpointed by its commits: SQLite's
+/// automatic checkpoint stays on, and the size limit trims a reset log, so it stays bounded.
+#[test]
+fn the_log_stays_bounded_by_automatic_checkpoints_without_close_checkpoints() {
+    let fixture = Fixture::new();
+    let mut storage = Storage::open(&fixture.database).unwrap();
+    let connection = storage.connection().unwrap();
+    let pages: i64 = connection
+        .query_row("PRAGMA wal_autocheckpoint", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(pages, 1000);
+    storage.close().unwrap();
+    let body = "x".repeat(4000);
+    for index in 0..40 {
+        let mut writer = Storage::open(&fixture.database).unwrap();
+        let connection = writer.connection().unwrap();
+        connection.execute_batch("BEGIN IMMEDIATE").unwrap();
+        for row in 0..50 {
+            connection
+                .execute(
+                    "INSERT INTO identities (id, name, canonical_name, created_at, updated_at) VALUES (?1, ?1, ?1, ?2, 'now')",
+                    [format!("bounded-{index}-{row}"), body.clone()],
+                )
+                .unwrap();
+        }
+        connection.execute_batch("COMMIT").unwrap();
+        writer.close().unwrap();
+    }
+    let mut wal = fixture.database.as_os_str().to_os_string();
+    wal.push("-wal");
+    let size = fs::metadata(PathBuf::from(wal)).map_or(0, |metadata| metadata.len());
+    // 2,000 rows of ~4 KB (~8 MB) went through the log; it stays near the limit.
+    assert!(size <= 2 * WAL_SIZE_LIMIT as u64, "log is {size} bytes");
+    let rows: i64 = Storage::open(&fixture.database)
+        .unwrap()
+        .connection()
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM identities WHERE id LIKE 'bounded-%'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(rows, 2000);
+}
