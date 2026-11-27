@@ -331,8 +331,7 @@ Shortcut caps precede tab and filter labels and show effective configured keys;
 unbound actions have no cap. Selected tabs use a brighter neutral cap.
 Agents holds the whole workspace: a full-width Usage band (global usage and provider
 limits) above two columns. The left column is the squad/member tree; the right
-column shows the selected target as Talk or Measure. In Talk, a pinned Work line
-summarizes the member's top item (`w` expands). `T` opens Talk, `M` opens
+column shows the selected target as Talk or Measure. `T` opens Talk, `M` opens
 Measure, and `C` opens the selected member's Checklist; controls sit on the
 pane's top rule. The shell attention bar stays global.
 On a member, `l` opens board labels: `1`–`9` choose the first nine, `0` clears,

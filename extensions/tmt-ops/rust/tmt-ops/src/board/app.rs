@@ -896,7 +896,6 @@ pub struct App {
     pub(in crate::board) keyboard_enhanced: bool,
     pub(super) shell: super::shell::OpsShell,
     pub(in crate::board) work: super::work::State,
-    pub(super) talk_work: RefCell<super::agents_focus::TalkWork>,
     pub(in crate::board) orchestration: super::orchestration::State,
     pub(super) workspace: super::workspace::OpsWorkspace,
     frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
@@ -4823,9 +4822,6 @@ impl App {
         {
             return Effect::None;
         }
-        if !typing && let Some(effect) = super::agents_focus::talk_work_key(self, key) {
-            return effect;
-        }
         self.workspace_key(key)
     }
 
@@ -4836,7 +4832,6 @@ impl App {
         self.provider_answer.invalidate();
         self.orchestration.invalidate();
         self.work.hits.borrow_mut().clear();
-        self.talk_work.borrow_mut().clear_hits();
         self.pane_resize.invalidate();
         self.buttons.invalidate();
         if let Some(picker) = &self.panels_picker {
@@ -5198,9 +5193,6 @@ impl App {
             return self.menu_mouse(event);
         }
         if let Some(effect) = self.provider_answer_mouse(event) {
-            return effect;
-        }
-        if let Some(effect) = super::agents_focus::talk_work_mouse(self, event) {
             return effect;
         }
         // Jump to latest (#5920) sits over the reader's body, so it takes a press anywhere in its
