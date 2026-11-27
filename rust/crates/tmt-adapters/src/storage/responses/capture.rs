@@ -276,6 +276,11 @@ fn commit_turn_end(
             ),
         capture.now_ms,
     )?;
+    if retained.is_none()
+        && let Some(batch) = batch.as_deref()
+    {
+        super::super::requests::kept::finish_terminal(db, batch)?;
+    }
     if capture.interrupted {
         super::super::consumption_history::wake_turns::close_started_before(
             db,

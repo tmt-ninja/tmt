@@ -11,6 +11,7 @@ mod digest_journal;
 pub(super) mod digest_wake;
 mod flow;
 mod history;
+pub(crate) mod kept;
 mod notification;
 pub(super) mod passthrough;
 mod reply_batch;
@@ -102,7 +103,11 @@ const DELETE_RETAINED_SQL: &str = "DELETE FROM request_attempts
                    AND NOT EXISTS (
                        SELECT 1 FROM request_responses
                        WHERE request_responses.attempt_id = request_attempts.attempt_id
-                         AND request_responses.response_expires_at_ms > ?
+                         AND (request_responses.response_expires_at_ms > ?
+                              OR (request_attempts.keep_reply=1 AND request_attempts.keep_removed=0))
+                   )
+                   AND NOT (
+                       keep_reply=1 AND keep_removed=0 AND kept_capture_sequence IS NOT NULL
                    )
                  ORDER BY retention_expires_at_ms, attempt_id
                  LIMIT ?
@@ -1622,6 +1627,9 @@ impl RequestRecords for RequestRows<'_> {
              WHERE request_id IN (
                  SELECT request_id FROM request_responses
                  WHERE response_expires_at_ms <= ?
+                   AND NOT EXISTS (SELECT 1 FROM request_attempts a
+                                   WHERE a.request_id=request_responses.request_id
+                                     AND a.keep_reply=1 AND a.keep_removed=0)
                  ORDER BY response_expires_at_ms, request_id
                  LIMIT ?
              )",

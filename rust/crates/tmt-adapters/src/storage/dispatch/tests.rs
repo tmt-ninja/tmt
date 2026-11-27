@@ -351,6 +351,7 @@ impl Fixture {
     }
     fn input(&self) -> DispatchInput {
         DispatchInput {
+            keep_reply: false,
             parent_request_id: None,
             origin: tmt_core::request::RequestOrigin::Person,
             originator: tmt_core::request::Originator::Unknown,
@@ -610,4 +611,132 @@ fn talk_flow(oracle: &Connection) -> (i64, i64) {
         "SELECT COALESCE(SUM(count),0),COALESCE(SUM(bytes),0) FROM exchange_flow WHERE kind='talk'",
         [], |row| Ok((row.get(0)?, row.get(1)?)),
     ).unwrap()
+}
+
+#[test]
+fn marked_dispatch_reserves_under_the_person_cap_and_unmark_does_not_replay() {
+    use tmt_core::request::{Originator, SubmitResponse};
+
+    let mut fixture = Fixture::new();
+    let person = fixture.recipients[0].clone();
+    let agent = fixture.recipients[1].clone();
+    let mut input = fixture.input();
+    input.recipient_ids = vec![agent.clone()];
+    input.keep_reply = true;
+    input.originator = Originator::Explicit(person.clone());
+    assert!(matches!(
+        fixture.storage.dispatch_request(input.clone(), 1, || NOW),
+        Err(DispatchError::KeepReplyNotAllowed)
+    ));
+    fixture
+        .oracle()
+        .execute(
+            "INSERT INTO identity_metadata(identity_id,key,value) VALUES(?,'user','true')",
+            [&person],
+        )
+        .unwrap();
+    let receipt = fixture
+        .storage
+        .dispatch_request(input.clone(), 1, || NOW)
+        .unwrap();
+    let key = &receipt.items[0].request_id;
+    let (_, proof, _) = RequestService::new(&mut fixture.storage, || NOW)
+        .answer_target(&agent, Some(&person), Some(key))
+        .unwrap();
+    let exact = "The admitted answer.";
+    RequestService::new(&mut fixture.storage, || NOW + 1)
+        .submit_response_with_hint(
+            SubmitResponse {
+                request_id: key.clone(),
+                proof,
+                body: exact.into(),
+            },
+            None,
+        )
+        .unwrap();
+    let before = fixture
+        .storage
+        .show_kept_reply(&person, key)
+        .unwrap()
+        .unwrap();
+    assert_eq!(before["text"], exact);
+    assert!(
+        fixture
+            .storage
+            .show_kept_reply(&agent, key)
+            .unwrap()
+            .is_none()
+    );
+    assert!(!fixture.storage.remove_kept_reply(&agent, key).unwrap());
+    let activity = |fixture: &Fixture| {
+        let db = fixture.oracle();
+        db.query_row(
+            "SELECT attention_revision,attention_acknowledged_revision FROM request_attempts WHERE request_id=?",
+            [key],
+            |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
+        ).unwrap()
+    };
+    let unread = activity(&fixture);
+    assert!(unread.0 > unread.1);
+
+    let reopened = Storage::open(&fixture.storage.path).unwrap();
+    fixture.storage = reopened;
+    let expired = NOW + 3 * 86_400_000;
+    RequestService::new(&mut fixture.storage, || expired)
+        .cleanup()
+        .unwrap();
+    assert!(
+        RequestService::new(&mut fixture.storage, || expired)
+            .request_detail(key)
+            .is_err()
+    );
+    assert_eq!(
+        fixture.storage.show_kept_reply(&person, key).unwrap(),
+        Some(before)
+    );
+    assert_eq!(activity(&fixture), unread);
+
+    for counter in 0..63 {
+        let mut pending = input.clone();
+        pending.operation_id = format!("aaaa0000-0000-4000-8000-{counter:012x}");
+        fixture
+            .storage
+            .dispatch_request(pending, 1, || expired)
+            .unwrap();
+    }
+    let mut overflow = input.clone();
+    overflow.operation_id = "aaaa0000-0000-4000-8000-000000000099".into();
+    assert!(matches!(
+        fixture
+            .storage
+            .dispatch_request(overflow.clone(), 1, || expired),
+        Err(DispatchError::KeepReplyLimit)
+    ));
+    assert!(
+        fixture
+            .storage
+            .dispatch_receipt(&overflow.operation_id)
+            .unwrap()
+            .is_none()
+    );
+    assert!(fixture.storage.remove_kept_reply(&person, key).unwrap());
+    assert!(!fixture.storage.remove_kept_reply(&person, key).unwrap());
+    assert_eq!(
+        fixture
+            .storage
+            .dispatch_request(input, 1, || panic!("existing receipt"))
+            .unwrap(),
+        receipt
+    );
+    assert!(
+        fixture
+            .storage
+            .show_kept_reply(&person, key)
+            .unwrap()
+            .is_none()
+    );
+    fixture
+        .storage
+        .dispatch_request(overflow, 1, || expired)
+        .unwrap();
 }

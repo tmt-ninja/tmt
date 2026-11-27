@@ -559,12 +559,19 @@ impl BindingRecords for BindingRows<'_> {
                 [&identity.id],
             )
             .map_err(|e| classify(e, "Remove input batches"))?;
+        let pinned = super::requests::kept::CAPTURE_PINNED;
         self.0
             .execute(
-                "DELETE FROM recent_responses WHERE identity_id=?",
+                &format!("DELETE FROM recent_responses WHERE identity_id=? AND NOT {pinned}"),
                 [&identity.id],
             )
             .map_err(|error| classify(error, "Remove recent responses"))?;
+        self.0
+            .execute(
+                "UPDATE recent_responses SET ordinary_dropped=1 WHERE identity_id=?",
+                [&identity.id],
+            )
+            .map_err(|error| classify(error, "Hide kept responses of the retired agent"))?;
         self.0
             .execute(
                 "DELETE FROM recent_response_floor WHERE identity_id=?",

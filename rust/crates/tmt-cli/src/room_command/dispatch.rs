@@ -34,6 +34,10 @@ fn failure(error: DispatchError, operation_id: &str) -> Failure {
         DispatchError::ParentInvalid => {
             "The thread parent is not an available request in this room or conversation."
         }
+        DispatchError::KeepReplyNotAllowed => "Only a person can mark a reply to keep.",
+        DispatchError::KeepReplyLimit => {
+            "Kept replies are full. Remove a kept reply before marking another."
+        }
         DispatchError::Request(_) | DispatchError::Storage(_) => {
             "Dispatch could not be confirmed. Do not create a new operation merely to retry."
         }
@@ -115,6 +119,7 @@ fn run_with(
         storage
             .dispatch_request(
                 DispatchInput {
+                    keep_reply: false,
                     parent_request_id: None,
                     originator,
                     kind,

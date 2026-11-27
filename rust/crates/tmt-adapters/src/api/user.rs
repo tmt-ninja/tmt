@@ -56,7 +56,7 @@ pub(super) fn identity(
 
 /// The configured person, read-only (#5807): the identity `user.identity` would resolve,
 /// only when it already exists and is marked a person. Nothing is created or marked.
-pub(super) fn configured_person(
+pub fn configured_person(
     storage: &Storage,
     settings: &Settings,
     login: Option<&str>,

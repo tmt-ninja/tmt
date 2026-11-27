@@ -153,6 +153,7 @@ fn a_turn_binds_by_prompt_text_and_its_final_answers_the_passthrough_once() {
     assert_eq!(revision(&storage, "p1"), 0);
     // The provider reports what the pane received: `！` for `!`.
     let started = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("t1"),
         prompt: "Ship it！",
     };
@@ -227,6 +228,7 @@ fn identical_pending_texts_bind_first_in_first_out() {
         ("t2", "second", "first", "answer two"),
     ] {
         let started = TurnBoundary::Started {
+            keep_owner: None,
             turn: Some(turn),
             prompt: "go",
         };
@@ -271,6 +273,7 @@ fn another_turn_neither_binds_nor_lends_its_final_and_a_late_prompt_cannot_bind(
     typed(&storage, &id, "queued", "do the thing", 1_000);
     // A busy agent works another prompt first: its turn and final are not the passthrough's.
     let other = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("busy"),
         prompt: "an unrelated prompt",
     };
@@ -297,6 +300,7 @@ fn another_turn_neither_binds_nor_lends_its_final_and_a_late_prompt_cannot_bind(
     assert!(waiting.answer.is_none());
     // Its own turn starts later and binds.
     let own = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("own"),
         prompt: "do the thing",
     };
@@ -309,6 +313,7 @@ fn another_turn_neither_binds_nor_lends_its_final_and_a_late_prompt_cannot_bind(
     // Past the binding window the same prompt binds nothing, and the read says so.
     typed(&storage, &id, "late", "too late", BIND_WINDOW_MS + 1_000);
     let late = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("t9"),
         prompt: "too late",
     };
@@ -329,6 +334,7 @@ fn a_turn_that_ends_without_a_final_settles_without_an_answer() {
     let mut storage = Storage::open(&path).unwrap();
     typed(&storage, &id, "p1", "think", 1_000);
     let started = TurnBoundary::Started {
+        keep_owner: None,
         turn: None,
         prompt: "think",
     };
@@ -353,6 +359,7 @@ fn the_answer_is_capped_and_says_it_was_cut() {
     let mut storage = Storage::open(&path).unwrap();
     typed(&storage, &id, "p1", "long please", 1_000);
     let started = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("t"),
         prompt: "long please",
     };
@@ -386,6 +393,7 @@ fn an_event_that_changed_nothing_binds_and_settles_nothing() {
     let mut storage = Storage::open(&path).unwrap();
     typed(&storage, &id, "p1", "once", 1_000);
     let started = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("t"),
         prompt: "once",
     };
@@ -426,12 +434,14 @@ fn a_capture_bound_to_an_earlier_session_is_released_when_the_agent_moves_on() {
     typed(&storage, &id, "old", "first prompt", 2_000);
     typed(&storage, &id, "new", "second prompt", 1_000);
     let started = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("t1"),
         prompt: "first prompt",
     };
     event(&mut storage, &path, &id, SESSION, Some(started), None, true);
     // The conversation was replaced before the first turn ended; its end will never be seen.
     let next = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("t1"),
         prompt: "second prompt",
     };
@@ -456,7 +466,11 @@ fn started(
     turn: Option<&str>,
     prompt: &str,
 ) {
-    let boundary = TurnBoundary::Started { turn, prompt };
+    let boundary = TurnBoundary::Started {
+        turn,
+        prompt,
+        keep_owner: None,
+    };
     event(storage, path, id, SESSION, Some(boundary), None, true);
 }
 
@@ -714,6 +728,7 @@ fn the_first_turn_after_a_hand_over_is_recorded_at_its_start_and_closed_at_its_e
     );
     handed_over(&storage, &id, "measured", 0);
     let start = TurnBoundary::Started {
+        keep_owner: None,
         turn: None,
         prompt: "please review",
     };
@@ -824,6 +839,7 @@ fn wake_ended_boundary_fences_newer_turns_and_closes_unreadable_or_unconsented_s
     // Turn 1: initial consumption read.
     handed_over(&storage, &id, "w1", 0);
     let start1 = TurnBoundary::Started {
+        keep_owner: None,
         turn: None,
         prompt: "first wake",
     };
@@ -847,6 +863,7 @@ fn wake_ended_boundary_fences_newer_turns_and_closes_unreadable_or_unconsented_s
         &id,
         SESSION,
         Some(TurnBoundary::Started {
+            keep_owner: None,
             turn: None,
             prompt: "second wake",
         }),
@@ -889,6 +906,7 @@ fn wake_ended_boundary_fences_newer_turns_and_closes_unreadable_or_unconsented_s
         &id,
         SESSION,
         Some(TurnBoundary::Started {
+            keep_owner: None,
             turn: None,
             prompt: "third wake",
         }),
@@ -913,6 +931,7 @@ fn wake_ended_boundary_fences_newer_turns_and_closes_unreadable_or_unconsented_s
         &id,
         SESSION,
         Some(TurnBoundary::Started {
+            keep_owner: None,
             turn: None,
             prompt: "fourth wake",
         }),
@@ -1079,6 +1098,7 @@ fn an_admitted_prompt_that_names_a_typed_request_confirms_its_checklist() {
 
     // A prompt of another turn names nothing of the checklist.
     let other = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("t1"),
         prompt: "an ordinary prompt",
     };
@@ -1095,6 +1115,7 @@ fn an_admitted_prompt_that_names_a_typed_request_confirms_its_checklist() {
 
     // The same text on an event that was not admitted changes nothing.
     let started = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("t2"),
         prompt: carrying,
     };
@@ -1110,6 +1131,7 @@ fn an_admitted_prompt_that_names_a_typed_request_confirms_its_checklist() {
     assert_eq!(confirmed(&storage, "req_typed"), None);
 
     let started = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("t3"),
         prompt: carrying,
     };
@@ -1187,6 +1209,7 @@ fn a_stop_blocked_continuation_stays_open_until_its_own_stop_or_a_prompt() {
     hand_over(&storage, &id, "uncertain");
     assert!(open(&mut storage, &id));
     let prompt = TurnBoundary::Started {
+        keep_owner: None,
         turn: Some("t2"),
         prompt: "an ordinary prompt",
     };
@@ -1296,4 +1319,201 @@ fn a_final_whose_request_has_expired_no_longer_names_it() {
     assert_eq!(item["text"], "Done long ago.");
     assert!(item.get("requestId").is_none());
     storage.close().unwrap();
+}
+
+#[test]
+fn keeps_only_the_final_of_the_admitted_marked_terminal_batch() {
+    use tmt_core::identity::{Lifetime, create_or_resolve};
+
+    let (_directory, path, agent) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    let person = create_or_resolve(&mut storage, "Person", Lifetime::Saved)
+        .unwrap()
+        .identity
+        .id;
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "INSERT INTO identity_metadata(identity_id,key,value) VALUES(?,'user','true')",
+            [&person],
+        )
+        .unwrap();
+
+    let marked = TurnBoundary::Started {
+        turn: Some("kept"),
+        prompt: "/keep Explain X",
+        keep_owner: Some(&person),
+    };
+    let finish = TurnBoundary::Ended {
+        turn: Some("kept"),
+        continuation: false,
+    };
+    let list = |storage: &Storage| {
+        storage
+            .list_kept_replies(&person, Some(&agent), None, 10)
+            .unwrap()
+    };
+    assert!(event(
+        &mut storage,
+        &path,
+        &agent,
+        SESSION,
+        Some(marked),
+        None,
+        true
+    ));
+    assert_eq!(list(&storage)["items"], serde_json::json!([]));
+    assert!(event(
+        &mut storage,
+        &path,
+        &agent,
+        SESSION,
+        Some(finish),
+        Some("The exact terminal answer."),
+        true
+    ));
+    let first = list(&storage);
+    assert_eq!(first["items"].as_array().unwrap().len(), 1);
+    let key = first["items"][0]["key"].as_str().unwrap();
+    assert_eq!(
+        storage.show_kept_reply(&person, key).unwrap().unwrap()["text"],
+        "The exact terminal answer."
+    );
+    assert!(event(
+        &mut storage,
+        &path,
+        &agent,
+        SESSION,
+        Some(finish),
+        Some("A second output."),
+        true
+    ));
+    assert_eq!(list(&storage), first);
+
+    let marked = TurnBoundary::Started {
+        turn: Some("no-final"),
+        prompt: "⚑ Explain Y",
+        keep_owner: Some(&person),
+    };
+    let stopped = TurnBoundary::Ended {
+        turn: Some("no-final"),
+        continuation: false,
+    };
+    assert!(event(
+        &mut storage,
+        &path,
+        &agent,
+        SESSION,
+        Some(marked),
+        None,
+        true
+    ));
+    assert!(event(
+        &mut storage,
+        &path,
+        &agent,
+        SESSION,
+        Some(stopped),
+        None,
+        true
+    ));
+    assert!(event(
+        &mut storage,
+        &path,
+        &agent,
+        SESSION,
+        Some(stopped),
+        Some("Unrelated later output."),
+        true
+    ));
+    assert_eq!(list(&storage), first);
+
+    let expired = now() + tmt_core::responses::RETENTION_MS + 1;
+    super::super::identities::with_immediate_transaction(
+        &mut storage,
+        "ordinary capture retention",
+        |db| {
+            super::super::responses::append(
+                db,
+                &agent,
+                "codex",
+                SESSION,
+                expired,
+                &ResponseCapture {
+                    text: FinalText::new("A new ordinary answer.").unwrap(),
+                },
+            )
+        },
+    )
+    .unwrap();
+    let recent = storage.recent_responses(&agent, 10, None, expired).unwrap();
+    assert_eq!(recent["items"].as_array().unwrap().len(), 1);
+    assert_eq!(recent["coverage"]["olderDropped"], true);
+    assert_eq!(list(&storage), first);
+    assert!(storage.remove_kept_reply(&person, key).unwrap());
+    assert_eq!(list(&storage)["items"], serde_json::json!([]));
+    let after = storage.recent_responses(&agent, 10, None, expired).unwrap();
+    assert_eq!(after, recent);
+}
+
+#[test]
+fn marked_passthrough_links_the_existing_batch_and_capture_without_double_pinning() {
+    use tmt_core::identity::{Lifetime, create_or_resolve};
+
+    let (_directory, path, agent) = fixture();
+    let mut storage = Storage::open(&path).unwrap();
+    let person = create_or_resolve(&mut storage, "Person", Lifetime::Saved)
+        .unwrap()
+        .identity
+        .id;
+    typed(&storage, &agent, "marked", "/keep Exact", 100);
+    let db = storage.connection().unwrap();
+    db.execute(
+        "INSERT INTO identity_metadata(identity_id,key,value) VALUES(?,'user','true')",
+        [&person],
+    )
+    .unwrap();
+    db.execute(
+        "UPDATE request_attempts SET originator_kind='explicit',originator_identity_id=?1,keep_reply=1 WHERE request_id='marked'",
+        [&person],
+    ).unwrap();
+
+    let start = TurnBoundary::Started {
+        turn: Some("turn"),
+        prompt: "/keep Exact",
+        keep_owner: Some(&person),
+    };
+    let finish = TurnBoundary::Ended {
+        turn: Some("turn"),
+        continuation: false,
+    };
+    assert!(event(
+        &mut storage,
+        &path,
+        &agent,
+        SESSION,
+        Some(start),
+        None,
+        true
+    ));
+    assert!(event(
+        &mut storage,
+        &path,
+        &agent,
+        SESSION,
+        Some(finish),
+        Some("The linked answer."),
+        true
+    ));
+    let kept = storage
+        .list_kept_replies(&person, Some(&agent), None, 10)
+        .unwrap();
+    assert_eq!(kept["items"].as_array().unwrap().len(), 1);
+    assert_eq!(kept["items"][0]["source"], "passthrough");
+    assert_eq!(
+        storage.show_kept_reply(&person, "marked").unwrap().unwrap()["text"],
+        "The linked answer."
+    );
+    assert!(revision(&storage, "marked") > 0);
 }

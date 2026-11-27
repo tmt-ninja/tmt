@@ -50,7 +50,7 @@ pub(super) fn same_final_in_batch(
     }
     connection.query_row(
         "SELECT EXISTS(SELECT 1 FROM capture_entries e JOIN recent_responses r ON r.sequence=e.response_sequence
-         WHERE e.batch_id=?1 AND e.kind='final' AND r.truncated=0 AND r.text=?2 AND r.original_bytes=?3 AND r.expires_ms>?4)",
+         WHERE e.batch_id=?1 AND e.kind='final' AND r.ordinary_dropped=0 AND r.truncated=0 AND r.text=?2 AND r.original_bytes=?3 AND r.expires_ms>?4)",
         params![batch,response.text.text(),response.text.original_bytes() as i64,transaction_now_ms as i64], |row| row.get(0)
     ).map_err(|error| classify(error,"Compare complete final in recorded batch"))
 }
@@ -78,21 +78,38 @@ pub(super) fn append_to_batch(
     let sequence = u64::try_from(connection.last_insert_rowid())
         .map_err(|_| StorageError::new(StorageErrorCode::Corrupt, "Invalid response key"))?;
     super::capture_batches::final_entry_in_batch(connection, id, batch, sequence, now)?;
-    // What goes is whatever expired and everything past the newest `MAX_KEPT`; the newest of it
-    // becomes the floor, in the same transaction, before it is deleted.
-    let doomed = "identity_id=?1 AND (expires_ms<=?2 OR sequence<=COALESCE((SELECT sequence FROM recent_responses WHERE identity_id=?1 ORDER BY sequence DESC LIMIT 1 OFFSET ?3),0))";
+    if let Some(batch) = batch {
+        super::requests::kept::pin_terminal(connection, batch, sequence)?;
+    }
+    // Compute the ordinary history boundary before any rows are hidden or
+    // deleted. A physically kept answer never extends that history window.
+    let cutoff: i64 = connection
+        .query_row(
+            "SELECT COALESCE((SELECT sequence FROM recent_responses
+         WHERE identity_id=?1 AND ordinary_dropped=0
+         ORDER BY sequence DESC LIMIT 1 OFFSET ?2),0)",
+            params![id, MAX_KEPT as i64],
+            |row| row.get(0),
+        )
+        .map_err(|e| classify(e, "Read the ordinary response floor"))?;
+    let doomed = "identity_id=?1 AND ordinary_dropped=0 AND (expires_ms<=?2 OR sequence<=?3)";
+    let pinned = super::requests::kept::CAPTURE_PINNED;
     connection.execute(
         &format!("INSERT INTO recent_response_floor(identity_id,dropped_through_ms)
          SELECT identity_id,MAX(ended_ms) FROM recent_responses WHERE {doomed} GROUP BY identity_id
          ON CONFLICT(identity_id) DO UPDATE SET dropped_through_ms=MAX(dropped_through_ms,excluded.dropped_through_ms)"),
-        params![id,now as i64,MAX_KEPT as i64],
-    ).map_err(|e| classify(e,"Record dropped responses"))?;
+        params![id, now as i64, cutoff],
+    ).map_err(|e| classify(e, "Record dropped responses"))?;
     connection
         .execute(
-            &format!("DELETE FROM recent_responses WHERE {doomed}"),
-            params![id, now as i64, MAX_KEPT as i64],
+            &format!("UPDATE recent_responses SET ordinary_dropped=1 WHERE {doomed} AND {pinned}"),
+            params![id, now as i64, cutoff],
         )
-        .map_err(|e| classify(e, "Bound recent responses"))?;
+        .map_err(|e| classify(e, "Hide kept responses from ordinary history"))?;
+    connection.execute(
+        &format!("DELETE FROM recent_responses WHERE (ordinary_dropped=1 AND identity_id=?1 OR ({doomed})) AND NOT {pinned}"),
+        params![id, now as i64, cutoff],
+    ).map_err(|e| classify(e, "Bound recent responses"))?;
     Ok(sequence)
 }
 
@@ -140,7 +157,7 @@ impl Storage {
                      JOIN request_attempts a ON a.request_id=p.request_id AND a.retention_expires_at_ms>?2
                      WHERE p.answer_response=r.sequence ORDER BY p.delivered_at_ms,p.request_id LIMIT 1),
                     (SELECT e.batch_id FROM capture_entries e WHERE e.kind='final' AND e.response_sequence=r.sequence)
-             FROM recent_responses r JOIN identities i ON i.id=r.identity_id AND i.retired_at_ms IS NULL WHERE r.identity_id=?1 AND r.expires_ms>?2 AND r.sequence<?3 ORDER BY r.sequence DESC LIMIT ?4").map_err(|e| classify(e,"Prepare recent responses"))?;
+             FROM recent_responses r JOIN identities i ON i.id=r.identity_id AND i.retired_at_ms IS NULL WHERE r.identity_id=?1 AND r.ordinary_dropped=0 AND r.expires_ms>?2 AND r.sequence<?3 ORDER BY r.sequence DESC LIMIT ?4").map_err(|e| classify(e,"Prepare recent responses"))?;
             // One more than asked tells whether an older answer is still kept.
             let mut rows = query.query_map(params![id,now as i64,upper,limit as i64 + 1],|row| {
                 let mut item = json!({"responseId":response_id(row.get::<_,i64>(0)? as u64),"text":row.get::<_,String>(1)?,"endedMs":row.get::<_,i64>(2)?,"provider":row.get::<_,String>(3)?,"truncated":row.get::<_,bool>(4)?,"originalBytes":row.get::<_,i64>(6)?});
@@ -164,7 +181,7 @@ impl Storage {
             .query_row(
                 "SELECT MAX(v) FROM (
                     SELECT dropped_through_ms v FROM recent_response_floor WHERE identity_id=?1
-                    UNION ALL SELECT MAX(ended_ms) FROM recent_responses WHERE identity_id=?1 AND expires_ms<=?2)",
+                    UNION ALL SELECT MAX(ended_ms) FROM recent_responses WHERE identity_id=?1 AND ordinary_dropped=0 AND expires_ms<=?2)",
                 params![id, now as i64],
                 |row| row.get(0),
             )

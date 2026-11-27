@@ -72,7 +72,7 @@ fn the_provider_rebuild_preserves_rows_ids_high_water_indexes_foreign_keys_and_t
         )
         .is_err()
     );
-    apply(&mut db).unwrap();
+    apply_through(&mut db, 79).unwrap();
     assert_eq!(
         snapshot(&db),
         before,
@@ -178,7 +178,7 @@ fn a_refused_migration_record_rolls_back_both_rebuilds_and_can_be_retried() {
         rows(&db, "PRAGMA foreign_keys"),
         vec![vec![Value::Integer(1)]]
     );
-    apply(&mut db).unwrap();
+    apply_through(&mut db, 79).unwrap();
     assert_eq!(snapshot(&db), before);
     response(&db, "agy").unwrap();
 }
@@ -307,7 +307,7 @@ fn v95_to_v96_upgrade_preserves_existing_rows_and_admits_pi() {
     let before = snapshot(&db);
     let schemas: Vec<_> = TABLES[..2].iter().map(|table| schema(&db, table)).collect();
 
-    apply(&mut db).unwrap();
+    apply_through(&mut db, 96).unwrap();
 
     assert_eq!(count(&db, "recent_responses"), 3);
     assert_eq!(count(&db, "request_passthrough"), 4);
@@ -324,4 +324,45 @@ fn v95_to_v96_upgrade_preserves_existing_rows_and_admits_pi() {
         )
         .is_ok()
     );
+}
+
+#[test]
+fn the_keep_migration_preserves_existing_request_and_capture_rows_as_unmarked() {
+    let mut db = Connection::open_in_memory().unwrap();
+    seed(&mut db);
+    apply_through(&mut db, 99).unwrap();
+    let before = rows(
+        &db,
+        "SELECT sequence,identity_id,text,ended_ms,expires_ms FROM recent_responses ORDER BY sequence",
+    );
+    let before_cursor = rows(&db, "SELECT value FROM change_cursor");
+    apply(&mut db).unwrap();
+    assert_eq!(
+        before,
+        rows(
+            &db,
+            "SELECT sequence,identity_id,text,ended_ms,expires_ms FROM recent_responses ORDER BY sequence",
+        ),
+    );
+    assert_eq!(before_cursor, rows(&db, "SELECT value FROM change_cursor"));
+    for (table, predicate) in [
+        (
+            "request_attempts",
+            "keep_reply != 0 OR keep_removed != 0 OR kept_capture_sequence IS NOT NULL",
+        ),
+        ("capture_batches", "kept_owner_identity_id IS NOT NULL"),
+        (
+            "recent_responses",
+            "kept_owner_identity_id IS NOT NULL OR ordinary_dropped != 0",
+        ),
+    ] {
+        assert!(rows(&db, &format!("SELECT 1 FROM {table} WHERE {predicate}")).is_empty());
+    }
+    db.execute(
+        "UPDATE recent_responses SET kept_owner_identity_id='i' WHERE sequence=41",
+        [],
+    )
+    .unwrap();
+    assert_ne!(before_cursor, rows(&db, "SELECT value FROM change_cursor"));
+    assert!(rows(&db, "PRAGMA foreign_key_check").is_empty());
 }

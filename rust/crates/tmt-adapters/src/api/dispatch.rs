@@ -69,21 +69,39 @@ pub(super) fn create_dispatch(
     let direct = request && input.recipient_ids.len() == 1 && !roster;
     let preview = (request && (direct || roster)).then(|| input.message.clone());
     let passthrough = input.mode == DeliveryMode::Passthrough;
-    if passthrough
+    let new_delivery = (passthrough || input.keep_reply)
         && storage
             .dispatch_receipt(&input.operation_id)
             .map_err(|_| Fault::unavailable())?
-            .is_none()
-    {
+            .is_none();
+    if new_delivery && input.keep_reply {
+        let person = super::user::configured_person(
+            storage,
+            settings,
+            crate::user::login_name().as_deref(),
+        )?;
+        if person.is_none() || person.as_deref() != input.originator.identity_id() {
+            return Err(Fault::new(
+                "KEEP_REPLY_NOT_ALLOWED",
+                "Only the configured person can mark a reply to keep.",
+            ));
+        }
+    }
+    if new_delivery && passthrough {
         gate_passthrough(storage, &input)?;
     }
     let (receipt, created) = storage
         .dispatch_request_with_creation(input, settings.retention_days, wall_time_ms)
         .map_err(|error| {
-            Fault::new(
-                error.code(),
-                "Dispatch could not be confirmed; retain the operation ID and recover its receipt.",
-            )
+            use crate::storage::DispatchError;
+            let message = match error {
+                DispatchError::KeepReplyNotAllowed => "Only a person can mark a reply to keep.",
+                DispatchError::KeepReplyLimit => {
+                    "Kept replies are full. Remove a kept reply before marking another."
+                }
+                _ => "Dispatch could not be confirmed; retain the operation ID and recover its receipt.",
+            };
+            Fault::new(error.code(), message)
         })?;
     if roster {
         if let Some(text) = preview.as_deref() {
@@ -153,6 +171,7 @@ mod tests {
         mode: tmt_core::request::digest::DeliveryMode,
     ) -> DispatchInput {
         DispatchInput {
+            keep_reply: false,
             parent_request_id: None,
             origin: tmt_core::request::RequestOrigin::Person,
             originator: Originator::Unknown,
@@ -237,6 +256,7 @@ mod tests {
         assert_eq!(identity(&mut storage, &sender.id).unwrap(), replacement.id);
         let operation = "6ceab579-6d31-45fc-bf61-f2ce90c96a1e";
         let input = DispatchInput {
+            keep_reply: false,
             parent_request_id: None,
             origin: tmt_core::request::RequestOrigin::Person,
             originator: Originator::Unknown,

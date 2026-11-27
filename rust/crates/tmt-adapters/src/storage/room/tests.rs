@@ -295,6 +295,7 @@ fn a_roster_post_reaches_only_the_addressed_members() {
         .clone();
     // A direct exchange between Alice and Bob: talk outside the room.
     let direct = |from: &str, to: &str, parent: Option<&str>| DispatchInput {
+        keep_reply: false,
         originator: Originator::Explicit(from.to_owned()),
         recipient_ids: vec![to.to_owned()],
         room: None,
@@ -489,6 +490,7 @@ fn identity(storage: &mut Storage, name: &str) -> String {
 }
 fn dispatch(room: &MeetingRoom) -> DispatchInput {
     DispatchInput {
+        keep_reply: false,
         parent_request_id: None,
         origin: tmt_core::request::RequestOrigin::Person,
         originator: tmt_core::request::Originator::Unknown,

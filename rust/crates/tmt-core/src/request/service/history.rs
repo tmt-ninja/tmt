@@ -244,6 +244,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                         ConversationDirection::FromMember
                     };
                     Ok(ConversationSummary {
+                        keep_reply: row.keep_reply,
                         position: row.position,
                         direction,
                         summary: summary(records, row.history, now)?,

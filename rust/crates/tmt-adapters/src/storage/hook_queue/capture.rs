@@ -1074,6 +1074,11 @@ fn commit(
             }),
             c.now_ms,
         )?;
+        if retained.is_none()
+            && let Some(batch) = c.batch.as_deref()
+        {
+            super::super::requests::kept::finish_terminal(db, batch)?;
+        }
         if c.interrupted {
             capture_batches::close(db, &c.identity, c.now_ms)?;
         }

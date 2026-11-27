@@ -26,6 +26,8 @@ pub enum DispatchError {
     RoomRecipientNotMember,
     /// The named parent is not an available request in this post's scope (#6407).
     ParentInvalid,
+    KeepReplyNotAllowed,
+    KeepReplyLimit,
     Request(RequestError<StorageError>),
     Storage(StorageError),
 }
@@ -38,6 +40,8 @@ impl DispatchError {
             Self::RoomRosterChanged => "ROOM_ROSTER_CHANGED",
             Self::RoomRecipientNotMember => "ROOM_RECIPIENT_NOT_MEMBER",
             Self::ParentInvalid => "DISPATCH_PARENT_INVALID",
+            Self::KeepReplyNotAllowed => "KEEP_REPLY_NOT_ALLOWED",
+            Self::KeepReplyLimit => "KEEP_REPLY_LIMIT",
             Self::Request(_) | Self::Storage(_) => "STORAGE_UNAVAILABLE",
         }
     }
@@ -171,6 +175,18 @@ pub(super) fn dispatch_in_transaction(
         checked_deadline(now, REQUEST_MIN_EXPIRY_MS).ok_or(DispatchError::Invalid)?;
     let mut repository = TransactionRequests(transaction, calendar);
     let mut service = RequestService::new(&mut repository, || now);
+    if input.keep_reply {
+        let person = input
+            .originator
+            .identity_id()
+            .ok_or(DispatchError::KeepReplyNotAllowed)?;
+        if !service.identity_is_user(person)? {
+            return Err(DispatchError::KeepReplyNotAllowed);
+        }
+        if !super::requests::kept::room_for_reply(transaction, person, now)? {
+            return Err(DispatchError::KeepReplyLimit);
+        }
+    }
     let mut items = Vec::with_capacity(input.recipient_ids.len());
     for recipient_id in &input.recipient_ids {
         let (request_id, attempt_id) = request_ids();
@@ -204,6 +220,14 @@ pub(super) fn dispatch_in_transaction(
                     params![root, request_id],
                 )
                 .map_err(|error| classify(error, "Record thread root"))?;
+        }
+        if input.keep_reply && result.is_ok() {
+            transaction
+                .execute(
+                    "UPDATE request_attempts SET keep_reply=1 WHERE request_id=?1",
+                    [&request_id],
+                )
+                .map_err(|error| classify(error, "Store the accepted keep-reply intent"))?;
         }
         let acceptance = match result {
             Ok(prepared) if prepared.held_for_person => Acceptance::HeldForPerson,
