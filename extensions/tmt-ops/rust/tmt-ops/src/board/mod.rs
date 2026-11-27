@@ -1749,7 +1749,7 @@ fn session(
                         }
                         app.meter_hover = None;
                         app.header_hover = None;
-                        app.invalidate_resized_frame();
+                        app.invalidate_frame_preserving_transcript_focus();
                         dirty = true;
                         Effect::None
                     }

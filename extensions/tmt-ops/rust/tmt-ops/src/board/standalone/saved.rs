@@ -689,6 +689,7 @@ impl App {
             }
             return;
         }
+        let selected_before = self.workspace.selected.clone();
         if let SavedTask::List { generation, .. } = task {
             self.standalone.list_pending = false;
             if generation != self.standalone.saved_generation {
@@ -784,6 +785,10 @@ impl App {
             }
         }
         self.workspace_reconcile();
-        self.invalidate_frame_geometry();
+        if self.workspace.selected == selected_before {
+            self.invalidate_frame_preserving_transcript_focus();
+        } else {
+            self.invalidate_frame_geometry();
+        }
     }
 }

@@ -746,7 +746,7 @@ fn a_transcript_url_keeps_keyboard_focus_after_terminal_resize() {
         &mut app,
         (),
         |_| Some("Input::Resize"),
-        |app, ()| app.invalidate_resized_frame(),
+        |app, ()| app.invalidate_frame_preserving_transcript_focus(),
     );
     assert!(
         !app.member_link_owns_enter(),

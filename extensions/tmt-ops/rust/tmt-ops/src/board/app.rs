@@ -1928,10 +1928,7 @@ impl App {
         }
         self.squad_keys = snapshot.squad_keys;
 
-        self.member_links
-            .borrow_mut()
-            .invalidate_preserving_transcript_focus();
-        self.invalidate_geometry();
+        self.invalidate_frame_preserving_transcript_focus();
         self.tabs = snapshot.tabs;
         self.hidden = snapshot.hidden;
         self.pinned = snapshot.pinned;
@@ -4836,7 +4833,8 @@ impl App {
         self.invalidate_geometry();
     }
 
-    pub(super) fn invalidate_resized_frame(&self) {
+    /// Drop stale frame geometry and let the next paint rebind the keyboard link.
+    pub(super) fn invalidate_frame_preserving_transcript_focus(&self) {
         self.member_links
             .borrow_mut()
             .invalidate_preserving_transcript_focus();
