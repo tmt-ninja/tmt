@@ -1920,8 +1920,9 @@ test('a dropped image and a pasted file upload, list and come back on undo', asy
 });
 
 // #6208: the @ picker opens another of the owner's pages and marks its block with the page; the serve
-// admits the `<pageId>/<blockId>` value, and the chip opens that page through the page-link path.
-test('@ marks a block on another page, and the serve keeps it', async () => {
+// admits the `<pageId>/<blockId>` value. Activating it reaches the offscreen block through the
+// normal owner shell (#6749), and history keeps each entry's actual scroll position.
+test('@ marks a block on another page and opens it in the viewport', async () => {
   test.setTimeout(240_000);
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
@@ -1946,9 +1947,16 @@ test('@ marks a block on another page, and the serve keeps it', async () => {
           run(world, colab, ['block', 'insert', pageId, '--type', type, '--text', text, '--json']),
         ) as { blockIds: string[] }
       ).blockIds[0]!;
+    const spacer = 'The following content stays below the fold. '.repeat(200);
     const other = create('Release checklist');
+    insert(other.pageId, 'heading', 'Overview');
+    insert(other.pageId, 'paragraph', spacer);
+    insert(other.pageId, 'heading', 'Release steps');
     const tag = insert(other.pageId, 'todo', 'Tag the release');
+    insert(other.pageId, 'paragraph', spacer);
+    insert(other.pageId, 'heading', 'Follow-up');
     const here = create('Plan');
+    insert(here.pageId, 'paragraph', spacer);
     const paragraph = insert(here.pageId, 'paragraph', 'See');
     const page = await browser.context.newPage();
     await page.goto(new URL(here.path, `${door.address}/`).href);
@@ -1959,11 +1967,9 @@ test('@ marks a block on another page, and the serve keeps it', async () => {
     await editor.pressSequentially(' @rel', { delay: 20 });
     const menu = page.getByRole('listbox', { name: '@ mention' });
     await menu.getByRole('option', { name: 'Release checklist' }).click({ timeout: 30_000 });
-    await expect(menu.getByRole('option', { name: 'To-do: Tag the release' })).toBeVisible({
+    await menu.getByRole('option', { name: 'To-do: Tag the release' }).click({
       timeout: 30_000,
     });
-    for (let i = 0; i < 3; i++) await editor.press('Backspace');
-    await editor.press('Enter');
     await expect(menu).toHaveCount(0);
     // The serve holds the mark with the other page's ID, and the HTML export names that page.
     const value = `${other.pageId}/${tag}`;
@@ -1978,6 +1984,76 @@ test('@ marks a block on another page, and the serve keeps it', async () => {
         { timeout: 30_000 },
       )
       .toBe(value);
+    const hereUrl = new URL(here.path, door.origin).href;
+    const otherUrl = new URL(other.path, door.origin).href;
+    const target = page.locator(`[data-block-id="${tag}"]`);
+    const mention = page.locator(`[data-block-id="${paragraph}"]`).getByRole('link');
+    const direct = JSON.parse(
+      run(world, colab, ['open', other.pageId, '--block', tag, '--json']),
+    ) as { link: string };
+    const scroll = () => page.evaluate(() => window.scrollY);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto(otherUrl);
+      await expect(target).toContainText('Tag the release');
+      await expect(target).not.toBeInViewport();
+      await page.goto(direct.link);
+      await expect(target).toBeInViewport();
+      await page.goto(hereUrl);
+      await expect(mention).toContainText('Tag the release');
+      // The router records the document's scroll event before it snapshots a history entry.
+      const sourceScroll = await mention.evaluate(async (link) => {
+        const before = window.scrollY;
+        await new Promise<void>((resolve) => {
+          const onScroll = () => resolve();
+          document.addEventListener('scroll', onScroll, { once: true });
+          link.scrollIntoView({ block: 'center', behavior: 'instant' });
+          if (window.scrollY === before) {
+            document.removeEventListener('scroll', onScroll);
+            resolve();
+          }
+        });
+        return window.scrollY;
+      });
+      const sourceUrl = page.url();
+      expect(sourceScroll).toBeGreaterThan(0);
+      if (width === 1440) await mention.click();
+      else {
+        await mention.focus();
+        await expect(mention).toBeFocused();
+        await page.keyboard.press('Enter');
+      }
+      const destination = new URL(`/colab/pages/${other.pageId}`, door.origin);
+      destination.searchParams.set('anchor', `block-${tag}`);
+      await expect(page).toHaveURL(destination.href);
+      await expect(target).toContainText('Tag the release');
+      await expect(target, `mention destination at ${width}px`).toBeInViewport();
+      const outline = page.getByRole('navigation', { name: 'Page outline' });
+      if (width === 390)
+        await expect(outline.locator('.page-outline-toggle')).toContainText('Release steps');
+      else
+        await expect(outline.getByRole('button', { name: /Release steps/ })).toHaveAttribute(
+          'aria-current',
+          'location',
+        );
+
+      const landing = await scroll();
+      const destinationScroll = await page.evaluate(async () => {
+        const scrolled = new Promise<void>((resolve) =>
+          document.addEventListener('scroll', () => resolve(), { once: true }),
+        );
+        window.scrollBy({ top: 160, behavior: 'instant' });
+        await scrolled;
+        return window.scrollY;
+      });
+      expect(destinationScroll).toBeGreaterThan(landing);
+      await page.goBack();
+      await expect(page).toHaveURL(sourceUrl);
+      await expect.poll(scroll).toBe(sourceScroll);
+      await page.goForward();
+      await expect(page).toHaveURL(destination.href);
+      await expect.poll(scroll).toBe(destinationScroll);
+    }
     await page.close();
   });
 });
