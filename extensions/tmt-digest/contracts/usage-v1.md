@@ -36,8 +36,14 @@ with Core's usual 15 seconds and 1 MiB per call:
   reported; null when no identity could be read).
 - `usage.seats[]` (identities with rollup evidence): `id`, `name` (null when Core
   could not resolve it), `retired`, `totals` `{input,output,cached}`, `byModel`
-  (Core's attribution as `{modelId,input,output,cached}`, or null when Core attributed
-  none of the total; the rows may sum to less than `totals`), `unattributed`
+  (Core's attribution as `{modelId,input,output,cached,cacheWrite,cost,costUnavailable}`,
+  or null when Core attributed none of the total; the rows may sum to less than `totals`;
+  `cacheWrite` is null when Core reported no count; `cost` and `costUnavailable` are the
+  seat's own share as `usage.models[]` defines them), `cost` and `costUnavailable` (the
+  seat's total: the sum of its rows' costs, `lowerBound` when any row is a floor; null
+  with every reason when a row with tokens is unpriced, and with `unattributed` when the
+  seat has tokens no model row covers; `{usdMicros: 0, lowerBound: false}` for a seat with
+  no tokens; a row with no tokens never blocks it), `unattributed`
   (`{input,output,cached}`, present only when `byModel` is not null and the rows sum to
   less than `totals`: what no model row covers), `lines` (the lines its tokens belong to,
   as `usage.lines[]` counts them: its models' families, plus `unattributed` for tokens no
