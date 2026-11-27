@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { PageHeaderAction } from './page-header-actions.js';
 
+type PagePanel = PageHeaderAction | 'reference';
+
 /** A request for the Chat composer to take focus once the panel is open. */
 export interface ChatActivation {
   id: string;
@@ -15,7 +17,7 @@ export interface ChatActivation {
  * clears when the page changes, and a pending activation when Chat closes or the binding changes.
  */
 export function usePagePanels(pageId: string, binding: unknown) {
-  const [panel, setPanel] = useState<PageHeaderAction | null>(null);
+  const [panel, setPanel] = useState<PagePanel | null>(null);
   const [chatOpened, setChatOpened] = useState(false);
   const [chatActivation, setChatActivation] = useState<ChatActivation>();
   const [activeThread, setActiveThread] = useState<string | null>(null);
@@ -37,14 +39,14 @@ export function usePagePanels(pageId: string, binding: unknown) {
         if (value === 'chat') setChatOpened(true);
         setPanel((previous) => (previous === value ? null : value));
       },
-      show(value: PageHeaderAction) {
+      show(value: PagePanel) {
         setPanel(value);
       },
       close() {
         setPanel(null);
       },
       /** Closes the open panel when it is one of `these`. */
-      closeIf(...these: PageHeaderAction[]) {
+      closeIf(...these: PagePanel[]) {
         setPanel((current) => (current && these.includes(current) ? null : current));
       },
       /** No panel and no selected thread. */

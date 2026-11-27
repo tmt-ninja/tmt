@@ -72,6 +72,9 @@ export interface PageSummary extends Partial<ExpiryInfo> {
   readonly pageType?: Projection['pageType'];
 }
 export interface PageSnapshot extends PageSummary {
+  /** Validated mounted-owner hint, absent from documents and reader projections. */
+  readonly ticketRepository?: string;
+  readonly attachments?: Projection['attachments'];
   readonly todoNumbers?: PageView['todoNumbers'];
   readonly owner?: Projection['owner'];
   readonly priority?: Projection['priority'];

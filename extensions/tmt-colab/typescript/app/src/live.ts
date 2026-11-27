@@ -919,6 +919,9 @@ export class Live implements PageBinding {
     return {
       id: this.page.pageId,
       workNumber: this.page.workNumber,
+      ...(this.canMetadata() && this.page.ticketRepository
+        ? { ticketRepository: this.page.ticketRepository }
+        : {}),
       sharing: this.page.sharing,
       ...this.#view(),
       title: this.#projection.title || text.unknownPageTitle,

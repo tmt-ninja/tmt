@@ -1,0 +1,37 @@
+.tmt-ui-drawer[data-panel='ticket-reference']::backdrop {
+  backdrop-filter: none;
+}
+
+.tmt-ui-drawer[data-panel='ticket-reference']
+  .tmt-ui-drawer-body:has(> .colab-ticket-frame[data-structured]) {
+  padding-inline: 0;
+}
+
+.tmt-ui-drawer[data-panel='ticket-reference'] .tmt-ui-drawer-heading h2 {
+  flex: initial;
+  overflow-wrap: anywhere;
+}
+
+.colab-ticket-frame {
+  min-width: 0;
+  width: 100%;
+}
+
+.colab-ticket-frame iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+}
+
+@media (max-width: 640px) {
+  .tmt-ui-drawer[data-panel='ticket-reference'][data-width] {
+    inset: auto 0 0;
+    width: 100%;
+    height: min(66dvh, 100%);
+    translate: 0 100%;
+  }
+
+  .tmt-ui-drawer[data-panel='ticket-reference'][data-width][open] {
+    translate: 0;
+  }
+}

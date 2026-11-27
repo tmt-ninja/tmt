@@ -476,6 +476,34 @@ impl Registration {
         }
         catalog["projectOrders"] = included.into();
         catalog["projectOrdersOmitted"] = omitted.into();
+        // Send repository hints only in the mounted owner's bounded catalog.
+        if serving && !section_progress {
+            let repositories = self
+                .store
+                .project_repositories()
+                .map_err(|error| map_error(error.into()))?;
+            let mut used = serde_json::to_vec(&catalog)
+                .map_err(|_| Code::Unavailable)?
+                .len();
+            for page in catalog["pages"].as_array_mut().into_iter().flatten() {
+                let Some(repository) = page["projects"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(serde_json::Value::as_str)
+                    .filter(|name| repositories.contains_key(*name))
+                    .min()
+                    .and_then(|name| repositories.get(name))
+                else {
+                    continue;
+                };
+                let cost = repository.len() + 24;
+                if used.saturating_add(cost) <= crate::limits::DISCOVERY_BYTES {
+                    page["ticketRepository"] = serde_json::json!(repository);
+                    used += cost;
+                }
+            }
+        }
         let bytes = serde_json::to_vec(&catalog).map_err(|_| Code::Unavailable)?;
         if bytes.len() > crate::limits::DISCOVERY_BYTES {
             return Err(Code::Capacity);
@@ -2653,6 +2681,70 @@ mod describe_tests {
             DescribeFeatures::parse(Some("homepage")),
             DescribeFeatures::default()
         );
+    }
+
+    #[test]
+    fn owner_ticket_repository_uses_the_canonical_project_and_stays_out_of_local_list() {
+        use crate::projects::Change;
+        use serde_json::json;
+        let root =
+            std::env::temp_dir().join(format!("colab-ticket-repository-{}", std::process::id()));
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                std::fs::remove_dir_all(&self.0).unwrap();
+            }
+        }
+        let _cleanup = Cleanup(root.clone());
+        let layout = crate::keyring::Layout::open(&root).unwrap();
+        let key = Keyring::open(&layout).unwrap();
+        let store = Store::open(&layout).unwrap();
+        let page = "10000000-0000-4000-8000-000000000001";
+        store.create_page(page).unwrap();
+        let mut service = Registration::new(store, key, "/unused-decoder".into()).unwrap();
+        service.genesis().unwrap();
+        let space = service.keyring.space_id.clone();
+        let owner = service.keyring.owner_public();
+        service
+            .store
+            .device_transaction(&space, &owner, |tx| {
+                tx.put_epoch_secret(page, 1, &[1; 32])?;
+                Ok(Vec::new())
+            })
+            .unwrap();
+        service
+            .set_projects(&[(page.into(), vec!["Zeta".into(), "Alpha".into()])])
+            .unwrap();
+        for (name, repo) in [("Zeta", "other/repo"), ("Alpha", "tmt-ninja/tmt")] {
+            service
+                .manage_project(&Change::Repository {
+                    name: name.into(),
+                    repo: Some(repo.into()),
+                })
+                .unwrap();
+        }
+        let context = |owner: bool| {
+            json!({
+                "deviceId":"00000000-0000-4000-8000-000000000009",
+                "kind":"browser",
+                "origin":"http://127.0.0.1:1",
+                "name":"Laptop",
+                "publicKey":values::encode_binary(&service.keyring.owner_public()),
+                "owner":owner,
+                "grantRevision":1,
+            })
+            .to_string()
+        };
+        let list: serde_json::Value =
+            serde_json::from_slice(&service.pages(Some(&context(true))).unwrap()).unwrap();
+        assert_eq!(list["pages"][0]["ticketRepository"], "tmt-ninja/tmt");
+        assert!(matches!(
+            service.pages(Some(&context(false))),
+            Err(Code::Denied)
+        ));
+        let local: serde_json::Value =
+            serde_json::from_slice(&service.local_pages().unwrap()).unwrap();
+        assert!(local["pages"][0].get("ticketRepository").is_none());
     }
 
     #[test]

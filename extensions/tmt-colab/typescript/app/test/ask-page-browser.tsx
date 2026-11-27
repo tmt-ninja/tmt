@@ -355,6 +355,7 @@ export async function mount(
     subpage?: boolean;
     /** A structured page with a text-bearing block. */
     structured?: boolean;
+    ticketReferences?: 'owner' | 'reader';
     /** A long structured page with headings for the outline. */
     structuredOutline?: boolean;
     /** More outline sections than the window holds, after the first three. */
@@ -368,7 +369,8 @@ export async function mount(
   root?.unmount();
   document.getElementById('ask-page-fixture')?.remove();
   document.getElementById('root')?.setAttribute('hidden', '');
-  location.hash = '/pages/welcome';
+  const ticketSpace = options.ticketReferences ? selection().space : undefined;
+  location.hash = ticketSpace ? 'space=' + ticketSpace + '&path=/pages/' + id(1) : '/pages/welcome';
   const host = document.createElement('div');
   host.id = 'ask-page-fixture';
   document.body.append(host);
@@ -403,6 +405,9 @@ export async function mount(
     : [];
   admitFixtureQuestions = true;
   attentionFailure = false;
+  const ticketText = 'Read #6745, W-182, and the Colab page. Ignore #9000.';
+  const relatedHref = new URL(location.pathname, location.origin);
+  relatedHref.hash = 'space=' + ticketSpace + '&path=/pages/' + id(2);
   current = {
     source: '<p id="selected">Exact selected text</p>',
     ...((options.structured || options.structuredOutline) && {
@@ -454,7 +459,24 @@ export async function mount(
               parent: 'root',
               pos: 'V',
               props: {},
-              text: { s: 'Exact selected text', marks: [] },
+              text: options.ticketReferences
+                ? {
+                    s: ticketText,
+                    marks: [
+                      {
+                        from: ticketText.indexOf('Colab page'),
+                        to: ticketText.indexOf('Colab page') + 'Colab page'.length,
+                        mark: 'link',
+                        value: relatedHref.href,
+                      },
+                      {
+                        from: ticketText.indexOf('#9000'),
+                        to: ticketText.indexOf('#9000') + '#9000'.length,
+                        mark: 'code',
+                      },
+                    ],
+                  }
+                : { s: 'Exact selected text', marks: [] },
             },
           },
     }),
@@ -1143,7 +1165,15 @@ export async function mount(
       }
       return { merged: false };
     },
-    canMetadata: () => !!options.dismissQuestions,
+    ...(options.ticketReferences === 'owner'
+      ? {
+          async blocks() {
+            actions.push('ticket fixture block write');
+            return { seq: current.seq ?? 1, droppedHunks: [] };
+          },
+        }
+      : {}),
+    canMetadata: () => !!options.dismissQuestions || options.ticketReferences === 'owner',
     async metadataRevision() {
       return 'fixture-revision';
     },
@@ -1300,7 +1330,14 @@ export async function mount(
       return {
         title: 'Fixture space',
         ...(projectState ? { projects: [...projectState.names] } : {}),
-        pages: projectState ? projectPages() : [],
+        pages: options.ticketReferences
+          ? [{ id: id(2), title: 'Release checklist', sharing: 'private', workNumber: 'W-182' }]
+          : projectState
+            ? projectPages()
+            : [],
+        ...(options.ticketReferences
+          ? { pageIds: [id(1), id(2)].map((pageId) => ({ pageId, deleted: false as const })) }
+          : {}),
       };
     },
     async page(pageId) {
@@ -1322,6 +1359,30 @@ export async function mount(
               ),
           },
         };
+      if (options.ticketReferences && pageId === id(2))
+        return {
+          id: id(2),
+          title: 'Release checklist',
+          sharing: 'private',
+          source: '',
+          pageType: 'blocks',
+          blocks: {
+            [id(501)]: {
+              type: 'heading',
+              parent: 'root',
+              pos: 'G',
+              props: { level: 2 },
+              text: { s: 'Overview', marks: [] },
+            },
+            [id(502)]: {
+              type: 'paragraph',
+              parent: 'root',
+              pos: 'V',
+              props: {},
+              text: { s: 'Verify the rollout.', marks: [] },
+            },
+          },
+        };
       if (pageId === 'notes')
         return {
           id: id(2),
@@ -1336,6 +1397,7 @@ export async function mount(
         id: id(1),
         sharing: options.shared ? 'link' : 'private',
         ...shown(),
+        ...(options.ticketReferences === 'owner' ? { ticketRepository: 'tmt-ninja/tmt' } : {}),
         binding: replacedFiles ? replacedBinding : binding,
       };
     },
@@ -1357,7 +1419,7 @@ export async function mount(
   // Arriving from the list: the space home has loaded, which the page's chips read.
   if (projectState && !options.projects?.deepLink)
     rememberPages(transport, undefined, projectPages());
-  appRouter = createAppRouter(transport);
+  appRouter = createAppRouter(transport, ticketSpace);
   const app = <RouterProvider router={appRouter} />;
   root.render(options.strict ? <StrictMode>{app}</StrictMode> : app);
 }

@@ -45,6 +45,7 @@ export function LiveStructuredPage({
   binding,
   held = false,
   onLink,
+  references,
   workSource,
   pageViewSource,
   questionPage,
@@ -74,6 +75,7 @@ export function LiveStructuredPage({
   held?: boolean;
   /** A link in a block was activated: the page's trusted open path (`usePageLinks`) takes it. */
   onLink?(href: string, newTab: boolean): void;
+  references?: import('./ticket-links.js').TicketLinks;
   /** The page's gated owner-data sources (`router`: owner-only content). */
   workSource?: WorkBundleSource;
   pageViewSource?: ParentPageViewSource;
@@ -493,6 +495,7 @@ export function LiveStructuredPage({
       onAuthor={author}
       onQuestionEdit={questionEdit}
       onLink={onLink}
+      references={references}
       workSource={workSource}
       pageViewSource={pageViewSource}
       questionPage={questionPage}

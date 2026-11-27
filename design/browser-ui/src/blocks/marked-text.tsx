@@ -45,11 +45,16 @@ function lines(text: string, key: string): ReactNode {
 export function MarkedText({
   text,
   marks = [],
+  derivedLinks = [],
+  onDerivedLink,
   blockHref,
   onLink,
 }: {
   text: string;
   marks?: readonly TextMarkRun[];
+  /** Host-resolved display links; these are not part of the document's marks. */
+  derivedLinks?: readonly { from: number; to: number; href: string }[];
+  onDerivedLink?(href: string, newTab: boolean): void;
   /** Where an @block mark points, from the block's ID and, for a block on another page, its page.
    * A mark on another page opens through `onLink`, never by the anchor. */
   blockHref?(id: string, page?: string): string | undefined;
@@ -57,9 +62,9 @@ export function MarkedText({
   onLink?(href: string, newTab: boolean): void;
 }): ReactNode {
   const chars = Array.from(text);
-  if (!marks.length) return lines(text, 'text');
+  if (!marks.length && !derivedLinks.length) return lines(text, 'text');
   const cuts = new Set([0, chars.length]);
-  for (const run of marks) {
+  for (const run of [...marks, ...derivedLinks]) {
     cuts.add(Math.max(0, Math.min(chars.length, run.from)));
     cuts.add(Math.max(0, Math.min(chars.length, run.to)));
   }
@@ -75,7 +80,9 @@ export function MarkedText({
     if (has('code')) node = <code className="tmt-block-inline-code">{node}</code>;
     if (has('italic')) node = <em>{node}</em>;
     if (has('bold')) node = <strong>{node}</strong>;
-    const href = linkHref(has('link')?.value);
+    const derived = derivedLinks.find((link) => link.from === from && link.to === to);
+    const href = linkHref(derived?.href ?? has('link')?.value);
+    const activate = derived ? onDerivedLink : onLink;
     if (href)
       node = (
         <a
@@ -87,12 +94,12 @@ export function MarkedText({
             // The link opens; the block under it does not start editing.
             event.preventDefault();
             event.stopPropagation();
-            onLink?.(href, event.metaKey || event.ctrlKey || event.shiftKey);
+            activate?.(href, event.metaKey || event.ctrlKey || event.shiftKey);
           }}
           onAuxClick={(event) => {
             if (event.button !== 1) return;
             event.preventDefault();
-            onLink?.(href, true);
+            activate?.(href, true);
           }}
         >
           {node}

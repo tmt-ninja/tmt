@@ -2159,3 +2159,110 @@ for (const ending of [
     }
     expect((await run(page, 'proof')).sends).toEqual([]);
   });
+
+for (const width of [1440, 390])
+  for (const colorScheme of ['light', 'dark'] as const)
+    test(`block ticket links preview in a drawer at ${width} ${colorScheme}`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme });
+      await page
+        .context()
+        .route('https://github.com/**', (route) => route.fulfill({ body: 'GitHub fixture' }));
+      await page.goto('/');
+      await run(page, 'mount', {
+        structured: true,
+        ticketReferences: 'owner',
+        projects: { names: ['Colab'], current: ['Colab'] },
+      });
+      const stage = page.locator('.structured-page-stage');
+      const github = stage.getByRole('link', { name: '#6745', exact: true });
+      const colab = stage.getByRole('link', { name: 'W-182', exact: true });
+      const initial = page.url();
+      await expect(stage.getByRole('link', { name: '#9000' })).toHaveCount(0);
+      await github.focus();
+      await page.keyboard.press('Enter');
+      const ticket = page.getByRole('dialog', { name: '#6745' });
+      await expect(ticket.getByText('tmt-ninja/tmt')).toBeVisible();
+      await page.screenshot({
+        path: capturePath(`ticket-github-${width}-${colorScheme}.png`),
+        animations: 'disabled',
+      });
+      expect(page.url()).toBe(initial);
+      const [popup] = await Promise.all([
+        page.waitForEvent('popup'),
+        ticket.getByRole('button', { name: 'Open on GitHub' }).click(),
+      ]);
+      await expect(popup).toHaveURL('https://github.com/tmt-ninja/tmt/issues/6745');
+      await popup.close();
+      await page.keyboard.press('Escape');
+      await expect(ticket).toHaveCount(0);
+      await expect(github).toBeFocused();
+
+      for (const link of [colab, stage.getByRole('link', { name: 'Colab page', exact: true })]) {
+        await link.click();
+        const title = link === colab ? 'W-182 · Release checklist' : 'Release checklist';
+        const drawer = page.getByRole('dialog', { name: title, exact: true });
+        const frame = drawer.frameLocator('iframe');
+        await expect(frame.getByText('Overview')).toBeInViewport();
+        await expect(frame.getByText('Verify the rollout.')).toBeInViewport();
+        const surface = await drawer.evaluate(
+          (element) => getComputedStyle(element).backgroundColor,
+        );
+        await expect(frame.locator('html')).toHaveAttribute('data-colab-scheme', colorScheme);
+        await expect(frame.locator('html')).toHaveCSS('background-color', surface);
+        expect(
+          await drawer.evaluate(
+            (element) => getComputedStyle(element, '::backdrop').backdropFilter,
+          ),
+        ).toBe('none');
+        if (link === colab)
+          await page.screenshot({
+            path: capturePath(`ticket-colab-${width}-${colorScheme}.png`),
+            animations: 'disabled',
+          });
+        expect(page.url()).toBe(initial);
+        expect(await drawer.boundingBox()).toMatchObject(
+          width === 390 ? { x: 0, width: 390 } : { width: 430 },
+        );
+        await drawer.getByRole('button', { name: `Close ${title}`, exact: true }).click();
+        await expect(drawer).toHaveCount(0);
+        await expect(link).toBeFocused();
+      }
+
+      await stage.getByText('Ignore', { exact: false }).click();
+      const editor = stage.locator('[contenteditable=true]');
+      await expect(editor).toBeFocused();
+      const editingTicket = editor.getByText('#6745', { exact: true });
+      await editingTicket.hover();
+      await expect(editingTicket).toHaveAttribute('title', '⌘/Ctrl-click to open in a new tab');
+      await editingTicket.click();
+      await expect(editor).toBeFocused();
+      await expect(page.getByRole('dialog')).toHaveCount(0);
+      const [editorPopup] = await Promise.all([
+        page.waitForEvent('popup'),
+        editingTicket.click({ modifiers: ['ControlOrMeta'] }),
+      ]);
+      await expect(editorPopup).toHaveURL('https://github.com/tmt-ninja/tmt/issues/6745');
+      await editorPopup.close();
+      await expect(editor).toContainText('#6745');
+      expect((await run(page, 'proof')).actions).not.toContain('ticket fixture block write');
+    });
+
+for (const width of [1440, 390])
+  for (const colorScheme of ['light', 'dark'] as const)
+    test(`a non-owner block view does not get ticket autolinks at ${width} ${colorScheme}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme });
+      await page.goto('/');
+      await run(page, 'mount', { structured: true, ticketReferences: 'reader' });
+      const stage = page.locator('.structured-page-stage');
+      await expect(stage).toContainText('#6745');
+      await expect(stage.getByRole('link', { name: '#6745' })).toHaveCount(0);
+      await expect(stage.getByRole('link', { name: 'W-182' })).toHaveCount(0);
+      await page.screenshot({
+        path: capturePath(`ticket-reader-${width}-${colorScheme}.png`),
+        animations: 'disabled',
+      });
+    });
