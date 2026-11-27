@@ -142,7 +142,7 @@ test('the actions follow the shell description when it arrives late', async ({ p
   await open(page, 'late');
   await expect(page.locator('.tmt-settings-record')).toHaveCount(5);
   await expect(page.locator('.tmt-settings-record a')).toHaveCount(0);
-  await expect(page.locator('.tmt-settings-record a')).toHaveCount(4);
+  await expect(page.locator('.tmt-settings-record a')).toHaveCount(3);
   expect(await reads(page)).toBe(1);
 });
 
