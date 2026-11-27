@@ -184,9 +184,9 @@ impl Controller {
         let mut notes = vec![];
         match self.screen {
             Screen::Intro => {
-                notes.push("Find an agent you have already started in a tmux pane. Scan first, review a candidate, then choose a name or existing identity.".into());
+                notes.push("Find an agent you have already started in a pane. Scan first, review a candidate, then choose a name or existing identity.".into());
                 notes.push("Nothing is bound until you confirm. Scanning does not install or start programs, extensions or hooks.".into());
-                notes.push("Discovery supports tmux. Herdr and standalone environments show an unsupported explanation.".into());
+                notes.push("Discovery supports tmux and approved Herdr drivers. Check the scan for any unavailable sources.".into());
                 notes.push("tmux guide: https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/drv-tmux.mdx".into());
                 notes.push("Runtime and optional setup guide: https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/drivers.mdx".into());
             }
@@ -208,12 +208,27 @@ impl Controller {
                                 .as_ref()
                                 .map_or(String::new(), |r| format!(" · {}", safe(r)))
                         ));
+                        if source.host == "herdr"
+                            && matches!(
+                                source.reason.as_deref(),
+                                Some(
+                                    "driver_not_approved"
+                                        | "driver_approval_outdated"
+                                        | "driver_not_shipped"
+                                )
+                            )
+                        {
+                            notes.push(
+                                "Set up Herdr with tmt driver install herdr, then scan again."
+                                    .into(),
+                            );
+                        }
                     }
                     if scan.truncated {
                         notes.push("Scan incomplete. Review the source explanation, then scan again; these rows cannot be bound.".into());
                     }
                     if scan.panes.is_empty() {
-                        notes.push("No candidate panes were observed. Start an agent in a tmux pane, check the selected server and permissions, then scan again.".into());
+                        notes.push("No candidate panes were observed. Check the host, pane and permissions, then scan again.".into());
                     }
                     notes.push("Runtime hints do not prove an agent is ready. Open a candidate to inspect its evidence.".into());
                 }
@@ -226,12 +241,20 @@ impl Controller {
                         safe(&p.key.host),
                         safe(p.key.socket.as_deref().unwrap_or("unknown"))
                     ));
-                    notes.push(format!(
-                        "Session {} · window {} · target {}",
-                        safe(p.session.as_deref().unwrap_or("unknown")),
-                        safe(p.window.as_deref().unwrap_or("unknown")),
-                        safe(p.target.as_deref().unwrap_or("unknown"))
-                    ));
+                    let target = safe(p.target.as_deref().unwrap_or("unknown"));
+                    if p.key.host == "tmux" || p.session.is_some() || p.window.is_some() {
+                        notes.push(format!(
+                            "Session {} · window {} · target {}",
+                            safe(p.session.as_deref().unwrap_or("unknown")),
+                            safe(p.window.as_deref().unwrap_or("unknown")),
+                            target
+                        ));
+                    } else {
+                        notes.push(format!("Target: {target}"));
+                    }
+                    if let Some(name) = &p.agent_name {
+                        notes.push(format!("Host agent: {}", safe(name)));
+                    }
                     notes.push(format!(
                         "Observation: {}{}{}",
                         safe(&p.state),
@@ -309,6 +332,27 @@ impl Controller {
                     Ok(BindReport::Partial{message,..})=>format!("◆ Action needed: {}. Binding may have changed; check this pane before trying again.",safe(message)),
                     Err(error)=>format!("{} Unknown: {}. Check this pane before deciding what to do next.",Mark::Warning.symbol(),safe(&error.message)),
                 });
+                    if let Ok(BindReport::Bound {
+                        agent_name: Some(naming),
+                        ..
+                    }) = &attempt.result
+                    {
+                        notes.push(match naming {
+                            model::AgentNaming::Set(name) => {
+                                format!("Host agent name: {}", safe(name))
+                            }
+                            model::AgentNaming::NotLinked => {
+                                "This host does not set agent names.".into()
+                            }
+                            model::AgentNaming::Refused { name, message } => {
+                                format!(
+                                    "Host did not set agent name {}: {}",
+                                    safe(name),
+                                    safe(message)
+                                )
+                            }
+                        });
+                    }
                     notes.push("Nothing is retried automatically. Binding does not confirm that the agent is ready.".into());
                 }
             }

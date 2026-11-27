@@ -8,6 +8,14 @@ pub(crate) struct ScanScope {
     pub host: Option<String>,
     pub socket: Option<String>,
 }
+impl ScanScope {
+    pub(super) fn for_caller(tmux_socket: Option<String>, tmux_pane: Option<&str>) -> Self {
+        Self {
+            host: None,
+            socket: tmux_socket.filter(|_| !tmux_pane.is_some_and(super::model::tmux_pane_key)),
+        }
+    }
+}
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Job {
     Scan(ScanScope),
@@ -33,7 +41,7 @@ impl Job {
         matches!(self, Self::Bind(_))
     }
     /// Options and operands stay separate; even an option-like name is literal.
-    pub(super) fn arguments(&self) -> (Vec<String>, Vec<String>) {
+    pub(super) fn arguments(&self) -> Result<(Vec<String>, Vec<String>), SquadError> {
         match self {
             Self::Scan(scope) => {
                 let mut args = vec!["discover".into()];
@@ -43,15 +51,21 @@ impl Job {
                 if let Some(socket) = &scope.socket {
                     args.extend(["--socket".into(), socket.clone()]);
                 }
-                (args, vec![])
+                Ok((args, vec![]))
             }
             Self::Bind(selection) => {
+                let socket = selection
+                    .key
+                    .socket
+                    .clone()
+                    .filter(|s| !s.is_empty())
+                    .ok_or_else(super::model::invalid)?;
                 let mut args = vec![
                     "add".into(),
                     "--expect".into(),
                     selection.expect.clone(),
                     "--socket".into(),
-                    selection.key.socket.clone().expect("reviewed tmux socket"),
+                    socket,
                 ];
                 let mut operands = vec![selection.key.pane.clone()];
                 match &selection.selector {
@@ -63,7 +77,7 @@ impl Job {
                 if selection.save {
                     args.push("--save".into());
                 }
-                (args, operands)
+                Ok((args, operands))
             }
         }
     }
@@ -73,7 +87,7 @@ pub(crate) fn complete(core: &Core, task: Task) -> Completed {
     Completed { task, result }
 }
 fn execute(core: &Core, job: &Job) -> Result<Outcome, SquadError> {
-    let (args, operands) = job.arguments();
+    let (args, operands) = job.arguments()?;
     let args: Vec<_> = args.iter().map(String::as_str).collect();
     let operands: Vec<_> = operands.iter().map(String::as_str).collect();
     match job {

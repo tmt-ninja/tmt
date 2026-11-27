@@ -834,8 +834,8 @@ show no fabricated key. Pointer controls use only their current visible rectangl
 
 With Agents tree focus, `s` opens Add agent; configured bindings retain
 precedence. An empty Common pool offers the same visible action. Opening offers
-Scan or Close and performs no discovery or binding itself. Scan reads the
-current tmux environment; review a candidate, choose a new name or exact
+Scan or Close. Scan uses the caller’s host (or its tmux socket in a popup).
+Review a candidate, choose a new name or exact
 existing identity UUID, and choose Temporary or Saved before confirming.
 Existing-name text never selects an identity; known choices are advisory
 previously observed evidence, and another/offline UUID can be entered directly.
@@ -847,10 +847,11 @@ past the end of the reading, or from the name field, reaches the actions, and �
 first one goes back. Tab does nothing. A reopened name field with text offers Discard
 after Back. Actions that write still check the current state when chosen.
 
-Discovery supports tmux; unsupported hosts, permission/offline failures and
-incomplete observations carry their explanations. Runtime hints and recorded
-state do not prove readiness. A binding does not install or start a runtime,
-extension or hook. Follow the existing [tmux
+Discovery supports tmux and approved Herdr drivers. For a Herdr approval
+gap, the scan suggests `tmt driver install herdr`. An observed host agent name
+is display only. Binding reports the host’s naming outcome when available.
+Runtime hints and recorded state do not prove readiness. Binding does not
+install or start a runtime, extension or hook. See the [tmux
 guide](https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/drv-tmux.mdx)
 and [runtime/setup
 guide](https://github.com/pj-tmt/tmt/blob/main/site/src/chapters/drivers.mdx)
