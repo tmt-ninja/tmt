@@ -581,6 +581,7 @@ fn colab_work_key_dispatch_does_not_open_from_stale_or_unlinked_rows() {
 
 pub(in crate::board) const SCENES: &[&str] = &[
     "work-projects",
+    "work-needs-you",
     "work-done",
     "work-stale",
     "agents-work",
@@ -598,6 +599,20 @@ pub(in crate::board) fn scene(scene: &str, look: crate::look::Look) -> App {
     disable_motion(&mut app);
     app.local_zone = Some(jiff::tz::TimeZone::UTC);
     let mut pages = owner_list(crate::status::now_ms());
+    if scene == "work-needs-you" {
+        pages["pages"][0]["summary"]["status"] = json!("needs-you");
+        pages["pages"][0]["summary"]["needsYou"] = json!(2);
+        pages["pages"][0]["summary"]["fields"]["next"] =
+            json!("Approve rounded borders for Work panes?");
+        pages["pages"][0]["summary"]["todos"] = json!([{
+            "id": "todo-ask-1",
+            "number": "COLAB-119.1",
+            "text": "Confirm border tokens",
+            "assignee": "worker",
+            "checked": false,
+            "ask": "needs-you",
+        }]);
+    }
     if scene.starts_with("work-order-") {
         pages = ordered_list(crate::status::now_ms());
         app.work

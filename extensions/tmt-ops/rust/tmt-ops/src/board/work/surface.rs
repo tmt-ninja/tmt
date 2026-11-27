@@ -501,7 +501,12 @@ fn paint_pane_box(
         note_line.as_ref(),
         ascii_mode(app),
     );
-    outline.inner(area)
+    let inner = outline.inner(area);
+    if inner.width > 2 {
+        Rect::new(inner.x + 1, inner.y, inner.width - 2, inner.height)
+    } else {
+        inner
+    }
 }
 
 fn paint_dashboard_band(
@@ -665,7 +670,7 @@ fn paint_dashboard_band(
 
     // Right column: Velocity Sparkline + status counts + Active + Stuck.
     let (points, scale) = done_buckets(list, state, now, zone);
-    let label = " Velocity ";
+    let label = "Velocity ";
     let label_w = label.len() as u16;
     strip::paint_left(
         frame.buffer_mut(),
@@ -698,7 +703,7 @@ fn paint_dashboard_band(
         frame.buffer_mut(),
         Rect::new(right_inner.x, right_inner.y + 1, right_inner.width, 1),
         Line::from(vec![
-            Span::styled(" ● ", look.role(Role::Working)),
+            Span::styled("● ", look.role(Role::Working)),
             Span::styled(format!("{working_count} working  "), look.role(Role::Muted)),
             Span::styled("◆ ", look.role(Role::Waiting)),
             Span::styled(format!("{needs_count} needs you  "), look.role(Role::Muted)),
@@ -720,7 +725,7 @@ fn paint_dashboard_band(
         Rect::new(right_inner.x, right_inner.y + 2, right_inner.width, 1),
         Line::styled(
             fit(
-                &format!(" Active   {active_text}"),
+                &format!("Active   {active_text}"),
                 usize::from(right_inner.width),
             ),
             look.role(Role::Muted),
@@ -740,10 +745,7 @@ fn paint_dashboard_band(
         frame.buffer_mut(),
         Rect::new(right_inner.x, right_inner.y + 3, right_inner.width, 1),
         Line::styled(
-            fit(
-                &format!(" Stuck    {stuck}"),
-                usize::from(right_inner.width),
-            ),
+            fit(&format!("Stuck    {stuck}"), usize::from(right_inner.width)),
             look.role(Role::Muted),
         ),
     );
@@ -825,14 +827,14 @@ fn paint_inspector(
             &mut y,
             Line::from(vec![
                 Span::styled(
-                    format!(" {}", Status::NeedsYou.marked_label().to_uppercase()),
+                    Status::NeedsYou.marked_label().to_uppercase(),
                     look.role(Role::Waiting).add_modifier(Modifier::BOLD),
                 ),
                 Span::styled(count_label, look.role(Role::Muted)),
             ]),
         );
         if let Some((idx, todo)) = ask_todos.iter().enumerate().next() {
-            let label = format!(" ▸ #{}  {}", idx + 1, todo.title);
+            let label = format!("▸ #{}  {}", idx + 1, todo.title);
             inspector_line(
                 frame,
                 area,
@@ -845,7 +847,7 @@ fn paint_inspector(
                     area,
                     &mut y,
                     Line::styled(
-                        fit(&format!("   \"{prompt}\""), width),
+                        fit(&format!("  \"{prompt}\""), width),
                         look.role(Role::Muted),
                     ),
                 );
@@ -855,10 +857,7 @@ fn paint_inspector(
                 frame,
                 area,
                 &mut y,
-                Line::styled(
-                    fit(&format!("   \"{next}\""), width),
-                    look.role(Role::Muted),
-                ),
+                Line::styled(fit(&format!("  \"{next}\""), width), look.role(Role::Muted)),
             );
         }
     } else {
@@ -867,7 +866,7 @@ fn paint_inspector(
             area,
             &mut y,
             Line::from(vec![Span::styled(
-                format!(" {}", item.status.marked_label().to_uppercase()),
+                item.status.marked_label().to_uppercase(),
                 look.role(role(item.status)).add_modifier(Modifier::BOLD),
             )]),
         );
@@ -876,7 +875,7 @@ fn paint_inspector(
                 frame,
                 area,
                 &mut y,
-                Line::styled(fit(&format!(" {next}"), width), look.role(Role::Text)),
+                Line::styled(fit(next, width), look.role(Role::Text)),
             );
         }
     }
@@ -888,8 +887,8 @@ fn paint_inspector(
                 app,
                 Rect::new(area.x, y, area.width, 1),
                 &GaugeProps {
-                    label: " Chapters".into(),
-                    label_width: 10,
+                    label: "Chapters".into(),
+                    label_width: 9,
                     numerator: p.done,
                     denominator: p.total,
                     total: Some(format!("{}/{} verified", p.done, p.total)),
@@ -901,7 +900,7 @@ fn paint_inspector(
             strip::paint_left(
                 frame.buffer_mut(),
                 Rect::new(area.x, y, area.width, 1),
-                Line::styled(" Chapters  —", look.role(Role::Muted)),
+                Line::styled("Chapters  —", look.role(Role::Muted)),
             );
         }
         y += 1;
@@ -909,9 +908,9 @@ fn paint_inspector(
 
     if item.sections.is_empty() {
         let msg = if item.sections_omitted || item.progress.is_some() {
-            "   More sections in Colab · o open"
+            "  More sections in Colab · o open"
         } else {
-            "   No sections"
+            "  No sections"
         };
         inspector_line(
             frame,
@@ -934,7 +933,7 @@ fn paint_inspector(
         let end = start + shown;
         for (idx, section) in item.sections.iter().enumerate().take(end).skip(start) {
             let active = state.inspector_focused && cursor == idx;
-            let cursor = if active { " ▸ " } else { "   " };
+            let cursor = if active { "▸ " } else { "  " };
             let mark = section.state.mark();
             let waiting_note = if matches!(section.state, Status::NeedsYou | Status::Working) {
                 "  ← waiting"
@@ -979,7 +978,7 @@ fn paint_inspector(
                 area,
                 &mut y,
                 Line::styled(
-                    fit("   More sections in Colab · o open", width),
+                    fit("  More sections in Colab · o open", width),
                     look.role(Role::Muted),
                 ),
             );
@@ -993,14 +992,14 @@ fn paint_inspector(
             area,
             &mut y,
             Line::styled(
-                fit(&format!(" Owner   ● {owner}"), width),
+                fit(&format!("Owner   ● {owner}"), width),
                 look.role(Role::Muted),
             ),
         );
     }
     if y < area.bottom() {
         let section = selected_section(state, item);
-        let action = format!("  o / ⏎  {}", item.open_label(section));
+        let action = format!("o / ⏎  {}", item.open_label(section));
         let mut actions = vec![Span::styled(action, look.role(Role::Text))];
         if roster.is_some_and(|r| item.owner_target(r).is_some()) {
             actions.push(Span::styled("   t  Talk", look.role(Role::Text)));
@@ -1358,7 +1357,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             }
             if let Some(item) = row.item {
                 let active = selected == Some(index);
-                let prefix = if active { " ▸ " } else { "   " };
+                let prefix = if active { "▸ " } else { "  " };
                 let mark = item.status.mark();
                 let number = item.number.as_deref().unwrap_or("—");
                 let owner = item
@@ -1396,10 +1395,10 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                         .or(item.release.as_deref())
                         .or(item.parent.as_deref())
                         .unwrap_or_else(|| item.status.label());
-                    fit(&format!("            {reason}"), lw)
+                    fit(&format!("           {reason}"), lw)
                 } else {
                     fit(
-                        &format!("            {owner:<12} {progress_label:<11} {age}"),
+                        &format!("           {owner:<12} {progress_label:<11} {age}"),
                         lw,
                     )
                 };
@@ -1421,7 +1420,7 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
                     frame.buffer_mut(),
                     line_rect,
                     Line::styled(
-                        fit(&format!(" {}", row.label), usize::from(list_inner.width)),
+                        fit(&row.label, usize::from(list_inner.width)),
                         look.selected(selected == Some(index), look.role(row.role)),
                     ),
                 );
