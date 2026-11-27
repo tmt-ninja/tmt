@@ -147,6 +147,46 @@ fn origin_is_automation_only_and_a_person_default_preserves_old_replay() {
 }
 
 #[test]
+fn keep_reply_is_optional_but_a_true_mark_changes_the_dispatch_intent() {
+    let mut wire = valid();
+    let unmarked = decode_input(&serde_json::to_vec(&wire).unwrap()).unwrap();
+    wire["keepReply"] = json!(false);
+    let explicit_false = decode_input(&serde_json::to_vec(&wire).unwrap())
+        .expect("explicit false is the same as an omitted mark");
+    assert_eq!(intent_digest(&unmarked), intent_digest(&explicit_false));
+
+    wire["keepReply"] = json!(true);
+    let marked = decode_input(&serde_json::to_vec(&wire).unwrap()).unwrap();
+    assert_ne!(intent_digest(&unmarked), intent_digest(&marked));
+    assert_eq!(marked.message, unmarked.message);
+
+    for (key, value) in [
+        ("kind", json!("announcement")),
+        ("origin", json!("automation")),
+        (
+            "room",
+            json!({"kind":"roster","roomId":"33333333-3333-4333-8333-333333333333","revision":1}),
+        ),
+        (
+            "recipientIds",
+            json!([
+                "22222222-2222-4222-8222-222222222222",
+                "33333333-3333-4333-8333-333333333333"
+            ]),
+        ),
+        ("keepReply", json!("true")),
+        ("keepReply", json!(null)),
+    ] {
+        let mut unsupported = wire.clone();
+        unsupported[key] = value;
+        assert!(
+            decode_input(&serde_json::to_vec(&unsupported).unwrap()).is_none(),
+            "{key}"
+        );
+    }
+}
+
+#[test]
 fn dispatch_preserves_exact_text_and_normalizes_only_recipient_selection() {
     let mut wire = valid();
     wire["message"] = json!("  hello\r\n!\0");
