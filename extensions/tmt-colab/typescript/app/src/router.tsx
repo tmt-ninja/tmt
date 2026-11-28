@@ -180,6 +180,7 @@ import './about-drawer.css';
 import { mountRenderer, MAX_RENDER_SOURCE_BYTES } from './renderer.js';
 import { framedLayout } from './page-layout.js';
 import type { AnchorPosition, RenderState, SelectionRect } from './renderer.js';
+import { localTime } from './expiry.js';
 import { text } from './strings.js';
 import type { ConnectionState, EndedAction } from './connection-model.js';
 import { useConnection } from './use-connection.js';
@@ -3324,6 +3325,19 @@ function OpenPage({
       }}
     />
   );
+  const recoveryTime = transport.management ? snapshot.historyReclaimedAtMs : undefined;
+  const recoveryAudit =
+    recoveryTime === undefined ? undefined : text.historyReclaimedAt(localTime(recoveryTime));
+  const recoveryKey = `colab:history-reclaimed:${space ?? ''}:${snapshot.id}`;
+  const [dismissedRecovery, setDismissedRecovery] = useState<string>();
+  const recoveryVersion = recoveryTime === undefined ? undefined : String(recoveryTime);
+  let recoveryDismissed = dismissedRecovery === `${recoveryKey}:${recoveryVersion}`;
+  try {
+    if (recoveryVersion !== undefined)
+      recoveryDismissed ||= localStorage.getItem(recoveryKey) === recoveryVersion;
+  } catch {
+    // This tab can still dismiss the notice when device storage is unavailable.
+  }
   const workControls = !design;
   const barStatus =
     !design && showsComputedStatus(archived || liveError ? undefined : snapshot.binding);
@@ -3704,17 +3718,6 @@ function OpenPage({
           />
         </div>
       )}
-      {transport.management && snapshot.historyReclaimedAtMs !== undefined && (
-        <div className="page-lifecycle-notice">
-          <BrowserNotice
-            tone="muted"
-            announcement="status"
-            stateLabel={text.historyReclaimed}
-            mark={<Archive aria-hidden="true" />}
-            body={text.historyReclaimedAt(new Date(snapshot.historyReclaimedAtMs).toLocaleString())}
-          />
-        </div>
-      )}
       <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
       {choosingParent && (
         <AddSubpageDialog
@@ -3867,6 +3870,12 @@ function OpenPage({
           />
         </section>
         <PageLayoutSection layout={view.layout} reason={view.layoutReason} />
+        {recoveryAudit && (
+          <section aria-labelledby="about-content-history-heading">
+            <h3 id="about-content-history-heading">{text.historyReclaimed}</h3>
+            <p>{recoveryAudit}</p>
+          </section>
+        )}
         <PageSizeSection size={size} exportPage={() => show('export')} />
         <section aria-labelledby="about-scripts-heading">
           <h3 id="about-scripts-heading">{text.aboutScripts}</h3>
@@ -3879,6 +3888,35 @@ function OpenPage({
             <MobileWorkTitle
               title={view.title || snapshot.title}
               workNumber={snapshot.workNumber}
+              notice={
+                recoveryAudit && recoveryVersion && !recoveryDismissed ? (
+                  <div className="page-history-recovery-notice">
+                    <BrowserNotice
+                      tone="muted"
+                      announcement="status"
+                      stateLabel=""
+                      mark={<Archive aria-hidden="true" />}
+                      body={recoveryAudit}
+                      actions={
+                        <BrowserAction
+                          type="button"
+                          variant="text"
+                          presentation="compact"
+                          label="OK"
+                          onActivate={() => {
+                            setDismissedRecovery(`${recoveryKey}:${recoveryVersion}`);
+                            try {
+                              localStorage.setItem(recoveryKey, recoveryVersion);
+                            } catch {
+                              // The notice has already been dismissed in this tab.
+                            }
+                          }}
+                        />
+                      }
+                    />
+                  </div>
+                ) : undefined
+              }
               onSize={setWorkBandSize}
               rename={
                 canRename

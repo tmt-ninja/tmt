@@ -1,3 +1,5 @@
+import { localTime } from '../src/expiry.js';
+import { pageAction } from '../test/page-actions.js';
 import { text } from '../src/strings.js';
 import { expect, test, type Page } from '@playwright/test';
 import { createHash, randomUUID } from 'node:crypto';
@@ -85,6 +87,20 @@ test('confirmed history recovery keeps a dirty source draft on the old connectio
   });
 });
 
+async function verifyRecoveryAudit(page: Page, recoveredAt: number) {
+  const audit = text.historyReclaimedAt(localTime(recoveredAt));
+  const notice = page.locator('.page-history-recovery-notice');
+  await expect(notice.getByText(audit, { exact: true })).toBeVisible();
+  await notice.getByRole('button', { name: 'OK', exact: true }).click();
+  await expect(notice).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.page-mobile-title h1')).toBeVisible();
+  await expect(notice).toHaveCount(0);
+  await (await pageAction(page, text.aboutPage)).click();
+  await expect(page.getByText(audit, { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: `Close ${text.aboutPage}`, exact: true }).click();
+}
+
 test('capacity recovery shows the owner its dated audit and the page remains editable', async () => {
   test.setTimeout(300_000);
   await withWorld(async (world) => {
@@ -107,12 +123,7 @@ test('capacity recovery shows the owner its dated audit and the page remains edi
     expect(recoveredAt).toBeGreaterThan(0);
     const device = await pairBrowser(world, 'capacity-audit-owner');
     const page = await openPage(door, device, created);
-    await expect(page.getByText(text.historyReclaimed, { exact: true })).toBeVisible();
-    await expect(
-      page.getByText(text.historyReclaimedAt(new Date(recoveredAt!).toLocaleString()), {
-        exact: true,
-      }),
-    ).toBeVisible();
+    await verifyRecoveryAudit(page, recoveredAt!);
     const editor = await openSource(page);
     await expect(editor).toHaveValue(source);
     const next = `${source}<p>The next browser save works.</p>`;
@@ -181,12 +192,7 @@ test('block capacity recovery preserves the document and the next browser edit',
     expect(recoveredAt).toBeGreaterThan(0);
     const device = await pairBrowser(world, 'block-capacity-audit-owner');
     const page = await openPage(door, device, created);
-    await expect(page.getByText(text.historyReclaimed, { exact: true })).toBeVisible();
-    await expect(
-      page.getByText(text.historyReclaimedAt(new Date(recoveredAt!).toLocaleString()), {
-        exact: true,
-      }),
-    ).toBeVisible();
+    await verifyRecoveryAudit(page, recoveredAt!);
     await expect(page.locator(`[data-block-id="${marked}"]`)).toHaveText('Keep the bold mark');
     await expect(page.getByText('Keep this cell', { exact: true })).toBeVisible();
     const block = page.locator(`[data-block-id="${editable}"]`);

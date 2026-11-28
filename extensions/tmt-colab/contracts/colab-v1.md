@@ -7466,7 +7466,8 @@ generation, one transaction stages a signed stream cut and the admitted edit, pr
 the covered content payloads, retains old receipt hashes and records the outcome and audit.
 Recovery leaves the page identity, keys, membership and sharing/history policies intact.
 If the attempt cannot reduce history and fit the edit, or a fence moved, neither change
-commits. The owner sees the date of the last discard on the page; the successful CLI
+commits. The owner sees the date of the last discard in a page notice. Dismissing it on
+this device leaves the dated record in About this page. The successful CLI
 receipt carries `historyReclaimedAtMs`, and human output says the history was discarded.
 Ordinary writes omit this field. Offline, the native writer runs the same preparation and
 transaction under the lifecycle lock. Running serve owns and serializes the live path.
