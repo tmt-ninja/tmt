@@ -1,6 +1,6 @@
 //! The board's Run command controller. Core owns execution, retained output and shells.
 
-use super::app::{App, Effect, Overlay};
+use super::app::{App, Effect, Overlay, Request};
 
 mod saved;
 mod worker;
@@ -9,12 +9,13 @@ use ratatui::{
     Frame,
     crossterm::event::{Event, KeyCode},
     layout::Rect,
-    text::Line,
+    text::{Line, Span},
 };
 use saved::Moving;
 pub use saved::{SavedRow, SavedTask};
 use serde_json::{Value, json};
 use std::{cell::RefCell, time::Instant};
+use tmt_cli_style::Role;
 use tmt_tui::components::{
     Button, Dialog, DialogHits, DialogInput, DialogKind, DialogState, Editor, FieldKind, Placement,
     strip,
@@ -114,19 +115,57 @@ pub(super) struct Controller {
     dialog: Option<DialogState>,
     hits: RefCell<DialogHits>,
     scroll: usize,
-    scroll_position: std::cell::Cell<usize>,
     scroll_end: std::cell::Cell<usize>,
     live_viewport: std::cell::Cell<(u16, u16)>,
     follow_output: bool,
-    live: String,
+    live: Vec<OutputLine>,
+    live_partial: bool,
     run_id: u64,
     target_generation: u64,
     run_draft: Option<super::app::Input>,
+    run_recipient: Option<RunRecipient>,
+    result_send: ResultSend,
     elapsed: std::cell::Cell<u64>,
     notice: Option<String>,
 }
 
+struct RunRecipient {
+    draft: super::app::Input,
+    button: String,
+}
+
+#[derive(Clone)]
+struct OutputLine {
+    text: String,
+    stderr: bool,
+}
+
+#[derive(Default, PartialEq, Eq)]
+enum ResultSend {
+    #[default]
+    Ready,
+    Sending,
+    Resolved,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ResultButton {
+    Send,
+    Again,
+    Edit,
+    Keep,
+}
+
+#[derive(Clone, Copy)]
+enum OutputScroll {
+    Lines(isize),
+    Page(isize),
+    Start,
+    End,
+}
+
 const MAX_COMMAND: usize = tmt_pty_protocol::COMMAND_LIMIT;
+const OUTPUT_LEFT_PADDING: u16 = 1;
 const COMMAND_FIELD: &[FieldKind] = &[FieldKind::Text];
 const LEGACY_OUTPUT: &str = "Live output needs a newer tmt.";
 
@@ -173,6 +212,15 @@ impl Controller {
             return Effect::Standalone(Task::Stop);
         }
         Effect::None
+    }
+
+    pub(super) fn result_sent(&mut self, run: u64, notice: &str) {
+        if self.run_id == run && self.result_send == ResultSend::Sending {
+            // A worker error can represent an ambiguous delivery even without a receipt.
+            // This result remains resolved so a second press cannot resend it.
+            self.result_send = ResultSend::Resolved;
+            self.notice = Some(notice.into());
+        }
     }
 
     fn local_target(&self) -> Option<Target> {
@@ -242,11 +290,11 @@ impl Controller {
         self.page = Some(page);
         self.shown = true;
         self.scroll = 0;
-        self.scroll_position.set(0);
         self.scroll_end.set(0);
         self.live_viewport.set((0, 0));
         self.follow_output = false;
         self.live.clear();
+        self.live_partial = false;
         self.notice = None;
         self.hits.replace(DialogHits::default());
         let (dialog, fields) = self.presentation();
@@ -263,9 +311,11 @@ impl Controller {
                 Effect::None
             }
             Some(Page::Finished { keeping: true, .. }) => Effect::None,
+            Some(Page::Finished { .. }) if self.result_send == ResultSend::Sending => Effect::None,
             _ => {
                 self.shown = false;
                 self.page = None;
+                self.run_recipient = None;
                 if self.request.take().is_some() {
                     Effect::Standalone(Task::Discard)
                 } else {
@@ -276,6 +326,7 @@ impl Controller {
     }
 
     fn run(&mut self, request: Value, command: String, cwd: String) -> Effect {
+        self.result_send = ResultSend::Ready;
         self.request = Some(request.clone());
         self.elapsed.set(0);
         self.show(Page::Running {
@@ -289,37 +340,89 @@ impl Controller {
         Effect::Standalone(Task::Run(self.run_id, request))
     }
 
-    fn progress(&mut self, run: u64, text: &str, legacy: bool) {
-        if self.run_id == run && self.running() {
-            self.live.push_str(text);
-            if legacy {
-                self.notice = Some(LEGACY_OUTPUT.into());
+    fn progress(&mut self, run: u64, text: &str, stderr: bool, legacy: bool) {
+        if self.run_id != run || !self.running() {
+            return;
+        }
+        for chunk in text.split_inclusive('\n') {
+            if self.live_partial && self.live.last().is_some_and(|line| line.stderr == stderr) {
+                self.live
+                    .last_mut()
+                    .unwrap()
+                    .text
+                    .push_str(chunk.trim_end_matches('\n'));
+            } else {
+                self.live.push(OutputLine {
+                    text: chunk.trim_end_matches('\n').into(),
+                    stderr,
+                });
             }
+            self.live_partial = !chunk.ends_with('\n');
+        }
+        if legacy {
+            self.notice = Some(LEGACY_OUTPUT.into());
         }
     }
 
-    fn scroll_output(&mut self, step: isize) {
+    fn output_page(&self) -> bool {
+        matches!(
+            self.page,
+            Some(Page::Running { .. } | Page::Finished { .. } | Page::Saved(_))
+        )
+    }
+
+    fn scroll_output(&mut self, key: OutputScroll) {
         let running = self.running();
+        let (width, height) = self.live_viewport.get();
         let end = if running {
-            let (width, height) = self.live_viewport.get();
-            // Progress can arrive before the next paint. Use the fresh tail
-            // with the viewport's last painted geometry.
-            wrapped_output(self.live.lines(), width)
-                .count()
+            wrapped_rows(&self.live, width)
+                .len()
                 .saturating_sub(height as usize)
         } else {
             self.scroll_end.get()
         };
-        let start = if running && !self.follow_output {
-            self.scroll
+        let start = if self.follow_output {
+            end
         } else {
-            self.scroll_position.get()
+            self.scroll.min(end)
         };
-        self.scroll = start.min(end).saturating_add_signed(step).min(end);
-        self.follow_output = running && step > 0 && self.scroll == end;
+        self.scroll = match key {
+            OutputScroll::Lines(step) => start.saturating_add_signed(step).min(end),
+            OutputScroll::Page(direction) => start
+                .saturating_add_signed(direction * (height.max(1) as isize))
+                .min(end),
+            OutputScroll::Start => 0,
+            OutputScroll::End => end,
+        };
+        if end != 0 || matches!(key, OutputScroll::Start | OutputScroll::End) {
+            self.follow_output =
+                running && self.scroll == end && !matches!(key, OutputScroll::Start);
+        }
+    }
+
+    fn result_buttons(&self) -> &'static [ResultButton] {
+        use ResultButton::*;
+        if self.run_recipient.is_some() {
+            &[Send, Again, Edit, Keep]
+        } else {
+            &[Keep, Again, Edit]
+        }
     }
 
     fn choose(&mut self, index: usize) -> Effect {
+        let index = if matches!(self.page, Some(Page::Finished { .. })) {
+            if self.result_send == ResultSend::Sending {
+                return Effect::None;
+            }
+            match self.result_buttons().get(index) {
+                Some(ResultButton::Keep) => 0,
+                Some(ResultButton::Again) => 1,
+                Some(ResultButton::Edit) => 3,
+                _ => return Effect::None,
+            }
+        } else {
+            index
+        };
         match (&mut self.page, index) {
             (Some(Page::Form(form)), 0) => {
                 let command = form.command.as_str().to_owned();
@@ -339,9 +442,30 @@ impl Controller {
                 self.history.insert(0, command.clone());
                 self.history.truncate(32);
                 self.run_draft = form.talk.take();
+                if let Some(draft) = &self.run_draft {
+                    self.run_recipient = Some(RunRecipient {
+                        button: format!(
+                            "➤ Send to {}",
+                            super::notes::single_line(
+                                &draft.row_send.as_ref().expect("admitted Talk draft").name,
+                            )
+                        ),
+                        draft: draft.clone(),
+                    });
+                } else if target.input["kind"] != "member"
+                    || self
+                        .run_recipient
+                        .as_ref()
+                        .and_then(|recipient| recipient.draft.draft_key.as_ref())
+                        .is_some_and(|(_, member)| {
+                            target.input["identityId"].as_str() != Some(member)
+                        })
+                {
+                    self.run_recipient = None;
+                }
                 self.run(request, command, cwd)
             }
-            (Some(Page::Running { .. }), 0) => self.stop(),
+            (Some(Page::Running { .. }), 1) => self.stop(),
             (Some(Page::Finished { result, keeping }), 0) if !*keeping => {
                 if let Some(run_id) = result["runId"].as_str() {
                     *keeping = true;
@@ -382,7 +506,7 @@ impl Controller {
         }
     }
 
-    fn input(&mut self, event: &Event) -> Effect {
+    fn input(&mut self, event: &Event) -> DialogInput {
         if let Some(Page::Form(form)) = &mut self.page
             && form.saved.is_none()
             && form.talk.is_none()
@@ -396,7 +520,7 @@ impl Controller {
                             0
                         };
                     }
-                    return Effect::None;
+                    return DialogInput::Ignored;
                 }
                 Event::Key(key) if key.modifiers.is_empty() && key.code == KeyCode::Up => {
                     let index = form.history.map_or(0, |last| last + 1);
@@ -404,7 +528,7 @@ impl Controller {
                         form.history = Some(index);
                         form.command = Editor::from(command.as_str());
                     }
-                    return Effect::None;
+                    return DialogInput::Ignored;
                 }
                 Event::Paste(text) => {
                     if tmt_pty_protocol::valid_command(text) {
@@ -414,55 +538,46 @@ impl Controller {
                     } else {
                         self.notice = Some("Paste one command without control characters.".into());
                     }
-                    return Effect::None;
+                    return DialogInput::Ignored;
                 }
                 _ => {}
             }
         }
         if let Event::Key(key) = event {
-            if self.running() && key.code == KeyCode::End {
-                self.follow_output = true;
-                return Effect::None;
-            }
             if key.modifiers.is_empty() && matches!(self.page, Some(Page::Finished { .. })) {
-                match key.code {
-                    KeyCode::Char('k') => return self.choose(0),
-                    KeyCode::Char('r') => return self.choose(1),
-                    KeyCode::Char('e') => return self.choose(3),
-                    _ => {}
+                let button = match key.code {
+                    KeyCode::Char('s') => Some(ResultButton::Send),
+                    KeyCode::Char('k') => Some(ResultButton::Keep),
+                    KeyCode::Char('r') => Some(ResultButton::Again),
+                    KeyCode::Char('e') => Some(ResultButton::Edit),
+                    _ => None,
+                };
+                if let Some(button) = button {
+                    return self
+                        .result_buttons()
+                        .iter()
+                        .position(|item| *item == button)
+                        .map_or(DialogInput::Ignored, DialogInput::Choose);
                 }
             }
-            let step = match key.code {
-                KeyCode::PageUp => Some(-10),
-                KeyCode::PageDown => Some(10),
-                KeyCode::Up
-                    if matches!(
-                        self.page,
-                        Some(Page::Running { .. } | Page::Finished { .. } | Page::Saved(_))
-                    ) =>
-                {
-                    Some(-1)
+            if self.output_page() && key.modifiers.is_empty() {
+                let scroll = match key.code {
+                    KeyCode::Up => Some(OutputScroll::Lines(-1)),
+                    KeyCode::Down => Some(OutputScroll::Lines(1)),
+                    KeyCode::PageUp => Some(OutputScroll::Page(-1)),
+                    KeyCode::PageDown => Some(OutputScroll::Page(1)),
+                    KeyCode::Home => Some(OutputScroll::Start),
+                    KeyCode::End => Some(OutputScroll::End),
+                    _ => None,
+                };
+                if let Some(scroll) = scroll {
+                    self.scroll_output(scroll);
+                    return DialogInput::Ignored;
                 }
-                KeyCode::Down
-                    if matches!(
-                        self.page,
-                        Some(Page::Running { .. } | Page::Finished { .. } | Page::Saved(_))
-                    ) =>
-                {
-                    Some(1)
-                }
-                _ => None,
-            };
-            if let Some(step) = step {
-                self.scroll_output(step);
-                return Effect::None;
             }
         }
         if let Event::Mouse(mouse) = event
-            && matches!(
-                self.page,
-                Some(Page::Running { .. } | Page::Finished { .. } | Page::Saved(_))
-            )
+            && self.output_page()
         {
             use ratatui::crossterm::event::MouseEventKind;
             let step = match mouse.kind {
@@ -471,12 +586,19 @@ impl Controller {
                 _ => 0,
             };
             if step != 0 {
-                self.scroll_output(step);
-                return Effect::None;
+                if self
+                    .hits
+                    .borrow()
+                    .content
+                    .contains((mouse.column, mouse.row).into())
+                {
+                    self.scroll_output(OutputScroll::Lines(step));
+                }
+                return DialogInput::Ignored;
             }
         }
-        let (dialog, fields) = self.presentation();
         let mut state = self.dialog.take().expect("shown dialog owns state");
+        let (dialog, fields) = self.presentation();
         let input = match event {
             Event::Key(key) => state.key(dialog.kind, key, fields, &dialog.buttons),
             Event::Mouse(mouse) if !self.hits.borrow().outer.is_empty() => {
@@ -484,24 +606,21 @@ impl Controller {
             }
             _ => DialogInput::Ignored,
         };
+        drop(dialog);
         self.dialog = Some(state);
-        match input {
-            DialogInput::Choose(index) => self.choose(index),
-            DialogInput::Cancel => self.close(),
-            DialogInput::Field(_, key) => {
-                if let Some(Page::Form(form)) = &mut self.page
-                    && form.talk.is_none()
-                {
-                    let width = self.hits.borrow().content.width.saturating_sub(2).max(1);
-                    form.command.key(key, width, MAX_COMMAND);
-                }
-                Effect::None
+        if let DialogInput::Field(_, key) = input {
+            if let Some(Page::Form(form)) = &mut self.page
+                && form.talk.is_none()
+            {
+                let width = self.hits.borrow().content.width.saturating_sub(2).max(1);
+                form.command.key(key, width, MAX_COMMAND);
             }
-            _ => Effect::None,
+            return DialogInput::Ignored;
         }
+        input
     }
 
-    fn presentation(&self) -> (Dialog<'static>, &'static [FieldKind]) {
+    fn presentation(&self) -> (Dialog<'_>, &'static [FieldKind]) {
         let (title, kind, buttons, hints, fields) = match &self.page {
             Some(Page::Form(form)) => (
                 "Run command",
@@ -529,31 +648,38 @@ impl Controller {
                 "",
                 DialogKind::Confirm,
                 vec![
-                    Button::secondary("Stop").enabled(!stopping),
                     Button::primary("Hide"),
+                    Button::secondary("Stop").enabled(!stopping),
                 ],
-                "ctrl-c stop · Esc hide, keeps running",
+                "^C stop · Esc hide, keeps running",
                 &[][..],
             ),
-            Some(Page::Finished { result, keeping }) => (
-                "",
-                DialogKind::Confirm,
-                vec![
-                    Button::primary("Keep in list")
-                        .enabled(!keeping && result["runId"].is_string()),
-                    Button::secondary("Run again").enabled(!keeping),
-                    Button::secondary("Close").enabled(!keeping),
-                    Button::secondary("Edit").enabled(
-                        !keeping
-                            && self
+            Some(Page::Finished { result, keeping }) => {
+                let idle = !keeping && self.result_send != ResultSend::Sending;
+                let buttons = self
+                    .result_buttons()
+                    .iter()
+                    .map(|action| match action {
+                        ResultButton::Send => {
+                            Button::primary(&self.run_recipient.as_ref().unwrap().button)
+                                .enabled(idle && self.result_send == ResultSend::Ready)
+                        }
+                        ResultButton::Again => Button::secondary("Run again").enabled(idle),
+                        ResultButton::Edit => Button::secondary("Edit").enabled(
+                            idle && self
                                 .request
                                 .as_ref()
                                 .is_some_and(|request| request["command"].is_string()),
-                    ),
-                ],
-                "",
-                &[][..],
-            ),
+                        ),
+                        ResultButton::Keep if self.run_recipient.is_some() => {
+                            Button::secondary("Keep").enabled(idle && result["runId"].is_string())
+                        }
+                        ResultButton::Keep => Button::primary("Keep in list")
+                            .enabled(idle && result["runId"].is_string()),
+                    })
+                    .collect();
+                ("", DialogKind::Confirm, buttons, "", &[][..])
+            }
             Some(Page::Remove { .. }) => (
                 "Remove saved terminal",
                 DialogKind::Confirm,
@@ -574,12 +700,10 @@ impl Controller {
                 &[][..],
             ),
         };
-        let title = match &self.page {
-            Some(Page::Running { command, .. }) => command_title(command),
-            Some(Page::Finished { result, .. } | Page::Saved(result)) => {
-                command_title(result["command"].as_str().unwrap_or_default())
-            }
-            _ => title.into(),
+        let title = if self.output_page() {
+            String::new()
+        } else {
+            title.into()
         };
         (
             Dialog {
@@ -597,23 +721,50 @@ impl Controller {
         let (dialog, _) = self.presentation();
         let state = self.dialog.as_ref().expect("shown dialog owns state");
         let look = app.look();
-        let rows = self.lines();
         let status = self.notice.is_some();
         let form = self.editing();
-        // The shared modal reserves two borders, a position row and a footer.
-        let wide = matches!(
-            self.page,
-            Some(Page::Running { .. } | Page::Finished { .. } | Page::Saved(_))
-        );
-        let demand = if wide {
-            [(u32::from(body.width) * 3 / 4).clamp(76, 118) as u16, 18]
+        let rows = self.lines();
+        let output = self.output_page();
+        let width = (u32::from(body.width) * 3 / 4).clamp(76, 118) as u16;
+        let mut area = if output {
+            dialog.areas(body, [width.max(dialog.footer_width()), u16::MAX], status)
         } else {
-            [
-                dialog.footer_width().max(76),
-                rows.len().min(14) as u16 + if form { 3 } else { 4 } + u16::from(status),
-            ]
+            dialog.areas(
+                body,
+                [
+                    dialog.footer_width().max(76),
+                    rows.len().min(14) as u16 + if form { 3 } else { 4 } + u16::from(status),
+                ],
+                status,
+            )
         };
-        let area = dialog.areas(body, demand, status);
+        let live;
+        let output_rows = if output {
+            let lines = match &self.page {
+                Some(Page::Running { .. }) => &self.live,
+                Some(Page::Finished { result, .. } | Page::Saved(result)) => {
+                    live = captured_output(result);
+                    &live
+                }
+                _ => unreachable!("output page"),
+            };
+            let output_rows = wrapped_rows(lines, area.content.width);
+            let demand = output_rows
+                .len()
+                .max(1)
+                .saturating_add(5 + usize::from(status));
+            area = dialog.areas(
+                body,
+                [
+                    width.max(dialog.footer_width()),
+                    demand.min(u16::MAX as usize) as u16,
+                ],
+                status,
+            );
+            output_rows
+        } else {
+            Vec::new()
+        };
         let mut hits = super::buttons::paint_dialog(
             app,
             frame.buffer_mut(),
@@ -623,20 +774,11 @@ impl Controller {
             Overlay::Standalone,
         );
         let finished = matches!(self.page, Some(Page::Finished { .. }));
-        if form || finished {
+        if form {
             // The position row above the buttons carries content on these pages.
             hits.content.height += area.position.height;
         }
         if finished {
-            let hints = if self
-                .request
-                .as_ref()
-                .is_some_and(|request| request["command"].is_string())
-            {
-                "↑↓ scroll · k keep · r run again · e edit · Esc close"
-            } else {
-                "↑↓ scroll · k keep · r run again · Esc close"
-            };
             let button_end = hits
                 .buttons
                 .iter()
@@ -649,7 +791,7 @@ impl Controller {
                 .right()
                 .saturating_sub(button_end)
                 .saturating_sub(2);
-            if let Some(hint) = result_hints_that_fit(hints, available) {
+            if let Some(hint) = result_hints_that_fit(self.run_recipient.is_some(), available) {
                 strip::paint_right(
                     frame.buffer_mut(),
                     area.footer,
@@ -657,41 +799,12 @@ impl Controller {
                 );
             }
         }
-        let mut content = hits.content;
-        let role = look.role(tmt_cli_style::Role::Text);
-        let rows = if self.running() {
-            if content.height > 0 {
-                strip::paint_left(
-                    frame.buffer_mut(),
-                    Rect {
-                        height: 1,
-                        ..content
-                    },
-                    Line::styled(super::view::fit(&rows[0], content.width as usize), role),
-                );
-                content.y += 1;
-                content.height -= 1;
-            }
-            self.live_viewport.set((content.width, content.height));
-            wrapped_output(self.live.lines(), content.width).collect()
-        } else if matches!(self.page, Some(Page::Finished { .. } | Page::Saved(_))) {
-            wrapped_output(rows.iter().map(String::as_str), content.width).collect()
-        } else {
-            rows
-        };
-        let maximum_scroll = rows.len().saturating_sub(content.height as usize);
-        self.scroll_end.set(maximum_scroll);
-        self.scroll_position.set(if self.follow_output {
-            maximum_scroll
-        } else {
-            self.scroll.min(maximum_scroll)
-        });
-        for (index, line) in rows
-            .into_iter()
-            .skip(self.scroll_position.get())
-            .take(content.height as usize)
-            .enumerate()
-        {
+        if output {
+            self.paint_output(frame, app, area, &mut hits, &output_rows);
+        }
+        let content = hits.content;
+        let role = look.role(Role::Text);
+        for (index, line) in rows.into_iter().take(content.height as usize).enumerate() {
             let rect = Rect::new(content.x, content.y + index as u16, content.width, 1);
             strip::paint_left(
                 frame.buffer_mut(),
@@ -736,6 +849,171 @@ impl Controller {
         self.hits.replace(hits);
     }
 
+    fn paint_output(
+        &self,
+        frame: &mut Frame,
+        app: &App,
+        area: tmt_tui::components::ModalAreas,
+        hits: &mut DialogHits,
+        rows: &[OutputLine],
+    ) {
+        let look = app.look();
+        let (command, target, status, role) = match &self.page {
+            Some(Page::Running {
+                command,
+                cwd,
+                stopping,
+                ..
+            }) => {
+                let elapsed = self.elapsed.get();
+                let state = if *stopping { "stopping" } else { "running" };
+                (
+                    command.as_str(),
+                    target_line(&self.run_label, cwd),
+                    format!("⠋ {state} {}:{:02}", elapsed / 60, elapsed % 60),
+                    Role::Waiting,
+                )
+            }
+            Some(Page::Finished { result, .. } | Page::Saved(result)) => (
+                result["command"].as_str().unwrap_or_default(),
+                target_line(
+                    if matches!(self.page, Some(Page::Saved(_))) {
+                        ""
+                    } else {
+                        &self.run_label
+                    },
+                    result["cwd"].as_str().unwrap_or_default(),
+                ),
+                result_status(result),
+                if result["exitCode"] == 0 && result["timedOut"] != true {
+                    Role::Working
+                } else {
+                    Role::Blocked
+                },
+            ),
+            _ => unreachable!("output page"),
+        };
+        let title = Rect::new(
+            area.outer.x.saturating_add(1),
+            area.outer.y,
+            area.outer.width.saturating_sub(2),
+            u16::from(area.outer.height > 0),
+        );
+        let (mark, status) = status.split_once(' ').unwrap_or(("", &status));
+        let status = format!(" {status} ");
+        let left_width = title.width.saturating_sub(status.width() as u16);
+        let left = Rect {
+            width: left_width,
+            ..title
+        };
+        strip::paint_left(
+            frame.buffer_mut(),
+            left,
+            Line::from(vec![
+                Span::styled(format!(" {mark} "), look.role(role)),
+                Span::styled("! ", look.role(Role::Accent)),
+                Span::styled(
+                    super::view::fit(
+                        &format!("{} ", super::notes::single_line(command)),
+                        left_width.saturating_sub(mark.width() as u16 + 4) as usize,
+                    ),
+                    look.role(Role::Code),
+                ),
+            ]),
+        );
+        let right = Rect {
+            x: title.x + left_width,
+            width: title.width - left_width,
+            ..title
+        };
+        strip::paint_right(
+            frame.buffer_mut(),
+            right,
+            Line::styled(
+                super::view::fit(&status, right.width as usize),
+                look.role(role),
+            ),
+        );
+
+        let mut content = hits.content;
+        if content.height > 0 {
+            strip::paint_left(
+                frame.buffer_mut(),
+                Rect {
+                    height: 1,
+                    ..content
+                },
+                Line::styled(
+                    super::view::fit(&target, content.width as usize),
+                    look.role(Role::Muted),
+                ),
+            );
+            content.y += 1;
+            content.height -= 1;
+        }
+        hits.content = content;
+        self.live_viewport.set((content.width, content.height));
+        let end = rows.len().saturating_sub(content.height as usize);
+        let start = if self.follow_output {
+            end
+        } else {
+            self.scroll.min(end)
+        };
+        self.scroll_end.set(end);
+        for (index, row) in rows
+            .iter()
+            .skip(start)
+            .take(content.height as usize)
+            .enumerate()
+        {
+            let rect = Rect::new(content.x, content.y + index as u16, content.width, 1);
+            let style = look
+                .role(if row.stderr {
+                    Role::Blocked
+                } else {
+                    Role::Code
+                })
+                .patch(look.role(Role::Track));
+            frame.buffer_mut().set_style(rect, style);
+            strip::paint_left(
+                frame.buffer_mut(),
+                output_text_area(rect),
+                Line::styled(&row.text, style),
+            );
+        }
+        if rows.is_empty() && content.height > 0 {
+            let style = look.role(Role::Muted).patch(look.role(Role::Track));
+            let rect = Rect {
+                height: 1,
+                ..content
+            };
+            frame.buffer_mut().set_style(rect, style);
+            strip::paint_left(
+                frame.buffer_mut(),
+                output_text_area(rect),
+                Line::styled("No output.", style),
+            );
+        }
+        let shown = rows.len().min(start + content.height as usize);
+        let units = if rows.len() == 1 { "line" } else { "lines" };
+        let count = format!("{} {units}", rows.len());
+        let position = if shown == start {
+            count
+        } else if end == 0 {
+            format!("{count} · showing 1–{shown}")
+        } else {
+            format!("{count} · showing {}–{shown} · ↑↓ scroll", start + 1)
+        };
+        strip::paint_left(
+            frame.buffer_mut(),
+            area.position,
+            Line::styled(
+                super::view::fit(&position, area.position.width as usize),
+                look.role(Role::Dim),
+            ),
+        );
+    }
+
     fn lines(&self) -> Vec<String> {
         match &self.page {
             Some(Page::Form(form)) => {
@@ -767,23 +1045,7 @@ impl Controller {
                     },
                 ]
             }
-            Some(Page::Running { cwd, stopping, .. }) => {
-                running_lines(&self.run_label, cwd, self.elapsed.get(), *stopping)
-            }
-            Some(Page::Finished { result, .. } | Page::Saved(result)) => {
-                let label = if matches!(&self.page, Some(Page::Saved(_))) {
-                    ""
-                } else {
-                    &self.run_label
-                };
-                let mut rows = vec![format!(
-                    "{}  {}",
-                    target_line(label, result["cwd"].as_str().unwrap_or_default()),
-                    result_status(result)
-                )];
-                rows.extend(output_lines(result));
-                rows
-            }
+            Some(Page::Running { .. } | Page::Finished { .. } | Page::Saved(_)) => Vec::new(),
             Some(Page::Remove { row }) => vec![
                 format!("The shell for {} is busy.", row.command),
                 "Close the shell and remove the saved result?".into(),
@@ -797,18 +1059,45 @@ impl Controller {
     }
 }
 
-fn result_hints_that_fit(mut hints: &str, width: u16) -> Option<&str> {
+fn result_hints_that_fit(talk: bool, width: u16) -> Option<&'static str> {
+    if talk {
+        return [
+            "s send · k keep · r run again · e edit · Esc close",
+            "s send · Esc close",
+            "s send",
+        ]
+        .into_iter()
+        .find(|hint| hint.width() <= usize::from(width));
+    }
+    let mut hints = "k keep · r run again · e edit · Esc close";
     while hints.width() > usize::from(width) {
         hints = hints.split_once(" · ")?.1;
     }
     Some(hints)
 }
 
-fn wrapped_output<'a>(
-    lines: impl Iterator<Item = &'a str>,
-    width: u16,
-) -> impl Iterator<Item = String> {
-    lines.flat_map(move |line| tmt_tui::text::lines(line, width, tmt_tui::style::TextFlow::Wrap))
+fn output_text_area(area: Rect) -> Rect {
+    let left = OUTPUT_LEFT_PADDING.min(area.width);
+    Rect {
+        x: area.x + left,
+        width: area.width - left,
+        ..area
+    }
+}
+
+fn wrapped_rows(lines: &[OutputLine], width: u16) -> Vec<OutputLine> {
+    let text_width = width.saturating_sub(OUTPUT_LEFT_PADDING).max(1);
+    lines
+        .iter()
+        .flat_map(|line| {
+            let shown = line.labelled();
+            let rows = tmt_tui::text::lines(&shown, text_width, tmt_tui::style::TextFlow::Wrap);
+            rows.into_iter().map(|text| OutputLine {
+                text,
+                stderr: line.stderr,
+            })
+        })
+        .collect()
 }
 
 fn command_title(command: &str) -> String {
@@ -822,20 +1111,6 @@ fn target_line(label: &str, cwd: &str) -> String {
     } else {
         format!("{label} · {cwd}")
     }
-}
-
-fn running_lines(label: &str, cwd: &str, elapsed: u64, stopping: bool) -> Vec<String> {
-    let status = if stopping {
-        "⠋ stopping"
-    } else {
-        "⠋ running"
-    };
-    vec![format!(
-        "{}  {status} {}:{:02}",
-        target_line(label, cwd),
-        elapsed / 60,
-        elapsed % 60
-    )]
 }
 
 fn result_status(result: &Value) -> String {
@@ -852,7 +1127,7 @@ fn result_status(result: &Value) -> String {
         "✗ exit status unavailable".into()
     };
     if let (Some(start), Some(end)) = (result["startedMs"].as_u64(), result["endedMs"].as_u64()) {
-        status.push_str(&format!(" after {}s", end.saturating_sub(start) / 1000));
+        status.push_str(&format!(" · {}s", end.saturating_sub(start) / 1000));
     }
     if result["truncated"] == true && !status.contains("truncated") {
         status.push_str(" · output truncated");
@@ -860,14 +1135,89 @@ fn result_status(result: &Value) -> String {
     status
 }
 
-fn output_lines(result: &Value) -> Vec<String> {
-    let stdout = super::notes::sanitize(result["stdout"].as_str().unwrap_or_default());
-    let stderr = super::notes::sanitize(result["stderr"].as_str().unwrap_or_default());
-    stdout
-        .lines()
-        .map(str::to_owned)
-        .chain(stderr.lines().map(|line| format!("stderr · {line}")))
+impl OutputLine {
+    fn labelled(&self) -> String {
+        if self.stderr {
+            format!("stderr · {}", self.text)
+        } else {
+            self.text.clone()
+        }
+    }
+}
+
+fn captured_output(result: &Value) -> Vec<OutputLine> {
+    [("stdout", false), ("stderr", true)]
+        .into_iter()
+        .flat_map(|(stream, stderr)| {
+            super::notes::sanitize(result[stream].as_str().unwrap_or_default())
+                .lines()
+                .map(|text| OutputLine {
+                    text: text.into(),
+                    stderr,
+                })
+                .collect::<Vec<_>>()
+        })
         .collect()
+}
+
+fn output_lines(result: &Value) -> Vec<String> {
+    captured_output(result)
+        .iter()
+        .map(OutputLine::labelled)
+        .collect()
+}
+
+fn result_message(command: &str, result: &Value, limit: usize) -> Option<String> {
+    let command = command_title(command);
+    let status = result_status(result);
+    let lines = output_lines(result);
+    let mut bytes = 0;
+    let mut longest_tildes = 0;
+    let mut longest_ticks = 0;
+    let mut retained = None;
+    for keep in 0..=lines.len().min(200) {
+        let omitted = lines.len() - keep;
+        if keep > 0 {
+            let line = &lines[omitted];
+            bytes += line.len() + usize::from(keep > 1);
+            longest_tildes = longest_tildes.max(longest_run(line, '~'));
+            longest_ticks = longest_ticks.max(longest_run(line, '`'));
+        }
+        let (token, longest) = if longest_ticks <= longest_tildes {
+            ("`", longest_ticks)
+        } else {
+            ("~", longest_tildes)
+        };
+        let fence_len = 3.max(longest + 1);
+        let omission = if omitted == 0 {
+            String::new()
+        } else {
+            format!("\n({omitted} earlier lines omitted)")
+        };
+        if command.len() + status.len() + omission.len() + bytes + 2 * fence_len + 5 <= limit {
+            retained = Some((omitted, token, fence_len, omission));
+        }
+    }
+    let (omitted, token, fence_len, omission) = retained?;
+    let body = lines[omitted..].join("\n");
+    let fence = token.repeat(fence_len);
+    Some(format!(
+        "{command}\n{status}{omission}\n\n{fence}\n{body}\n{fence}"
+    ))
+}
+
+fn longest_run(text: &str, token: char) -> usize {
+    let mut longest = 0;
+    let mut current = 0;
+    for ch in text.chars() {
+        if ch == token {
+            current += 1;
+            longest = longest.max(current);
+        } else {
+            current = 0;
+        }
+    }
+    longest
 }
 
 impl App {
@@ -897,7 +1247,76 @@ impl App {
     }
 
     pub(super) fn standalone_event(&mut self, event: &Event) -> Effect {
-        self.standalone.input(event)
+        match self.standalone.input(event) {
+            DialogInput::Choose(index)
+                if matches!(self.standalone.page, Some(Page::Finished { .. }))
+                    && self.standalone.result_buttons().get(index) == Some(&ResultButton::Send) =>
+            {
+                self.send_run_result()
+            }
+            DialogInput::Choose(index) => self.standalone.choose(index),
+            DialogInput::Cancel => self.standalone.close(),
+            _ => Effect::None,
+        }
+    }
+
+    fn send_run_result(&mut self) -> Effect {
+        let Some(Page::Finished {
+            result,
+            keeping: false,
+        }) = &self.standalone.page
+        else {
+            return Effect::None;
+        };
+        if self.standalone.result_send != ResultSend::Ready || self.in_flight > 0 {
+            return Effect::None;
+        }
+        let Some(mut draft) = self
+            .standalone
+            .run_recipient
+            .as_ref()
+            .map(|recipient| recipient.draft.clone())
+        else {
+            return Effect::None;
+        };
+        let Some(send) = draft
+            .row_send
+            .as_ref()
+            .filter(|send| send.valid(self, &draft))
+        else {
+            return self.say("The original Talk member or sender changed; nothing sent.");
+        };
+        let Some((sender, recipient)) = draft.draft_key.clone() else {
+            return Effect::None;
+        };
+        let name = send.name.clone();
+        let overhead = crate::requests::message::tag(&draft.squad, &name).len();
+        let limit = super::app::MESSAGE_LIMIT.saturating_sub(overhead);
+        let Some(command) = self
+            .standalone
+            .request
+            .as_ref()
+            .and_then(|request| request["command"].as_str())
+        else {
+            return self.say("The command is unavailable; nothing sent.");
+        };
+        let Some(text) = result_message(command, result, limit) else {
+            return self.say("The command result exceeds the Talk message limit; nothing sent.");
+        };
+        let fallback =
+            crate::requests::message::inline_body(Some((&draft.squad, &name)), &text, false);
+        draft.keep_reply = false;
+        self.standalone.result_send = ResultSend::Sending;
+        self.standalone.notice = Some("Sending result…".into());
+        self.begin_outgoing_for(&draft, &text, Some(self.standalone.run_id));
+        Effect::Act(Request::Chat {
+            sender,
+            recipient,
+            name,
+            text,
+            fallback,
+            keep_reply: false,
+        })
     }
 
     pub(super) fn open_talk_run(&mut self, command: &str, draft: super::app::Input) -> Effect {
@@ -944,6 +1363,7 @@ impl App {
                 .and_then(|snapshot| snapshot.roster.members.get(identity))
                 .is_some_and(|member| member.presence == Some(false))
         });
+        self.standalone.run_recipient = None;
         let effect = self.standalone.open_form(member, command, talk);
         if offline && let Effect::Standalone(Task::Target(generation, identity)) = effect {
             return self.standalone_completed(Completed::Target(
@@ -1025,8 +1445,11 @@ impl App {
             }
             Completed::Saved(task, result) => self.saved_completed(*task, result),
             Completed::Output(run, output) => {
-                let (text, legacy) = output.take();
-                self.standalone.progress(run, &text, legacy);
+                let (chunks, legacy) = output.take();
+                self.standalone.progress(run, "", false, legacy);
+                for (stderr, text) in chunks {
+                    self.standalone.progress(run, &text, stderr, false);
+                }
             }
             Completed::Run(run, result) => {
                 if self.standalone.run_id != run || !self.standalone.running() {

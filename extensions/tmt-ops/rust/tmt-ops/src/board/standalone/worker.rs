@@ -19,11 +19,9 @@ pub(in crate::board) struct Output(Arc<Mutex<PendingOutput>>);
 
 #[derive(Default)]
 struct PendingOutput {
-    text: String,
+    chunks: Vec<(bool, String)>,
     legacy: bool,
     queued: bool,
-    stream: Option<bool>,
-    at_line_start: bool,
 }
 
 impl Output {
@@ -32,30 +30,25 @@ impl Output {
         match progress {
             StandaloneProgress::Legacy => pending.legacy = true,
             StandaloneProgress::Text { stderr, text } => {
-                if pending.stream != Some(stderr) {
-                    if pending.stream.is_some() && !pending.at_line_start {
-                        pending.text.push('\n');
-                    }
-                    pending.stream = Some(stderr);
-                    pending.at_line_start = true;
-                }
-                for line in text.split_inclusive('\n') {
-                    if stderr && pending.at_line_start {
-                        pending.text.push_str("stderr · ");
-                    }
-                    pending.text.push_str(line);
-                    pending.at_line_start = line.ends_with('\n');
+                if let Some((_, chunk)) = pending
+                    .chunks
+                    .last_mut()
+                    .filter(|(stream, _)| *stream == stderr)
+                {
+                    chunk.push_str(text);
+                } else {
+                    pending.chunks.push((stderr, text.into()));
                 }
             }
         }
         !std::mem::replace(&mut pending.queued, true)
     }
 
-    pub(super) fn take(self) -> (String, bool) {
+    pub(super) fn take(self) -> (Vec<(bool, String)>, bool) {
         let mut pending = self.0.lock().expect("live command output");
         pending.queued = false;
         (
-            std::mem::take(&mut pending.text),
+            std::mem::take(&mut pending.chunks),
             std::mem::take(&mut pending.legacy),
         )
     }

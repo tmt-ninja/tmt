@@ -1007,10 +1007,13 @@ the confirmed member. On a kept row, Enter opens output, `r` confirms a rerun,
 `s` opens a shell in its directory, `m` moves the row, and `x` removes it.
 
 In Talk, submit `!command` or `！command` to run it in the member's verified
-directory. `!!` and `！！` are aliases. Refusals keep the draft. Output stays in
-Run command and never attaches to a Talk message. In the result, ↑↓ scrolls,
-Enter keeps it when available, `r` reruns immediately, `e` edits the next run,
-and Esc closes. A typing terminal receives these characters literally.
+directory. `!!` and `！！` are aliases. Refusals keep the draft. In a finished
+Talk run, `s` sends the command, status and up to the last 200 captured output
+lines to the original member as a Talk message. The draft stays in the editor.
+Use ↑↓, PgUp/PgDn, Home/End or the wheel over the output to scroll. End resumes
+the live tail while a run is active. In the result, `k` keeps it when available,
+`r` reruns immediately, `e` edits the next run, and Esc closes. A typing terminal
+receives these characters literally.
 `reply` focuses the same member message composer; Core settles questions after
 direct delivery as described below. Notes retain the actual lead or explicit member
 recipient, with the recipient and source rechecked at submission. Esc returns to

@@ -1099,13 +1099,21 @@ fn talk_run_frames(styles: &mut Styles) -> Vec<Value> {
             "talk-run-running",
             "talk-run-result",
             "talk-run-closed",
+            "talk-run-failed-stderr",
+            "talk-run-long-scrolled",
         ],
         |_| grid(&[160, 100], &[36]),
         |state, look, width, _| {
             crate::board::standalone::scenes::capture_talk_run(state, look, width)
         },
         |captured, app| {
-            captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()))
+            captured["stripHits"] = json!(format!("{:?}", app.workspace_strip_hits.borrow()));
+            if matches!(
+                captured["state"].as_str(),
+                Some("talk-run-failed-stderr" | "talk-run-long-scrolled")
+            ) {
+                captured["runHits"] = crate::board::standalone::scenes::run_hits(app);
+            }
         },
     )
 }
@@ -1890,7 +1898,7 @@ macro_rules! oracle_groups {
         $group!(7, 36, measure_exchanges_frames($styles));
         $group!(7, 156, agents_activity_frames($styles));
         $group!(7, 40, provider_form_frames($styles));
-        $group!(7, 32, talk_run_frames($styles));
+        $group!(7, 48, talk_run_frames($styles));
         $group!(8, 228, paste_frames($styles));
         $group!(7, 60, file_chip_frames($styles));
         $group!(7, 144, quote_frames($styles));
