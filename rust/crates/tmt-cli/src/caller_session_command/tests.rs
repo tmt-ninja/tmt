@@ -1317,3 +1317,43 @@ fn a_nested_caller_reaches_the_worker_when_either_pane_is_bound() {
     );
     assert_eq!(worker.calls.get(), 1);
 }
+
+#[test]
+fn marker_selection_requires_one_valid_driver_and_no_invalid_markers() {
+    let candidate = || {
+        (
+            HarnessId::new("one").unwrap(),
+            CallerSession {
+                session: tmt_core::binding::session::ProviderSessionId::new("session").unwrap(),
+                runtime_pid: None,
+            },
+        )
+    };
+    let valid = || {
+        let (driver, coordinates) = candidate();
+        (driver, CallerSessionMarker::Valid(coordinates))
+    };
+    let other = || HarnessId::new("fixture").unwrap();
+    assert_eq!(select_markers(std::iter::empty()), Ok(None));
+    assert_eq!(
+        select_markers([(other(), CallerSessionMarker::Absent), valid()].into_iter()),
+        Ok(Some(candidate()))
+    );
+    for markers in [
+        vec![valid(), (other(), CallerSessionMarker::Invalid)],
+        vec![(other(), CallerSessionMarker::Invalid), valid()],
+        vec![(other(), CallerSessionMarker::Invalid)],
+    ] {
+        assert_eq!(
+            select_markers(markers.into_iter()).unwrap_err(),
+            "environment (invalid fixture marker)"
+        );
+    }
+    let second = || (other(), CallerSessionMarker::Valid(candidate().1));
+    for markers in [[valid(), second()], [second(), valid()]] {
+        assert_eq!(
+            select_markers(markers.into_iter()).unwrap_err(),
+            "environment (conflicting caller sessions)"
+        );
+    }
+}

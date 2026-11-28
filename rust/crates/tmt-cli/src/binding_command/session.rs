@@ -24,6 +24,7 @@ pub(super) fn complete(result: &BoundIdentity) -> Completion {
     // The exact-caller path fences this binding before it can write. `add` from
     // elsewhere cannot lend this pane the invoker's provider coordinates.
     let attempted = crate::caller_session_command::complete_binding(binding);
+    let attempted = attempted.as_ref().map(|_| ()).map_err(String::as_str);
     let Ok(paths) = ConfigPaths::discover() else {
         return completion;
     };
@@ -89,8 +90,9 @@ pub(super) fn complete(result: &BoundIdentity) -> Completion {
 }
 
 /// Why an explicit bind's own verification recorded no session.
-fn unrecorded_reason(attempted: Result<(), &str>) -> &'static str {
+fn unrecorded_reason(attempted: Result<(), &str>) -> &str {
     match attempted {
+        Err(detail) if detail.starts_with("environment (") => detail,
         Err("budget") => "the bounded session-verification allowance was exhausted",
         Err("binding") => "the verified caller is not this target binding",
         Err("storage" | "stale-commit") => "the verified session could not be committed",

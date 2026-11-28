@@ -36,7 +36,7 @@ pub const MODE_DEFAULT: &str = "default";
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::PI,
-    identify_caller: Some(identify_caller),
+    identify_caller: Some(caller::identify),
     env: &["PI_CODING_AGENT_DIR"],
     locate,
     runtime: Some(super::Runtime {
@@ -46,18 +46,6 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
         channel: Some(|| Box::new(channel::PiChannel)),
     }),
 };
-
-fn identify_caller() -> tmt_core::driver::ActionResult<
-    tmt_core::driver::caller::RuntimeCaller,
-    crate::process::ancestry::AncestryError,
-> {
-    use tmt_core::driver::Driver;
-    caller::PiCaller::new(
-        &crate::process::UnixCommandRunner,
-        caller::CallerEnvironment::current(),
-    )
-    .identify_caller()
-}
 
 fn agent_dir(environment: &crate::skill_installation::ProviderEnvironment) -> PathBuf {
     let home = environment.home();
@@ -664,8 +652,12 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for PiLifecycle {
         })
     }
 
-    fn caller_session(&self) -> Option<crate::runtime::lifecycle::CallerSession> {
-        caller_session::coordinates(std::env::var_os("PI_SESSION_ID").as_deref())
+    fn caller_session(&self) -> crate::runtime::lifecycle::CallerSessionMarker {
+        let session = std::env::var_os("PI_SESSION_ID");
+        crate::runtime::lifecycle::CallerSessionMarker::classify(
+            session.is_some(),
+            caller_session::coordinates(session.as_deref()),
+        )
     }
 
     fn caller_session_observation(

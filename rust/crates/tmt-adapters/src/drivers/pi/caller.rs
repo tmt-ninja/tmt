@@ -5,7 +5,10 @@
 #[cfg(test)]
 mod tests;
 
-use crate::process::{CommandRunner, ancestry::AncestryError, ps::query_ps};
+use crate::process::{
+    CommandRunner,
+    ancestry::{AncestryError, CallerSnapshot},
+};
 use std::{
     ffi::OsString,
     path::Path,
@@ -76,44 +79,33 @@ impl<'a, R: CommandRunner> PiCaller<'a, R> {
         &self,
         deadline: Instant,
     ) -> Result<Option<(HostAttribution, u32)>, AncestryError> {
-        let chain = crate::process::ancestry::command_chain(
-            self.runner,
-            self.environment.process_id,
-            deadline,
-        )?;
-        let mut observed = None;
-        for (pid, executable) in &chain {
-            let Some(file_name) = Path::new(executable).file_name() else {
-                continue;
-            };
-            if file_name == RPC_EXECUTABLE {
+        let snapshot = CallerSnapshot::capture(self.runner, self.environment.process_id, deadline)?;
+        observe_snapshot(&snapshot)
+    }
+}
+
+fn observe_snapshot(
+    snapshot: &CallerSnapshot<'_>,
+) -> Result<Option<(HostAttribution, u32)>, AncestryError> {
+    let mut observed = None;
+    for (pid, executable) in &snapshot.chain {
+        let Some(file_name) = Path::new(executable).file_name() else {
+            continue;
+        };
+        if file_name == RPC_EXECUTABLE {
+            return Ok(Some((HostAttribution::Ambiguous, *pid)));
+        }
+        if file_name == super::NAME {
+            let args = snapshot.arguments(*pid)?;
+            let args = args.trim();
+            let tail = command_tail(args, executable).ok_or(AncestryError::Unavailable)?;
+            if is_rpc_tail(tail) {
                 return Ok(Some((HostAttribution::Ambiguous, *pid)));
             }
-            if file_name == super::NAME {
-                let args = query_ps(
-                    self.runner,
-                    &[
-                        "-o".into(),
-                        "args=".into(),
-                        "-p".into(),
-                        pid.to_string().into(),
-                    ],
-                    deadline,
-                    16384,
-                )
-                .map_err(AncestryError::Command)?;
-                let args = std::str::from_utf8(&args.stdout)
-                    .map_err(|_| AncestryError::Unavailable)?
-                    .trim();
-                let tail = command_tail(args, executable).ok_or(AncestryError::Unavailable)?;
-                if is_rpc_tail(tail) {
-                    return Ok(Some((HostAttribution::Ambiguous, *pid)));
-                }
-                observed.get_or_insert((HostAttribution::Independent, *pid));
-            }
+            observed.get_or_insert((HostAttribution::Independent, *pid));
         }
-        Ok(observed)
     }
+    Ok(observed)
 }
 
 fn command_tail<'a>(args: &'a str, executable: &str) -> Option<&'a str> {
@@ -158,31 +150,43 @@ impl<R: CommandRunner> Driver for PiCaller<'_, R> {
     type Launch = ();
 
     fn identify_caller(&mut self) -> ActionResult<RuntimeCaller, Self::Error> {
-        let host = match self.observe_host() {
-            Ok(observation) => observation,
-            Err(error) if self.environment.has_marker() => {
-                return ActionResult::Failed(error);
-            }
-            Err(_) => return ActionResult::Unsupported,
-        };
-        let Some((host, _)) = host else {
-            // Env markers without a proven pi/pi-rpc ancestor never fall back
-            // to the host pane.
-            if self.environment.has_marker() {
-                return ActionResult::Failed(AncestryError::Unavailable);
-            }
-            return ActionResult::Unsupported;
-        };
-        let session = self
-            .environment
-            .session_id
-            .as_ref()
-            .and_then(|value| value.to_str())
-            .and_then(|value| ProviderSessionId::new(value).ok());
-        ActionResult::Completed(RuntimeCaller {
-            harness: HarnessId::new(super::NAME).expect("built-in driver ID"),
-            session,
-            host,
-        })
+        classify(&self.environment, self.observe_host())
     }
+}
+
+pub(super) fn identify(
+    snapshot: &CallerSnapshot<'_>,
+) -> ActionResult<RuntimeCaller, AncestryError> {
+    classify(&CallerEnvironment::current(), observe_snapshot(snapshot))
+}
+
+fn classify(
+    environment: &CallerEnvironment,
+    observation: Result<Option<(HostAttribution, u32)>, AncestryError>,
+) -> ActionResult<RuntimeCaller, AncestryError> {
+    let host = match observation {
+        Ok(observation) => observation,
+        Err(error) if environment.has_marker() => {
+            return ActionResult::Failed(error);
+        }
+        Err(_) => return ActionResult::Unsupported,
+    };
+    let Some((host, _)) = host else {
+        // Env markers without a proven pi/pi-rpc ancestor never fall back
+        // to the host pane.
+        if environment.has_marker() {
+            return ActionResult::Failed(AncestryError::Unavailable);
+        }
+        return ActionResult::Unsupported;
+    };
+    let session = environment
+        .session_id
+        .as_ref()
+        .and_then(|value| value.to_str())
+        .and_then(|value| ProviderSessionId::new(value).ok());
+    ActionResult::Completed(RuntimeCaller {
+        harness: HarnessId::new(super::NAME).expect("built-in driver ID"),
+        session,
+        host,
+    })
 }

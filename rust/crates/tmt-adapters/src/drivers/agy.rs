@@ -638,8 +638,12 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for AgyLifecycle {
         true
     }
 
-    fn caller_session(&self) -> Option<crate::runtime::lifecycle::CallerSession> {
-        caller_session::coordinates(std::env::var_os("ANTIGRAVITY_CONVERSATION_ID").as_deref())
+    fn caller_session(&self) -> crate::runtime::lifecycle::CallerSessionMarker {
+        let session = std::env::var_os("ANTIGRAVITY_CONVERSATION_ID");
+        crate::runtime::lifecycle::CallerSessionMarker::classify(
+            session.is_some(),
+            caller_session::coordinates(session.as_deref()),
+        )
     }
 
     fn caller_session_observation(

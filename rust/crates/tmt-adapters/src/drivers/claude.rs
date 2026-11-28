@@ -462,10 +462,12 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for ClaudeLifecycle {
         true
     }
 
-    fn caller_session(&self) -> Option<crate::runtime::lifecycle::CallerSession> {
-        caller_session::coordinates(
-            std::env::var_os("CLAUDE_CODE_SESSION_ID").as_deref(),
-            std::env::var_os("CLAUDE_PID").as_deref(),
+    fn caller_session(&self) -> crate::runtime::lifecycle::CallerSessionMarker {
+        let session = std::env::var_os("CLAUDE_CODE_SESSION_ID");
+        let pid = std::env::var_os("CLAUDE_PID");
+        crate::runtime::lifecycle::CallerSessionMarker::classify(
+            session.is_some() || pid.is_some(),
+            caller_session::coordinates(session.as_deref(), pid.as_deref()),
         )
     }
     fn caller_session_observation(

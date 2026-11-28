@@ -2,11 +2,13 @@
 
 use crate::output::Failure;
 use tmt_adapters::{
-    drivers::Registry,
+    drivers::{RecognizedCaller, Registry},
     host::{CallerEnvironment, Host, HostError},
     process::ancestry::AncestryError,
 };
-use tmt_core::driver::{ActionResult, caller::RuntimeCaller};
+use tmt_core::driver::ActionResult;
+#[cfg(test)]
+use tmt_core::driver::caller::RuntimeCaller;
 
 /// Automatic install offers require human terminal evidence. A marker, runtime
 /// ancestor or incomplete observation refuses; this does not attribute identity.
@@ -73,18 +75,23 @@ pub fn require_independent_host_for(name: Option<&str>) -> Result<(), Failure> {
 }
 
 #[cfg(test)]
-fn allow_host(result: ActionResult<RuntimeCaller, AncestryError>) -> Result<(), Failure> {
+fn allow_host(result: ActionResult<RecognizedCaller, AncestryError>) -> Result<(), Failure> {
     allow_host_for(result, None)
 }
 
 fn allow_host_for(
-    result: ActionResult<RuntimeCaller, AncestryError>,
+    result: ActionResult<RecognizedCaller, AncestryError>,
     name: Option<&str>,
 ) -> Result<(), Failure> {
     match result {
         ActionResult::Unsupported => Ok(()),
-        ActionResult::Completed(caller) if caller.permits_host_fallback() => Ok(()),
-        ActionResult::Completed(caller) => {
+        ActionResult::Completed(RecognizedCaller::Conflict) => Err(ambiguous()),
+        ActionResult::Completed(RecognizedCaller::Single(caller))
+            if caller.permits_host_fallback() =>
+        {
+            Ok(())
+        }
+        ActionResult::Completed(RecognizedCaller::Single(caller)) => {
             let error = ambiguous();
             let name = name.map(crate::output::shell_word);
             Err(
@@ -169,7 +176,8 @@ mod tests {
             session: None,
             host: HostAttribution::Ambiguous,
         };
-        let failure = allow_host(ActionResult::Completed(caller)).unwrap_err();
+        let failure =
+            allow_host(ActionResult::Completed(RecognizedCaller::Single(caller))).unwrap_err();
         let document = failure.document();
         assert_eq!(document["error"]["code"], "CALLER_IDENTITY_AMBIGUOUS");
         assert_eq!(document["error"]["reason"], "codex-shared-server");
@@ -185,7 +193,8 @@ mod tests {
             session: None,
             host: HostAttribution::Ambiguous,
         };
-        let pi_failure = allow_host(ActionResult::Completed(pi_caller)).unwrap_err();
+        let pi_failure =
+            allow_host(ActionResult::Completed(RecognizedCaller::Single(pi_caller))).unwrap_err();
         let pi_document = pi_failure.document();
         assert_eq!(pi_document["error"]["code"], "CALLER_IDENTITY_AMBIGUOUS");
         assert_eq!(pi_document["error"]["reason"], "pi-shared-rpc");
@@ -199,8 +208,11 @@ mod tests {
             session: None,
             host: HostAttribution::Ambiguous,
         };
-        let failure =
-            allow_host_for(ActionResult::Completed(caller()), Some("My 'Agent'")).unwrap_err();
+        let failure = allow_host_for(
+            ActionResult::Completed(RecognizedCaller::Single(caller())),
+            Some("My 'Agent'"),
+        )
+        .unwrap_err();
         assert_eq!(
             failure.document()["error"]["fix"],
             "tmt run 'My '\\''Agent'\\''' codex"
@@ -209,7 +221,26 @@ mod tests {
             host: HostAttribution::Independent,
             ..caller()
         };
-        assert!(allow_host(ActionResult::Completed(independent)).is_ok());
+        assert!(
+            allow_host(ActionResult::Completed(RecognizedCaller::Single(
+                independent
+            )))
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn conflicting_drivers_refuse_implicit_identity_without_guessing_a_provider_fix() {
+        let failure = allow_host(ActionResult::Completed(RecognizedCaller::Conflict)).unwrap_err();
+        let document = failure.document();
+        assert_eq!(document["error"]["code"], "CALLER_IDENTITY_AMBIGUOUS");
+        assert!(
+            document["error"]["suggestion"]
+                .as_str()
+                .unwrap()
+                .contains("--identity")
+        );
+        assert!(!failure.has_runtime_refusal());
     }
 
     #[test]
@@ -219,7 +250,8 @@ mod tests {
             session: Some(ProviderSessionId::new("known-conversation").unwrap()),
             host: HostAttribution::Ambiguous,
         };
-        let other = allow_host(ActionResult::Completed(caller)).unwrap_err();
+        let other =
+            allow_host(ActionResult::Completed(RecognizedCaller::Single(caller))).unwrap_err();
         assert!(!other.has_runtime_refusal());
         assert!(
             other.document()["error"]["suggestion"]

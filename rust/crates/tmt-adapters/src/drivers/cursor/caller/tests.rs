@@ -1,6 +1,7 @@
 //! Documentation-derived synthetic process observations, not live Cursor captures.
 use super::*;
-use crate::process::{CommandError, CommandFailure, CommandOutput, CommandRequest};
+use crate::process::{CommandError, CommandFailure, CommandOutput, CommandRequest, CommandRunner};
+use std::time::{Duration, Instant};
 use std::{cell::RefCell, collections::VecDeque, ffi::OsString};
 
 struct Probe {
@@ -20,7 +21,10 @@ impl Probe {
         }
     }
     fn identify(&self) -> ActionResult<RuntimeCaller, AncestryError> {
-        identify_caller(self, 42)
+        match CallerSnapshot::capture(self, 42, Instant::now() + Duration::from_secs(3)) {
+            Ok(snapshot) => identify_caller(&snapshot),
+            Err(error) => ActionResult::Failed(error),
+        }
     }
 }
 impl CommandRunner for Probe {

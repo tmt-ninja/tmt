@@ -143,6 +143,24 @@ pub struct CallerSession {
     pub runtime_pid: Option<u32>,
 }
 
+/// A driver distinguishes missing coordinates from present but invalid input.
+#[derive(Debug, PartialEq, Eq)]
+pub enum CallerSessionMarker {
+    Absent,
+    Invalid,
+    Valid(CallerSession),
+}
+
+impl CallerSessionMarker {
+    pub(crate) fn classify(present: bool, coordinates: Option<CallerSession>) -> Self {
+        match coordinates {
+            Some(session) => Self::Valid(session),
+            None if present => Self::Invalid,
+            None => Self::Absent,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CallerSessionRefusal {
     Configuration,
@@ -243,8 +261,8 @@ pub trait RuntimeLifecycle {
         false
     }
 
-    fn caller_session(&self) -> Option<CallerSession> {
-        None
+    fn caller_session(&self) -> CallerSessionMarker {
+        CallerSessionMarker::Absent
     }
 
     /// An exact-ID provider header/index can corroborate a main conversation;

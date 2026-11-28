@@ -13,7 +13,10 @@ pub mod muse;
 pub mod opencode;
 pub mod pi;
 
-use crate::process::{CommandFailure, CommandRequest, CommandRunner, ancestry::AncestryError};
+use crate::process::{
+    CommandFailure, CommandRequest, CommandRunner,
+    ancestry::{AncestryError, CallerSnapshot},
+};
 use crate::{
     runtime::{RuntimeCommand, RuntimeError, lifecycle::RuntimeLifecycle},
     skill_installation::ProviderEnvironment,
@@ -69,6 +72,15 @@ pub struct Runtime {
     pub session_env: &'static [&'static str],
 }
 
+pub type CallerObserver = fn(&CallerSnapshot<'_>) -> ActionResult<RuntimeCaller, AncestryError>;
+
+/// Conflicting observers cannot supply a provider-specific recovery instruction.
+#[derive(Debug)]
+pub enum RecognizedCaller {
+    Single(RuntimeCaller),
+    Conflict,
+}
+
 pub struct DriverDefinition {
     pub descriptor: &'static DriverDescriptor,
     /// Environment variables `locate` reads, captured once per invocation.
@@ -76,7 +88,7 @@ pub struct DriverDefinition {
     pub locate: fn(&ProviderEnvironment) -> Locations,
     pub runtime: Option<Runtime>,
     /// Caller evidence is independent of launch/lifecycle support.
-    pub identify_caller: Option<fn() -> ActionResult<RuntimeCaller, AncestryError>>,
+    pub identify_caller: Option<CallerObserver>,
 }
 
 impl DriverDefinition {
@@ -264,13 +276,45 @@ impl Registry {
             .collect()
     }
 
-    /// The first driver that recognizes this invocation's caller.
-    pub fn identify_caller(&self) -> ActionResult<RuntimeCaller, AncestryError> {
-        self.iter()
+    pub fn identify_caller(&self) -> ActionResult<RecognizedCaller, AncestryError> {
+        self.identify_with(
+            &crate::process::UnixCommandRunner,
+            std::process::id(),
+            Instant::now() + Duration::from_secs(3),
+        )
+    }
+
+    fn identify_with(
+        &self,
+        runner: &dyn CommandRunner,
+        pid: u32,
+        deadline: Instant,
+    ) -> ActionResult<RecognizedCaller, AncestryError> {
+        let mut observers = self
+            .iter()
             .filter_map(|driver| driver.identify_caller)
-            .fold(ActionResult::Unsupported, |found, identify| {
-                found.or_unsupported(identify)
-            })
+            .peekable();
+        if observers.peek().is_none() {
+            return ActionResult::Unsupported;
+        }
+        let snapshot = match CallerSnapshot::capture(runner, pid, deadline) {
+            Ok(snapshot) => snapshot,
+            Err(error) => return ActionResult::Failed(error),
+        };
+        let mut evidence = ActionResult::Unsupported;
+        for observe in observers {
+            match observe(&snapshot) {
+                ActionResult::Unsupported => {}
+                ActionResult::Failed(error) => return ActionResult::Failed(error),
+                ActionResult::Completed(caller) => {
+                    evidence = ActionResult::Completed(match evidence {
+                        ActionResult::Unsupported => RecognizedCaller::Single(caller),
+                        _ => RecognizedCaller::Conflict,
+                    });
+                }
+            }
+        }
+        evidence
     }
 
     /// Every runtime's session variables, for a process that must not look like one.
@@ -600,6 +644,105 @@ mod tests {
         }
     }
 
+    struct CallerProbe<'a> {
+        chain: &'a str,
+        commands: [&'a str; 2],
+        deadline: Instant,
+        chain_reads: std::cell::Cell<usize>,
+        argv_reads: std::cell::Cell<usize>,
+    }
+
+    impl<'a> CallerProbe<'a> {
+        fn new(commands: [&'a str; 2]) -> Self {
+            Self {
+                chain: "42 41 codex\n41 1 cursor-agent\n",
+                commands,
+                deadline: Instant::now() + Duration::from_secs(3),
+                chain_reads: 0.into(),
+                argv_reads: 0.into(),
+            }
+        }
+    }
+
+    impl CommandRunner for CallerProbe<'_> {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            assert_eq!(request.deadline, self.deadline);
+            let result = if request.args.iter().any(|arg| arg == "pid=,ppid=,comm=") {
+                self.chain_reads.set(self.chain_reads.get() + 1);
+                self.chain
+            } else {
+                assert!(request.args.iter().any(|arg| arg == "args="));
+                self.argv_reads.set(self.argv_reads.get() + 1);
+                match request.args.last().and_then(|arg| arg.to_str()) {
+                    Some("42") => self.commands[0],
+                    Some("41") => self.commands[1],
+                    _ => panic!("unexpected caller PID"),
+                }
+            };
+            Ok(CommandOutput {
+                stdout: result.as_bytes().to_vec(),
+                stderr: vec![],
+            })
+        }
+    }
+
+    #[test]
+    fn conflicting_callers_never_permit_host_fallback_in_either_order() {
+        for drivers in [
+            vec![&codex::DRIVER, &cursor::DRIVER],
+            vec![&cursor::DRIVER, &codex::DRIVER],
+        ] {
+            let registry = Registry { drivers };
+            for cursor in ["cursor-agent", "cursor-agent acp", ""] {
+                let probe = CallerProbe::new(["codex", cursor]);
+                let result = registry.identify_with(&probe, 42, probe.deadline);
+                if cursor.is_empty() {
+                    assert!(matches!(
+                        result,
+                        ActionResult::Failed(AncestryError::Unavailable)
+                    ));
+                } else {
+                    assert!(matches!(
+                        result,
+                        ActionResult::Completed(RecognizedCaller::Conflict)
+                    ));
+                }
+                assert_eq!(probe.chain_reads.get(), 1);
+                // A failed observation is terminal, including when it runs first.
+                assert_eq!(
+                    probe.argv_reads.get(),
+                    if cursor.is_empty() && registry.drivers[0].name() == cursor::DRIVER.name() {
+                        1
+                    } else {
+                        2
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn one_registered_claimant_or_a_generic_process_retains_its_own_path() {
+        let registry = Registry {
+            drivers: vec![&codex::DRIVER, &cursor::DRIVER],
+        };
+        for chain in ["42 1 codex\n", "42 1 sh\n"] {
+            let probe = CallerProbe {
+                chain,
+                ..CallerProbe::new(["codex", ""])
+            };
+            let result = registry.identify_with(&probe, 42, probe.deadline);
+            if chain.contains("codex") {
+                assert!(
+                    matches!(result, ActionResult::Completed(RecognizedCaller::Single(caller)) if caller.harness.as_str() == codex::DRIVER.name() && caller.permits_host_fallback())
+                );
+            } else {
+                assert!(matches!(result, ActionResult::Unsupported));
+            }
+            assert_eq!(probe.chain_reads.get(), 1);
+        }
+    }
+
     #[test]
     fn basic_caller_dispatch_does_not_require_a_launch_runtime() {
         static BASIC: DriverDefinition = DriverDefinition {
@@ -607,7 +750,7 @@ mod tests {
             env: &[],
             locate: cursor::DRIVER.locate,
             runtime: None,
-            identify_caller: Some(|| {
+            identify_caller: Some(|_| {
                 ActionResult::Completed(RuntimeCaller {
                     harness: tmt_core::binding::session::HarnessId::new(descriptor::CURSOR.name)
                         .unwrap(),
@@ -619,7 +762,10 @@ mod tests {
         let registry = Registry {
             drivers: vec![&BASIC],
         };
-        let ActionResult::Completed(caller) = registry.identify_caller() else {
+        let probe = CallerProbe::new(["", ""]);
+        let ActionResult::Completed(RecognizedCaller::Single(caller)) =
+            registry.identify_with(&probe, 42, probe.deadline)
+        else {
             panic!("basic caller callback must be dispatched without a runtime");
         };
         assert_eq!(caller.harness.as_str(), descriptor::CURSOR.name);

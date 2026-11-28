@@ -3,11 +3,8 @@
 #[cfg(test)]
 mod tests;
 
-use crate::process::{CommandRunner, ancestry::AncestryError, ps::query_ps};
-use std::{
-    path::Path,
-    time::{Duration, Instant},
-};
+use crate::process::ancestry::{AncestryError, CallerSnapshot};
+use std::path::Path;
 use tmt_core::{
     binding::session::HarnessId,
     driver::{
@@ -16,12 +13,10 @@ use tmt_core::{
     },
 };
 
-pub(super) fn identify_caller<R: CommandRunner>(
-    runner: &R,
-    process_id: u32,
+pub(super) fn identify_caller(
+    snapshot: &CallerSnapshot<'_>,
 ) -> ActionResult<RuntimeCaller, AncestryError> {
-    let deadline = Instant::now() + Duration::from_secs(3);
-    let host = match observe(runner, process_id, deadline) {
+    let host = match observe(snapshot) {
         Ok(Some(host)) => host,
         Ok(None) => return ActionResult::Unsupported,
         Err(error) => return ActionResult::Failed(error),
@@ -34,13 +29,8 @@ pub(super) fn identify_caller<R: CommandRunner>(
     })
 }
 
-fn observe<R: CommandRunner>(
-    runner: &R,
-    process_id: u32,
-    deadline: Instant,
-) -> Result<Option<HostAttribution>, AncestryError> {
-    let chain = crate::process::ancestry::command_chain(runner, process_id, deadline)?;
-    let mut ancestors = chain.iter().filter(|(_, executable)| {
+fn observe(snapshot: &CallerSnapshot<'_>) -> Result<Option<HostAttribution>, AncestryError> {
+    let mut ancestors = snapshot.chain.iter().filter(|(_, executable)| {
         Path::new(executable)
             .file_name()
             .is_some_and(|name| name == super::EXECUTABLE)
@@ -51,21 +41,8 @@ fn observe<R: CommandRunner>(
     if ancestors.next().is_some() {
         return Ok(Some(HostAttribution::Ambiguous));
     }
-    let output = query_ps(
-        runner,
-        &[
-            "-o".into(),
-            "args=".into(),
-            "-p".into(),
-            pid.to_string().into(),
-        ],
-        deadline,
-        16384,
-    )
-    .map_err(AncestryError::Command)?;
-    let args = std::str::from_utf8(&output.stdout)
-        .map_err(|_| AncestryError::Unavailable)?
-        .trim();
+    let args = snapshot.arguments(*pid)?;
+    let args = args.trim();
     if args.is_empty() {
         return Err(AncestryError::Unavailable);
     }

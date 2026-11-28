@@ -82,6 +82,45 @@ impl std::error::Error for AncestryError {
     }
 }
 
+/// One ancestry read and one absolute budget for the registered caller observers.
+pub struct CallerSnapshot<'a> {
+    runner: &'a dyn CommandRunner,
+    pub(crate) chain: Vec<(u32, String)>,
+    deadline: Instant,
+}
+
+impl<'a> CallerSnapshot<'a> {
+    pub(crate) fn capture(
+        runner: &'a dyn CommandRunner,
+        pid: u32,
+        deadline: Instant,
+    ) -> Result<Self, AncestryError> {
+        let chain = command_chain(&runner, pid, deadline)?;
+        Ok(Self {
+            runner,
+            chain,
+            deadline,
+        })
+    }
+
+    /// Only the driver recognizing this executable reads its argv.
+    pub(crate) fn arguments(&self, pid: u32) -> Result<String, AncestryError> {
+        let output = query_ps(
+            &self.runner,
+            &[
+                "-o".into(),
+                "args=".into(),
+                "-p".into(),
+                pid.to_string().into(),
+            ],
+            self.deadline,
+            16384,
+        )
+        .map_err(AncestryError::Command)?;
+        String::from_utf8(output.stdout).map_err(|_| AncestryError::Unavailable)
+    }
+}
+
 /// The PIDs on `first`'s chain from native parent reads, nearest first, ending before PID 1;
 /// `None` when any hop has no native read, a cycle or more than 64 entries.
 fn native_pids<R: CommandRunner>(runner: &R, first: u32, deadline: Instant) -> Option<Vec<u32>> {
