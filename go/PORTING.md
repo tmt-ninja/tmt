@@ -139,7 +139,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 
 ## go-3 (cli, output)
 
-- [ ] `CLI-01` Complete resume with provider session presence checks, preset replay, Gemini, retry, move, fresh start and driver switching.
+- [ ] `CLI-01` Complete resume with direct provider session presence checks, Codex npm launcher ownership, Gemini, retry, move, fresh start and driver switching. Saved presets with an exec-in-place launcher replay the pinned command and settings. Generic wrapper descendants receive no runtime admission.
 - [ ] `CLI-02` Extend send-now to verified provider-channel delivery and built-in and external hosts.
 - [ ] `CLI-03` Focus built-in and external hosts. Go tmux focus is covered by the focus parser cases from Rust parser/tests/identity.rs and the private Go equivalents of typescript/test/e2e/focus.e2e.test.ts: cross-session focus and back, unique/ambiguous key jobs, four-direction swap and already-beside, zoom and absent/stale/foreign refusals.
 - [ ] `CLI-04` Port admitted external host discovery and additional native built-in driver aliases. The tmux inventory tests reuse the read-only scan and fresh binding assertions from `discovery.e2e.test.ts` and the native SHA-256 contract vectors from `contracts/discovery-v1.json`.
@@ -197,6 +197,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - `rust/crates/tmt-cli/src/parser/tests/setup.rs` hidden Digest callback, legacy baked argv, discover-launch and bounded worker budget assertions → `TestDigestHookGrammarMatchesNative`, `TestDigestHookGrammarRejectsInvalidSourcesAndBudgets` and `TestHiddenNamesAreReservedButAbsentFromHelp`.
 
 - `rust/crates/tmt-cli/src/resume_command.rs::named_preset_inspection_and_clear_bypass_failed_caller_selection` and the forget assertions in `typescript/test/e2e/run-harness.e2e.test.ts` → `TestResumeNamedPresetAndForgetWithoutAHost`. The native storage-denial case `preserves human launch-state refusal and resumes normal forgotten-session lookup` → `TestResumeForgetStorageDenialLeavesDatabaseBytes`. The private tmux fixture also pins implicit preset clearing and native's nameless `--forget` dispatch.
+- `rust/crates/tmt-adapters/src/runtime/launch_preset.rs` model, explicit environment and same-basename fallback assertions, plus the exec-wrapper assertions in `typescript/test/e2e/run-harness.e2e.test.ts` → `TestResumePreparationReplaysSavedSettingsWithoutChangingParent` and `TestResumeForegroundUsesSavedCodexSession/saved_exec_wrapper`. The private fixture verifies replayed argv, the exact admitted provider session, receipt-bound delivery and ended runtime state.
 - `rust/crates/tmt-adapters/src/request_frame.rs` frame guidance, byte stability and sender escaping → `go/internal/output/output_test.go` coverage in `TestRequestFrameOneClosingGuidance` and `TestRequestFrameNativeSenderEscaping`.
 - `rust/crates/tmt-cli/src/exchange_command/presentation.rs` incoming reply command in JSON and human presentation → `TestExchangeListAndShowProtectContentBoundaries` in `go/internal/cli/exchange_test.go`.
 - `typescript/test/e2e/talk-completion.e2e.test.ts` receipt line and request correlation → `TestLiveTalkGetsDurableReplyFromPrivateFakeProvider` in `go/internal/cli/talk_private_test.go`, with the exact line pinned by the output frame tests.

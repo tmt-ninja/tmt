@@ -8,6 +8,9 @@ import (
 	"io"
 	"math"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/claude"
@@ -17,6 +20,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
+	"github.com/tmt-ninja/tmt/go/internal/invoke"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -355,31 +359,48 @@ func preflightResume(ctx context.Context, observe func(context.Context, int) (ru
 	return bindingFailure("RUNTIME_CONFLICT", message, 5)
 }
 
-// NOT PORTED (CLI-01): Provider session presence checks and replay of matching launch presets.
+// NOT PORTED (CLI-01): Provider session presence and Codex npm launcher ownership.
 func prepareExactResume(root home.Root, inv invocation, snapshot *core.ResumeSnapshot) (runPlan, *output.Failure) {
 	session := snapshot.Selected
 	if session == nil {
-		return runPlan{}, resumeConflict()
-	}
-	var driver ports.Driver
-	switch session.Driver {
-	case core.DriverClaude:
-		driver = claude.Driver{}
-	case core.DriverCodex:
-		driver = codex.Driver{}
-	default:
 		return runPlan{}, resumeConflict()
 	}
 	dir, err := os.Getwd()
 	if err != nil {
 		return runPlan{}, bindingFailure("RUN_LAUNCH_FAILED", "Could not resolve the working directory. No agent was launched.", 1)
 	}
+	var executable string
+	if preset := snapshot.ReplayPreset; preset != nil {
+		executable = preset.Executable
+		if strings.ContainsRune(executable, os.PathSeparator) && !filepath.IsAbs(executable) {
+			// Resolve an explicit relative launcher from the requested working
+			// directory, preserving traversal through symlink components.
+			executable = dir + string(os.PathSeparator) + executable
+		}
+		executable, err = exec.LookPath(executable)
+		if err != nil {
+			return runPlan{}, bindingFailure("LAUNCH_FAILED", "Could not start the requested command.", 1)
+		}
+	}
+	var driver ports.Driver
+	switch session.Driver {
+	case core.DriverClaude:
+		driver = claude.Driver{Executable: executable}
+	case core.DriverCodex:
+		driver = codex.Driver{Executable: executable}
+	default:
+		return runPlan{}, resumeConflict()
+	}
+	model, effort := resumeSettings(inv, snapshot, driver.Name())
 	command, err := driver.LaunchCommand(ports.AgentLaunch{
 		Identity: snapshot.Identity.ID, Name: snapshot.Identity.Name, Dir: dir, HomeDir: root.Dir,
-		Resume: session.ProviderSession, Model: inv.options["model"], Effort: inv.options["effort"],
+		Resume: session.ProviderSession, Model: model, Effort: effort,
 	})
 	if err != nil {
 		return runPlan{}, bindingFailure("RUNTIME_ERROR", "Could not prepare runtime resume.", 1)
+	}
+	if preset := snapshot.ReplayPreset; preset != nil {
+		command.Env = resumeEnvironment(command.Env, preset.Env)
 	}
 	return runPlan{
 		binding: bindingSelection{id: snapshot.Identity.ID, resume: snapshot}, provider: driver.Name(), command: command,
@@ -387,6 +408,47 @@ func prepareExactResume(root home.Root, inv invocation, snapshot *core.ResumeSna
 			IdentityID: snapshot.Identity.ID, Driver: session.Driver, ProviderSession: session.ProviderSession, Fence: snapshot.Fence,
 		},
 	}, nil
+}
+
+func resumeSettings(inv invocation, snapshot *core.ResumeSnapshot, executable string) (model, effort string) {
+	preset := snapshot.ReplayPreset
+	if preset == nil && snapshot.ResumeModel == nil {
+		// Native reuses only the model from an unassociated launch of the
+		// same executable name, independent of its installation path.
+		if launch := snapshot.LaunchPreset; launch != nil && !launch.Associated &&
+			filepath.Base(launch.Executable) == filepath.Base(executable) && launch.Model != nil {
+			model = *launch.Model
+		}
+	}
+	if preset != nil {
+		if preset.Model != nil {
+			model = *preset.Model
+		}
+		if preset.Effort != nil {
+			effort = *preset.Effort
+		}
+	}
+	if snapshot.ResumeModel != nil {
+		model = *snapshot.ResumeModel
+	}
+	if inv.has("model") {
+		model = inv.options["model"]
+	}
+	if inv.has("effort") {
+		effort = inv.options["effort"]
+	}
+	return model, effort
+}
+
+func resumeEnvironment(base []string, saved map[string]string) []string {
+	var additions []string
+	for key, value := range saved {
+		if _, present := os.LookupEnv(key); !present {
+			additions = append(additions, key+"="+value)
+		}
+	}
+	slices.Sort(additions)
+	return invoke.OverlayEnv(base, additions)
 }
 
 func validResumeSetting(value string) bool {

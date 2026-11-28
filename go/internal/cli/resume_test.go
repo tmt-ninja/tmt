@@ -155,14 +155,16 @@ func TestResumeUsesExactSnapshotThroughPrivateBinding(t *testing.T) {
 	if out, diagnostic := run(0, "resume", "--show", "Worker"); out != preset || diagnostic != "" {
 		t.Fatalf("resume preset stdout=%q stderr=%q", out, diagnostic)
 	}
-	if _, diagnostic := run(1, "resume", "Worker"); !strings.Contains(diagnostic, "requires a saved launch preset") || len(launches) != 2 {
-		t.Fatalf("matching preset was ignored: %q", diagnostic)
+	if out, diagnostic := run(17, "resume", "Worker"); out != "" || diagnostic != "" ||
+		len(launches) != 3 || launches[2].provider != "claude" ||
+		!slices.Equal(launches[2].command.Args, []string{"--resume", session, "--model", "test-model"}) {
+		t.Fatalf("matching preset did not drive the fenced resume: %+v, %q, %q", launches, out, diagnostic)
 	}
 	if out, diagnostic := run(0, "resume", "--forget-launch"); out != "Forgot Worker's launch preset.\n" || diagnostic != "" {
 		t.Fatalf("implicit forget-launch stdout=%q stderr=%q", out, diagnostic)
 	}
 	if out, diagnostic := run(17, "resume", "--forget"); out != "" || diagnostic != "" ||
-		len(launches) != 3 || launches[2].resume.ProviderSession != session {
+		len(launches) != 4 || launches[3].resume.ProviderSession != session {
 		t.Fatalf("nameless --forget did not take native's ordinary resume path: %+v, %q, %q", launches, out, diagnostic)
 	}
 }
@@ -356,4 +358,75 @@ func TestResumeForgetStorageDenialLeavesDatabaseBytes(t *testing.T) {
 	if status, out, diagnostic := run("resume", "--forget", "Ada"); status != 0 || out != "Ada has no remembered session.\n" || diagnostic != "" {
 		t.Fatalf("forget after restore = %d, %q, %q", status, out, diagnostic)
 	}
+}
+
+func TestResumePreparationReplaysSavedSettingsWithoutChangingParent(t *testing.T) {
+	bin := t.TempDir()
+	wrapper := filepath.Join(bin, "fixture-wrapper")
+	for _, executable := range []string{wrapper, filepath.Join(bin, "claude")} {
+		if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 99\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", bin+":/usr/bin:/bin")
+	t.Setenv("CLAUDE_MINI_PCT", "")
+	t.Setenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "")
+	if err := os.Unsetenv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"); err != nil {
+		t.Fatal(err)
+	}
+
+	starting, presetModel, effort := "sonnet", "opus", "high"
+	const session = "ed3e0815-19b0-468f-897d-c4217150d2df"
+	root := home.Root{Dir: t.TempDir()}
+	snapshot := core.ResumeSnapshot{
+		Selected: &core.ResumeSession{Driver: core.DriverClaude, ProviderSession: session},
+		ReplayPreset: &core.ResumeLaunchPreset{
+			Executable: wrapper, Model: &presetModel, Effort: &effort, Associated: true,
+			Env: map[string]string{"CLAUDE_MINI_PCT": "60", "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "55"},
+		},
+		ResumeModel: &starting,
+	}
+	run := func(inv invocation, path string, args []string) ports.ProcessSpec {
+		t.Helper()
+		plan, failure := prepareExactResume(root, inv, &snapshot)
+		if failure != nil || plan.command.Path != path || !slices.Equal(plan.command.Args, args) {
+			t.Fatalf("resume launch = %+v, failure = %+v", plan.command, failure)
+		}
+		return plan.command
+	}
+	command := run(invocation{}, wrapper, []string{"--resume", session, "--model", starting, "--effort", effort})
+	if !slices.Contains(command.Env, "CLAUDE_MINI_PCT=") || slices.Contains(command.Env, "CLAUDE_MINI_PCT=60") ||
+		!slices.Contains(command.Env, "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=55") {
+		t.Fatal("saved environment did not preserve caller presence and its empty override")
+	}
+	if _, present := os.LookupEnv("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE"); present {
+		t.Fatal("preparing resume changed the parent environment")
+	}
+	run(invocation{options: map[string]string{"model": "explicit-model", "effort": "low"}},
+		wrapper, []string{"--resume", session, "--model", "explicit-model", "--effort", "low"})
+
+	snapshot.ResumeModel = nil
+	run(invocation{}, wrapper, []string{"--resume", session, "--model", presetModel, "--effort", effort})
+	t.Chdir(bin)
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot.ReplayPreset.Executable = "./fixture-wrapper"
+	run(invocation{}, dir+"/./fixture-wrapper", []string{"--resume", session, "--model", presetModel, "--effort", effort})
+	snapshot.ReplayPreset.Executable = "./missing-wrapper"
+	if _, failure := prepareExactResume(root, invocation{}, &snapshot); failure == nil || failure.Code != "LAUNCH_FAILED" {
+		t.Fatalf("missing saved executable fallback: %+v", failure)
+	}
+	snapshot.LaunchPreset = &core.ResumeLaunchPreset{
+		Executable: "/previous/location/claude", Model: &presetModel, Effort: &effort,
+		Env: map[string]string{"CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "55"},
+	}
+	snapshot.ReplayPreset = nil
+	command = run(invocation{}, filepath.Join(bin, "claude"), []string{"--resume", session, "--model", presetModel})
+	if slices.Contains(command.Env, "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=55") {
+		t.Fatal("unassociated fallback replayed more than the model")
+	}
+	snapshot.LaunchPreset.Executable = "/previous/location/other-wrapper"
+	run(invocation{}, filepath.Join(bin, "claude"), []string{"--resume", session})
 }

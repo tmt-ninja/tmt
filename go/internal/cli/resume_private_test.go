@@ -22,6 +22,11 @@ import (
 )
 
 func TestResumeForegroundUsesSavedCodexSession(t *testing.T) {
+	t.Run("direct", func(t *testing.T) { testResumeForeground(t, false) })
+	t.Run("saved exec wrapper", func(t *testing.T) { testResumeForeground(t, true) })
+}
+
+func testResumeForeground(t *testing.T, replay bool) {
 	server := tmuxtest.Start(t)
 	world := t.TempDir()
 	t.Setenv(home.EnvHome, filepath.Join(world, "state"))
@@ -76,6 +81,29 @@ func TestResumeForegroundUsesSavedCodexSession(t *testing.T) {
  VALUES(?,'codex','codex','embedded',?,0)`, identity, session); err != nil {
 		t.Fatal(err)
 	}
+	wrapperRecord := filepath.Join(world, "wrapper-argv")
+	if replay {
+		wrapper := filepath.Join(world, "saved-wrapper")
+		// The saved launcher can only execute the exact Go fixture built
+		// above. It never resolves a provider through the host PATH.
+		script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + core.CommandWord(wrapperRecord) +
+			" || exit\nexec " + core.CommandWord(fake) + " \"$@\"\n"
+		if err := os.WriteFile(wrapper, []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+		preset, err := json.Marshal(map[string]any{
+			"executable": wrapper, "model": "fixture-model", "effort": nil, "env": map[string]string{},
+			"binding": "d092a9fe-c775-455d-9217-135450d5061a", "owner_pid": 42,
+			"owner_start": "ps-v1:Sat Jan 1 00:00:00 2000", "harness": "codex", "session": session,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.ExecContext(ctx, `INSERT INTO identity_metadata(identity_id,key,value) VALUES(?,'resume.launch',?)`,
+			identity, string(preset)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -125,6 +153,12 @@ IFS= read -r ignored`, "fixture", binary, string(identity), statusPath, diagnost
 		}
 		return active.Session.RuntimeState == "running" && active.Session.Runtime != nil && active.PaneID == pane.PaneID, err
 	})
+	if replay {
+		args, err := os.ReadFile(wrapperRecord)
+		if err != nil || string(args) != "resume\n-m\nfixture-model\n"+session+"\n--no-daemon\n" {
+			t.Fatalf("saved wrapper did not receive the replay command: %q, %v", args, err)
+		}
+	}
 	waitForPrivateFake(t, ctx, func() (bool, error) {
 		screen, err := host.Capture(ctx, pane, ports.CaptureOpts{})
 		return (codex.Driver{}).Classify(screen) == ports.DriverIdle, err
