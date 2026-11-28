@@ -43,6 +43,13 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     session clear still need the lifecycle callback path.
 - [ ] GO1-14: Exact resume for Claude and Codex, including the read-only preset projection.
 - [ ] GO1-15: Resume forget, move, new, retry, driver switching and stale/pending settlement.
+  - Go `TestForgetResumeLaunchAndSessionKeepIndependentEvidence` maps the
+    durable forget and forget-again assertions in
+    `run-harness.e2e.test.ts::resumes only the exact remembered session, never starts fresh and marks only trustworthy failures stale`.
+    It maps the current-driver preset clear from
+    `runtime/launch_preset.rs::retained_presets_match_only_their_driver_and_clear_without_reappearing`
+    and the session-preserving clear from the TypeScript recorded-wrapper fixture.
+    CLI command coverage remains open.
 - [ ] GO1-16: Match native Gemini resume refusal and unregistered-session cleanup.
   - Native `drivers/gemini.rs` registers no runtime.
     `runtime/session_presence/tests.rs::first_party_drivers_look_only_in_their_own_private_tree`

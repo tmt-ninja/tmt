@@ -30,6 +30,8 @@ type BindingRepo interface {
 	ReadResume(core.IdentityID) (*core.ResumeSnapshot, error)
 	// VerifyResume belongs to the same write transaction as the binding change.
 	VerifyResume(core.ResumeSnapshot) error
+	ForgetResume(expected core.Identity) (*core.DriverName, error)
+	ForgetResumeLaunch(expected core.Identity) error
 
 	FindReservationByIdentity(core.IdentityID) (*core.BindingReservation, error)
 	FindReservationByEndpoint(core.EndpointKey) (*core.BindingReservation, error)

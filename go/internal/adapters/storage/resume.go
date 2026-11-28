@@ -148,6 +148,45 @@ func (r bindingRows) VerifyResume(expected core.ResumeSnapshot) error {
 	return currentResumeRefusal(current)
 }
 
+func (r bindingRows) savedResumeForForget(expected core.Identity) (*core.ResumeSnapshot, error) {
+	current, err := r.Identities().FindByID(expected.ID)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil || *current != expected {
+		return nil, core.ErrIdentityInactive
+	}
+	return r.readResumePreferences(*current)
+}
+
+func (r bindingRows) ForgetResume(expected core.Identity) (*core.DriverName, error) {
+	snapshot, err := r.savedResumeForForget(expected)
+	if err != nil || snapshot.Selected == nil {
+		return nil, err
+	}
+	_, err = r.exec(`UPDATE identity_session_preferences
+		SET remembered_harness=NULL,runtime_mode=NULL,provider_session_id=NULL,
+		    driver_state_version=NULL,driver_state=NULL,stale_at_ms=NULL,resume_pending_at_ms=NULL
+		WHERE identity_id=?`, expected.ID)
+	if err != nil {
+		return nil, err
+	}
+	return &snapshot.Selected.Driver, nil
+}
+
+func (r bindingRows) ForgetResumeLaunch(expected core.Identity) error {
+	snapshot, err := r.savedResumeForForget(expected)
+	if err != nil {
+		return err
+	}
+	changes := []core.MetadataChange{{Key: "resume.launch"}}
+	if snapshot.Selected != nil {
+		changes = append(changes, core.MetadataChange{Key: "resume.driver." + string(snapshot.Selected.Driver)})
+	}
+	_, err = r.Identities().ApplyMetadata(expected.ID, changes)
+	return err
+}
+
 func (r bindingRows) launchIntentFingerprint(intent ports.LaunchIntent, binding core.Binding) (string, error) {
 	if intent.Resume == nil {
 		return launchPreferencesFingerprint(r.records, binding.ID)

@@ -247,3 +247,88 @@ func TestResumePresetProjectionAndFence(t *testing.T) {
 		t.Fatalf("matching retained preset = %+v", retained)
 	}
 }
+
+func TestForgetResumeLaunchAndSessionKeepIndependentEvidence(t *testing.T) {
+	parallelStorageFixture(t)
+	ctx := t.Context()
+	store := bindingFixture(t)
+	expectedBinding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
+	seedResumeFixture(t, store)
+	editResumeFixture(t, store, `UPDATE identity_session_preferences
+		SET channel=1,stale_at_ms=2200,resume_pending_at_ms=2300 WHERE identity_id=?`, bindingOwnerID)
+	editResumeFixture(t, store, `INSERT INTO identity_resume_records
+		(identity_id,harness,runtime_mode,provider_session_id) VALUES (?,'codex','shared','other-session')`, bindingOwnerID)
+	editResumeFixture(t, store, `INSERT INTO identity_metadata (identity_id,key,value) VALUES
+		(?1,'resume.launch','launch'),(?1,'resume.driver.claude','claude'),(?1,'resume.driver.codex','codex')`, bindingOwnerID)
+
+	original := resumeFixtureSnapshot(t, store, bindingOwnerID)
+	if err := store.Write(ctx, func(tx ports.StoreTx) error {
+		stale := original.Identity
+		stale.Name = "Stale"
+		if err := tx.Bindings().ForgetResumeLaunch(stale); !errors.Is(err, core.ErrIdentityInactive) {
+			t.Fatalf("drifted preset clear = %v", err)
+		}
+		if _, err := tx.Bindings().ForgetResume(stale); !errors.Is(err, core.ErrIdentityInactive) {
+			t.Fatalf("drifted session clear = %v", err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	afterDrift := resumeFixtureSnapshot(t, store, bindingOwnerID)
+	if afterDrift.Fence != original.Fence {
+		t.Fatal("refused clears changed saved preferences or metadata")
+	}
+	if err := store.Write(ctx, func(tx ports.StoreTx) error {
+		bindings := tx.Bindings()
+		if err := bindings.ForgetResumeLaunch(original.Identity); err != nil {
+			return err
+		}
+		return bindings.ForgetResumeLaunch(original.Identity)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	afterPreset := resumeFixtureSnapshot(t, store, bindingOwnerID)
+	if afterPreset.Selected == nil || afterPreset.Selected.ProviderSession != savedResumeSession ||
+		!matchBinding(afterPreset.PriorBinding, &expectedBinding, false) {
+		t.Fatalf("preset clear changed remembered session or binding: %+v", afterPreset)
+	}
+	var remaining string
+	if err := store.db.QueryRowContext(ctx, "SELECT group_concat(key,',') FROM identity_metadata WHERE identity_id=?",
+		bindingOwnerID).Scan(&remaining); err != nil || remaining != "resume.driver.codex" {
+		t.Fatalf("metadata after preset clear = %q, %v", remaining, err)
+	}
+
+	editResumeFixture(t, store, "INSERT INTO identity_metadata VALUES (?,'resume.launch','independent preset')", bindingOwnerID)
+	if err := store.Write(ctx, func(tx ports.StoreTx) error {
+		bindings := tx.Bindings()
+		driver, err := bindings.ForgetResume(original.Identity)
+		if err != nil || driver == nil || *driver != core.DriverClaude {
+			t.Fatalf("first session clear = %v, %v", driver, err)
+		}
+		driver, err = bindings.ForgetResume(original.Identity)
+		if err != nil || driver != nil {
+			t.Fatalf("second session clear = %v, %v", driver, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	afterSession := resumeFixtureSnapshot(t, store, bindingOwnerID)
+	if afterSession.Selected != nil || afterSession.PreferredDriver == nil || *afterSession.PreferredDriver != core.DriverCodex ||
+		!matchBinding(afterSession.PriorBinding, &expectedBinding, false) {
+		t.Fatalf("session clear changed preferred driver or binding: %+v", afterSession)
+	}
+	var channel, carried bool
+	var retained, preset string
+	err := store.db.QueryRowContext(ctx, `SELECT channel,driver_state IS NOT NULL OR
+		driver_state_version IS NOT NULL OR stale_at_ms IS NOT NULL OR resume_pending_at_ms IS NOT NULL,
+		(SELECT provider_session_id FROM identity_resume_records WHERE identity_id=?1 AND harness='codex'),
+		(SELECT value FROM identity_metadata WHERE identity_id=?1 AND key='resume.launch')
+		FROM identity_session_preferences WHERE identity_id=?1`, bindingOwnerID).
+		Scan(&channel, &carried, &retained, &preset)
+	if err != nil || !channel || carried || retained != "other-session" || preset != "independent preset" {
+		t.Fatalf("state after session clear: channel %t, stale state %t, retained %q, preset %q, error %v",
+			channel, carried, retained, preset, err)
+	}
+}
