@@ -102,7 +102,7 @@ func (b bindingCLI) unbind(ctx context.Context, claim callerClaim) output.Report
 		if entry.identity.Lifetime == core.LifetimeTemporary {
 			changed, err = tx.Identities().Retire(*entry.identity, entry.binding, false, b.now())
 		} else {
-			changed, err = tx.Bindings().Detach(*entry.binding)
+			changed, err = tx.Bindings().Detach(*entry.binding, b.now())
 		}
 		if err != nil || !changed {
 			return requiredBindingLookup(err)

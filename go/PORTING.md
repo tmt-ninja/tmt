@@ -31,6 +31,16 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO1-11: Reply callbacks, provider capture and flow accounting.
 - [ ] GO1-12: Partial usage totals for unmeasured wake turns.
 - [ ] GO1-13: End Digest continuations on a verified prompt or binding detach.
+  - Native `storage/consumption_history/passthrough_tests.rs::a_stop_blocked_continuation_stays_open_until_its_own_stop_or_a_prompt`
+    maps to Go `TestCurrentCaptureAdvancesOnlyMatchingTurnActivity`: blocked Stop
+    leaves delivered open, own Stop closes it, verified prompt closes an uncertain
+    continuation, and definitely-unsent never opens. The verified prompt callback
+    composition is tracked in GO2-04 and CLI-29.
+  - Native `storage/bindings/session.rs::a_stop_continuation_ends_with_the_provider_run_that_started_it`
+    maps to Go `TestDigestIdleBindingRequiresExactIdleAndNoOpenContinuation` for
+    verified runtime exit and `TestDigestContinuationEndsWithBindingReplacementOrDetach`
+    for active binding replacement and detach. Late session disclosure and same-process
+    session clear still need the lifecycle callback path.
 - [ ] GO1-14: Exact resume for Claude and Codex, including the read-only preset projection.
 - [ ] GO1-15: Resume forget, move, new, retry, driver switching and stale/pending settlement.
 - [ ] GO1-16: Gemini exact resume.

@@ -114,7 +114,7 @@ func TestBindingReservationAndMoveFence(t *testing.T) {
 		competitor := reservationFixture("a937752d-02bb-41d6-9831-e6fb6a9f414d", bindingOtherID, "%2")
 		ok, err := bindings.Reserve(competitor, nil)
 		requireBindingChange(t, ok, err, false)
-		ok, err = bindings.Detach(original)
+		ok, err = bindings.Detach(original, 2200)
 		requireBindingChange(t, ok, err, false)
 		stale := move
 		stale.Publisher.StartIdentity = "other-publisher"
@@ -137,7 +137,7 @@ func TestBindingReservationAndMoveFence(t *testing.T) {
 	})
 	writeBindingTest(t, store, func(tx ports.StoreTx) error {
 		bindings := tx.Bindings()
-		ok, err := bindings.Detach(original)
+		ok, err := bindings.Detach(original, 2200)
 		requireBindingChange(t, ok, err, false)
 		ok, err = bindings.Touch(original, 2600)
 		requireBindingChange(t, ok, err, false)

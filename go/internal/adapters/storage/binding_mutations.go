@@ -149,6 +149,9 @@ func (r bindingRows) Activate(reservation core.BindingReservation, expected *cor
 		return nil, err
 	}
 	if current != nil {
+		if err := endDigestContinuation(r.records, current.IdentityID, nowMs); err != nil {
+			return nil, err
+		}
 		ok, err := affectedOne(r.exec("DELETE FROM bindings WHERE id = ? AND identity_id = ?", current.ID, current.IdentityID))
 		if err != nil || !ok {
 			return nil, requiredMutation(ok, err, "binding changed before activation")
@@ -214,7 +217,10 @@ func (r bindingRows) Touch(expected core.Binding, nowMs uint64) (bool, error) {
 	return affectedOne(r.exec("UPDATE bindings SET last_verified_at = ? WHERE id = ?", timestamp, expected.ID))
 }
 
-func (r bindingRows) Detach(expected core.Binding) (bool, error) {
+func (r bindingRows) Detach(expected core.Binding, observedAtMs uint64) (bool, error) {
+	if !safeTime(observedAtMs) {
+		return false, errors.New("invalid detach timestamp")
+	}
 	current, err := r.FindByIdentity(expected.IdentityID)
 	if err != nil || !matchBinding(current, &expected, false) {
 		return false, err
@@ -223,7 +229,9 @@ func (r bindingRows) Detach(expected core.Binding) (bool, error) {
 	if err != nil || reservation != nil {
 		return false, err
 	}
-	// NOT PORTED (#6938, GO1-13): ending a binding's Digest continuation.
+	if err := endDigestContinuation(r.records, current.IdentityID, observedAtMs); err != nil {
+		return false, err
+	}
 	return affectedOne(r.exec("DELETE FROM bindings WHERE id = ? AND identity_id = ?", expected.ID, expected.IdentityID))
 }
 

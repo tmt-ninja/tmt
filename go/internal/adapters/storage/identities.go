@@ -114,10 +114,12 @@ func (r identityRows) Retire(expected core.Identity, expectedBinding *core.Bindi
 		return false, err
 	}
 	if binding != nil {
-		ok, err := bindings.Detach(*binding)
+		ok, err := bindings.Detach(*binding, nowMs)
 		if err != nil || !ok {
 			return false, requiredMutation(ok, err, "binding changed during retirement")
 		}
+	} else if err := endDigestContinuation(r.records, expected.ID, nowMs); err != nil {
+		return false, err
 	}
 	for _, statement := range []string{
 		"DELETE FROM identity_resume_records WHERE identity_id = ?",

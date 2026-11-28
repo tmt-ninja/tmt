@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 const openDigestContinuation = `identity_id=?1 AND projection='full' AND opportunity='turn_boundary'
@@ -52,4 +53,33 @@ func (d digestRecipient) supportsDigestIdle() bool {
 func endDigestContinuation(r records, id core.IdentityID, nowMs uint64) error {
 	_, err := r.exec("UPDATE focus_checklists SET confirmed_at_ms=?2 WHERE "+openDigestContinuation, id, nowMs)
 	return err
+}
+
+// ObserveDigestPrompt confirms a continuation only after exact main-session
+// prompt evidence. Stop follows the separate capture path.
+func (r bindingRows) ObserveDigestPrompt(p ports.DigestPromptObservation) (bool, error) {
+	if !safeTime(p.ObservedAtMs) || !safeTime(p.Owner.PID) || !validStart(p.Owner.StartIdentity) ||
+		!safeTime(p.Runtime.PID) || !validStart(p.Runtime.StartIdentity) || !validStart(p.ProviderSession) {
+		return false, nil
+	}
+	current, err := r.FindByIdentity(p.Expected.IdentityID)
+	if err != nil || !matchBinding(current, &p.Expected, false) {
+		return false, err
+	}
+	session := current.Session
+	if session.RuntimeState != "running" || session.PlainProgram != nil ||
+		session.LaunchOwner == nil || *session.LaunchOwner != p.Owner ||
+		session.Runtime == nil || *session.Runtime != p.Runtime ||
+		session.ProviderSessionID == nil || *session.ProviderSessionID != p.ProviderSession {
+		return false, nil
+	}
+	var remembered bool
+	err = r.one(`SELECT EXISTS(SELECT 1 FROM identity_session_preferences
+		WHERE identity_id=? AND remembered_harness IS NOT NULL AND provider_session_id=?)`,
+		current.IdentityID, p.ProviderSession).Scan(&remembered)
+	if err != nil || !remembered {
+		return false, err
+	}
+	err = endDigestContinuation(r.records, current.IdentityID, p.ObservedAtMs)
+	return err == nil, err
 }

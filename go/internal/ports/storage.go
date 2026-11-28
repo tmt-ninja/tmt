@@ -38,7 +38,8 @@ type BindingRepo interface {
 	Activate(reservation core.BindingReservation, expectedBinding *core.Binding, nowMs uint64) (*core.Binding, error)
 	ReleaseReservation(expected core.BindingReservation) (bool, error)
 	Touch(expected core.Binding, nowMs uint64) (bool, error)
-	Detach(expected core.Binding) (bool, error)
+	Detach(expected core.Binding, observedAtMs uint64) (bool, error)
+	ObserveDigestPrompt(DigestPromptObservation) (bool, error)
 	CreateLaunchIntent(LaunchIntent) (bool, error)
 	AdmitLaunch(LaunchAdmission) (*core.Binding, error)
 	EndLaunch(LaunchEnd) (bool, error)
@@ -46,6 +47,14 @@ type BindingRepo interface {
 	// a read snapshot. Release the transaction before the verified host close.
 	CanClosePane(expected core.Binding, observedAtMs uint64) (bool, error)
 	ObserveLaunchActivity(LaunchActivityObservation) (bool, error)
+}
+
+// DigestPromptObservation is an exact prompt observed by an admitted provider hook.
+type DigestPromptObservation struct {
+	Expected        core.Binding
+	Owner, Runtime  core.ProcessIncarnation
+	ProviderSession string
+	ObservedAtMs    uint64
 }
 
 // LaunchActivityObservation contains startup evidence verified outside SQLite.

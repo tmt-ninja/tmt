@@ -12,6 +12,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
+	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 const hookID1 core.HookEventID = "307e3578-0424-43be-92cb-28d649a39325"
@@ -263,8 +264,8 @@ func TestCurrentCaptureAdvancesOnlyMatchingTurnActivity(t *testing.T) {
 	turn, model := "live-turn", "claude-test"
 	c.Turn, c.Model = &turn, &model
 	if _, err := store.db.ExecContext(ctx, `UPDATE bindings SET runtime_state='running',last_transition='started',
-		runtime_pid=120,runtime_start_identity='old-start',observed_provider_session_id='old-session'
-		WHERE id=?`, binding.ID); err != nil {
+		runtime_pid=120,runtime_start_identity='old-start',observed_provider_session_id='old-session',
+		launch_owner_pid=119,launch_owner_start_identity='owner-start' WHERE id=?`, binding.ID); err != nil {
 		t.Fatal(err)
 	}
 	var serialized string
@@ -287,6 +288,10 @@ func TestCurrentCaptureAdvancesOnlyMatchingTurnActivity(t *testing.T) {
 	if _, err := store.db.ExecContext(ctx, "INSERT INTO wake_turns(identity_id,started_ms) VALUES (?,9000)", bindingOwnerID); err != nil {
 		t.Fatal(err)
 	}
+	// Native a_stop_blocked_continuation_stays_open_until_its_own_stop_or_a_prompt.
+	assertDigestContinuation(t, store, false)
+	handOverDigestContinuation(t, store, digestTestChecklist, digestTestToken, core.DigestStateDelivered)
+	assertDigestContinuation(t, store, true)
 	receipt, err := store.CommitCapture(ctx, event)
 	if err != nil || receipt.Outcome != core.HookCaptureCommitted {
 		t.Fatalf("receipt: %+v, %v", receipt, err)
@@ -298,4 +303,56 @@ func TestCurrentCaptureAdvancesOnlyMatchingTurnActivity(t *testing.T) {
 		FROM identity_session_preferences WHERE identity_id=?`, bindingOwnerID).Scan(&phase, &observed, &observedAt, &ended); err != nil || phase != "idle" || observed != model || observedAt != 10000 || ended != 10000 {
 		t.Fatalf("stop state: %q %q %d %d, %v", phase, observed, observedAt, ended, err)
 	}
+
+	// The blocked Stop ended the turn, but the provider is still continuing.
+	assertDigestContinuation(t, store, true)
+	event.ID = hookID2
+	c.Continuation, c.Response, c.NowMs = true, nil, 10100
+	receipt, err = store.CommitCapture(ctx, event)
+	if err != nil || receipt.Outcome != core.HookCaptureCommitted {
+		t.Fatalf("continuation Stop receipt: %+v, %v", receipt, err)
+	}
+	assertDigestContinuation(t, store, false)
+
+	handOverDigestContinuation(t, store, digestTestNext, digestTestNextToken, core.DigestStateUncertain)
+	assertDigestContinuation(t, store, true)
+	current := currentDigestBinding(t, store)
+	prompt := ports.DigestPromptObservation{Expected: current, Owner: *current.Session.LaunchOwner,
+		Runtime: *current.Session.Runtime, ProviderSession: "old-session", ObservedAtMs: 10200}
+	for _, reject := range []func(*ports.DigestPromptObservation){
+		func(p *ports.DigestPromptObservation) { p.Expected.ID = bindingID2 },
+		func(p *ports.DigestPromptObservation) { p.ProviderSession = "different-session" },
+		func(p *ports.DigestPromptObservation) { p.Runtime.PID++ },
+	} {
+		wrong := prompt
+		reject(&wrong)
+		writeBindingTest(t, store, func(tx ports.StoreTx) error {
+			ok, err := tx.Bindings().ObserveDigestPrompt(wrong)
+			requireBindingChange(t, ok, err, false)
+			return nil
+		})
+		assertDigestContinuation(t, store, true)
+	}
+	if _, err := store.db.ExecContext(ctx, "UPDATE identity_session_preferences SET provider_session_id='different-session' WHERE identity_id=?", bindingOwnerID); err != nil {
+		t.Fatal(err)
+	}
+	writeBindingTest(t, store, func(tx ports.StoreTx) error {
+		ok, err := tx.Bindings().ObserveDigestPrompt(prompt)
+		requireBindingChange(t, ok, err, false)
+		return nil
+	})
+	assertDigestContinuation(t, store, true)
+	if _, err := store.db.ExecContext(ctx, "UPDATE identity_session_preferences SET provider_session_id='old-session' WHERE identity_id=?", bindingOwnerID); err != nil {
+		t.Fatal(err)
+	}
+	writeBindingTest(t, store, func(tx ports.StoreTx) error {
+		ok, err := tx.Bindings().ObserveDigestPrompt(prompt)
+		requireBindingChange(t, ok, err, true)
+		return nil
+	})
+	assertDigestContinuation(t, store, false)
+
+	handOverDigestContinuation(t, store, "0f63bced-e4c4-4e66-8d59-965427581f72",
+		"f2285bd5-97ff-48c1-bffc-8ee7220c9d28", core.DigestStateDefinitelyUnsent)
+	assertDigestContinuation(t, store, false)
 }
