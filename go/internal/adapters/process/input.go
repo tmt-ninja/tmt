@@ -44,15 +44,16 @@ func ReadInputFile(path string, maximum int) ([]byte, error) {
 	return data, nil
 }
 
-// ReadInputStdin reads redirected stdin to EOF within five seconds, or returns
+// ReadInputStdin requires EOF within five seconds of starting acquisition,
+// regardless of intervening reads. It returns
 // maximum+1 bytes as soon as the body exceeds the caller's size limit. It
 // borrows the descriptor and leaves it open and its flags unchanged.
 func ReadInputStdin(file *os.File, maximum int) ([]byte, error) {
-	return readInputStdin(file, maximum, 5*time.Second)
+	return readInputStdin(file, maximum, 5*time.Second, time.Now)
 }
 
-func readInputStdin(file *os.File, maximum int, timeout time.Duration) ([]byte, error) {
-	deadline := time.Now().Add(timeout)
+func readInputStdin(file *os.File, maximum int, timeout time.Duration, now func() time.Time) ([]byte, error) {
+	deadline := now().Add(timeout)
 	if maximum < 0 || maximum == math.MaxInt || timeout <= 0 {
 		return nil, ErrInputStream
 	}
@@ -66,7 +67,7 @@ func readInputStdin(file *os.File, maximum int, timeout time.Duration) ([]byte, 
 	var data []byte
 	var buf [8192]byte
 	for len(data) <= maximum {
-		remaining := time.Until(deadline)
+		remaining := deadline.Sub(now())
 		if remaining <= 0 {
 			return nil, ErrInputTimeout
 		}
@@ -77,7 +78,7 @@ func readInputStdin(file *os.File, maximum int, timeout time.Duration) ([]byte, 
 		if err != nil {
 			return nil, errors.Join(ErrInputStream, err)
 		}
-		if time.Until(deadline) <= 0 {
+		if deadline.Sub(now()) <= 0 {
 			return nil, ErrInputTimeout
 		}
 		if !ready {
@@ -87,7 +88,7 @@ func readInputStdin(file *os.File, maximum int, timeout time.Duration) ([]byte, 
 		if err != nil {
 			return nil, errors.Join(ErrInputStream, err)
 		}
-		if time.Until(deadline) <= 0 {
+		if deadline.Sub(now()) <= 0 {
 			return nil, ErrInputTimeout
 		}
 		if retry {

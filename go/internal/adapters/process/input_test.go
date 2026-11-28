@@ -68,7 +68,7 @@ func TestReadInputStdinRequiresEOFUnlessOverflowed(t *testing.T) {
 			if tc.err != nil {
 				timeout = 25 * time.Millisecond
 			}
-			got, err := readInputStdin(reader, tc.maximum, timeout)
+			got, err := readInputStdin(reader, tc.maximum, timeout, time.Now)
 			if string(got) != tc.want || !errors.Is(err, tc.err) {
 				t.Fatalf("read = %q, %v, want %q, %v", got, err, tc.want, tc.err)
 			}
@@ -76,5 +76,36 @@ func TestReadInputStdinRequiresEOFUnlessOverflowed(t *testing.T) {
 				t.Fatalf("borrowed reader was closed: %v", err)
 			}
 		})
+	}
+}
+
+func TestReadInputStdinDeadlineDoesNotRestartAfterProgress(t *testing.T) {
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	defer writer.Close()
+	if _, err := writer.WriteString("partial body"); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stage a successful payload read before the deadline, followed by an
+	// EOF check at the original deadline. The read must not reset the budget.
+	start := time.Now()
+	elapsed := []time.Duration{0, 2 * time.Second, 3 * time.Second, 4 * time.Second, 5 * time.Second}
+	now := func() time.Time {
+		offset := elapsed[0]
+		if len(elapsed) > 1 {
+			elapsed = elapsed[1:]
+		}
+		return start.Add(offset)
+	}
+	got, err := readInputStdin(reader, 128, 5*time.Second, now)
+	if got != nil || !errors.Is(err, ErrInputTimeout) {
+		t.Fatalf("read with progress = %q, %v; want whole-read timeout and no partial bytes", got, err)
 	}
 }
