@@ -67,11 +67,27 @@ jobs:
           start=$(date +%s)
           env -u TMUX -u TMUX_PANE go test -count=1 ./...
           echo "${{ matrix.os }} test: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
+
+  # Race runs beside test, not after it: the race build of modernc.org/sqlite
+  # dominates wall time, and dist does not wait for it.
+  race:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - name: tmux
+        run: sudo apt-get install -y tmux >/dev/null
       - name: race
-        if: runner.os == 'Linux'
-        env:
-          CGO_ENABLED: '1'
-        run: env -u TMUX -u TMUX_PANE go test -race -count=1 ./...
+        run: |
+          start=$(date +%s)
+          env -u TMUX -u TMUX_PANE go test -race -count=1 ./...
+          echo "race: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
 
   dist:
     needs: [check, test]
