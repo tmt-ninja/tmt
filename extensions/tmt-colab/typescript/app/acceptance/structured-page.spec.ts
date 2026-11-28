@@ -308,6 +308,11 @@ test('keyboard activation stays on selected mockup controls', async () => {
     await page.goto(new URL(created.path, door.origin).href);
     const block = page.locator(`[data-block-id="${id}"]`);
     await selectBlockByFocus(block);
+    // The width and theme sit behind one Mockup settings control (#6749): a key opens it, as a
+    // click does, and the block stays selected.
+    const settings = block.getByRole('button', { name: 'Mockup settings', exact: true });
+    await settings.press('Enter');
+    await expect(settings).toHaveAttribute('aria-expanded', 'true');
     const dark = block.getByRole('button', { name: 'Dark', exact: true });
     await dark.press('Space');
     await expect(dark).toHaveAttribute('aria-pressed', 'true');
@@ -341,6 +346,10 @@ test('an empty mockup width field cannot delete its selected block', async () =>
     await page.goto(new URL(created.path, door.origin).href);
     const block = page.locator(`[data-block-id="${id}"]`);
     await selectBlockByFocus(block);
+    // The width sits behind Mockup settings (#6749), opened by key as in the case above.
+    const settings = block.getByRole('button', { name: 'Mockup settings', exact: true });
+    await settings.press('Enter');
+    await expect(settings).toHaveAttribute('aria-expanded', 'true');
     const width = block.getByRole('spinbutton', { name: 'Stage width' });
     await width.focus();
     // The controlled width immediately clamps on change. Put its real input into the empty
@@ -1812,6 +1821,9 @@ test('a comment on a structured block survives reopening', async () => {
     await mockupComment.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
     await expect(preview.getByRole('button', { name: 'Open comment 2' })).toBeAttached();
     await page.reload();
+    // The preview keeps to the text column, so its marker sits at the column's edge, where the
+    // comments card the reload restores covers it: close the card first, as for comment 1.
+    await commentsClose(page, 'discussion').click();
     await preview.getByRole('button', { name: 'Open comment 2' }).click();
     await expect(page.getByText('Review this mockup.', { exact: true })).toBeVisible();
     const threads = JSON.parse(run(world, colab, ['threads', created.pageId, '--json']))

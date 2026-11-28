@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { DsScope, UiTheme } from '../ui/index.js';
+import { useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { Dialog, DialogClose, DialogContent, DialogTitle, DsScope, UiTheme } from '../ui/index.js';
 import { BrowserNotice } from '../notice.js';
+import { browserUiClasses as c } from '../static.js';
 
 export interface MockupBlockProps {
   system?: string;
@@ -18,6 +19,15 @@ export interface MockupBlockProps {
   onSettingsChange?(settings: { width: number; theme: 'light' | 'dark' | 'viewer' }): void;
   /** The toolbar's segment words in the page's language; any one left out stays English. */
   labels?: MockupLabels;
+  /**
+   * `open` (the default) shows the toolbar. `collapsed` folds it behind one Mockup settings
+   * control, for a stage that is read more than set, and offers a full-size view whenever the
+   * stage is scaled down past easy reading.
+   */
+  toolbar?: 'open' | 'collapsed';
+  /** What the full-size view draws, the children when absent. A host whose content draws only once
+   * (a frame mounted on its node) passes a second instance. */
+  fullSize?: ReactNode;
   children?: ReactNode;
 }
 
@@ -31,6 +41,9 @@ export interface MockupLabels {
   light?: string;
   dark?: string;
   viewer?: string;
+  settings?: string;
+  fullSize?: string;
+  closeFullSize?: string;
 }
 
 /**
@@ -49,7 +62,19 @@ const boundedWidth = (width: number) =>
   Number.isFinite(width) ? Math.max(1, Math.min(4096, Math.round(width))) : 390;
 
 const themes = ['light', 'dark', 'viewer'] as const;
-const english = { custom: 'Custom', light: 'Light', dark: 'Dark', viewer: 'Viewer' };
+const english = {
+  custom: 'Custom',
+  light: 'Light',
+  dark: 'Dark',
+  viewer: 'Viewer',
+  settings: 'Mockup settings',
+  fullSize: 'Open at full size',
+  closeFullSize: 'Close full-size view',
+};
+
+/** A stage scaled below this draws its 14px body text under 11px, too small to read with ease: a
+ * collapsed toolbar then offers the full-size view. */
+export const MOCKUP_READABLE_SCALE = 11 / 14;
 
 /** A sized, locally contained stage; the caller resolves the requested system and its version. */
 export function MockupBlock({
@@ -64,9 +89,16 @@ export function MockupBlock({
   onVersionChange,
   onSettingsChange,
   labels,
+  toolbar = 'open',
+  fullSize,
   children,
 }: MockupBlockProps) {
   const words = { ...english, ...labels };
+  const collapsed = toolbar === 'collapsed';
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [full, setFull] = useState(false);
+  const toolbarId = useId();
+  const close = useRef<HTMLButtonElement>(null);
   const [stageWidth, setStageWidth] = useState(() => boundedWidth(width));
   const [appearance, setAppearance] = useState(theme);
   // A width other than the two presets opens as Custom.
@@ -98,6 +130,7 @@ export function MockupBlock({
   }, [unavailable]);
   // A stage wider than its block, at any width, scales down to fit; it never scrolls sideways.
   const scale = Math.min(1, availableWidth / Math.max(stageWidth, 1));
+  const offerFull = collapsed && !unavailable && scale < MOCKUP_READABLE_SCALE;
   const choose = (next: number) => {
     setCustom(false);
     setStageWidth(next);
@@ -107,7 +140,36 @@ export function MockupBlock({
     <div className="tmt-block-mockup-host">
       <UiTheme>
         <section className="tmt-block-mockup" aria-label={`${system} mockup`}>
-          <div className="tmt-block-mockup-toolbar" role="toolbar" aria-label="Mockup settings">
+          {collapsed && (
+            <div className="tmt-block-mockup-bar">
+              <button
+                type="button"
+                className="tmt-block-mockup-disclosure"
+                aria-expanded={settingsOpen}
+                aria-controls={toolbarId}
+                onClick={() => setSettingsOpen((open) => !open)}
+              >
+                {words.settings}
+              </button>
+              {offerFull && (
+                <button
+                  type="button"
+                  className="tmt-block-mockup-open"
+                  onClick={() => setFull(true)}
+                >
+                  {words.fullSize}
+                  <span aria-hidden="true"> ↗</span>
+                </button>
+              )}
+            </div>
+          )}
+          <div
+            id={toolbarId}
+            className="tmt-block-mockup-toolbar"
+            role="toolbar"
+            aria-label={words.settings}
+            hidden={collapsed && !settingsOpen}
+          >
             {systems.length ? (
               <>
                 <select
@@ -244,8 +306,74 @@ export function MockupBlock({
               </DsScope>
             </div>
           )}
+          {collapsed && !unavailable && (offerFull || full) && (
+            // The stage at its own width, scrolling where the window is narrower. It stays open
+            // while shown, even if a wider window no longer scales the stage down.
+            <Dialog open={full} onOpenChange={setFull}>
+              <DialogContent
+                className="tmt-block-mockup-full"
+                showCloseButton={false}
+                // Its title is for assistive technology only: focus starts on the one visible
+                // control.
+                initialFocus={() => close.current}
+              >
+                <div className="tmt-block-mockup-full-bar">
+                  <DialogClose asChild>
+                    <button ref={close} type="button" className="tmt-block-mockup-full-close">
+                      {words.closeFullSize}
+                    </button>
+                  </DialogClose>
+                  <DialogTitle className={c.visuallyHidden}>
+                    {`${system} mockup at full size`}
+                  </DialogTitle>
+                </div>
+                <div className="tmt-block-mockup-full-viewport">
+                  <MockupFullStage width={stageWidth} min={min} appearance={appearance}>
+                    {fullSize ?? children}
+                  </MockupFullStage>
+                </div>
+              </DialogContent>
+            </Dialog>
+          )}
         </section>
       </UiTheme>
     </div>
+  );
+}
+
+/** The full-size view's stage: the block's width, unscaled, as tall as what it draws (a stage is a
+ * size container, so its height is given rather than taken from its content). */
+function MockupFullStage({
+  width,
+  min,
+  appearance,
+  children,
+}: {
+  width: number;
+  min: number;
+  appearance: 'light' | 'dark' | 'viewer';
+  children?: ReactNode;
+}) {
+  const content = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(min);
+  useLayoutEffect(() => {
+    const node = content.current;
+    if (!node) return;
+    const update = () => setHeight(mockupStageHeight(min, node));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [min, width]);
+  return (
+    <DsScope className="tmt-block-mockup-stage" style={{ width, height }}>
+      <div
+        ref={content}
+        data-theme={appearance === 'viewer' ? undefined : appearance}
+        data-hug={min ? undefined : ''}
+      >
+        {children}
+      </div>
+    </DsScope>
   );
 }

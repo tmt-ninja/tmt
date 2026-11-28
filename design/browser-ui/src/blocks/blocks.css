@@ -44,14 +44,16 @@
 .tmt-block:has(> * > .tmt-block-question) + .tmt-block:has(> * > .tmt-block-question) {
   margin-top: 16px;
 }
-/* Prose keeps a reading measure; a table, a card, a mockup and an image keep the stage width. */
+/* Prose keeps a reading measure, and a mockup's preview lines up with it on both sides (#6749); a
+   table, a card and an image keep the stage width. */
 .tmt-block:where(
   [data-kind='text'],
   [data-kind='heading'],
   [data-kind='list-item'],
   [data-kind='todo'],
   [data-kind='callout'],
-  [data-kind='question']
+  [data-kind='question'],
+  [data-kind='mockup']
 ) {
   max-width: 720px;
 }
@@ -1191,6 +1193,92 @@ a.tmt-block-mention:focus-visible {
 .tmt-block-mockup-scale {
   color: var(--tmt-ui-color-secondary);
   font-size: var(--tmt-ui-caption-size);
+}
+/* A collapsed toolbar (#6749): Mockup settings opens it under the bar, and Open at full size sits at
+   the bar's far end while the stage is scaled down past easy reading. */
+.tmt-block-mockup-toolbar[hidden] {
+  display: none;
+}
+.tmt-block-mockup-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--tmt-ui-space-s);
+  margin-bottom: var(--tmt-ui-space-xs);
+}
+.tmt-block-mockup-disclosure,
+.tmt-block-mockup-open,
+.tmt-block-mockup-full-close {
+  min-height: 24px;
+  margin: 0;
+  padding: 0 var(--tmt-ui-space-xs);
+  border: 0;
+  border-radius: var(--tmt-ui-radius-s);
+  background: none;
+  font: inherit;
+  font-size: var(--tmt-ui-caption-size);
+  cursor: pointer;
+}
+.tmt-block-mockup-disclosure {
+  color: var(--tmt-ui-color-secondary);
+}
+/* The mark is decorative: its empty alternative keeps it out of the control's name, which stays
+   "Mockup settings"; aria-expanded says whether it is open. */
+.tmt-block-mockup-disclosure::before {
+  content: '▸' / '';
+  display: inline-block;
+  width: 1.2em;
+  font-size: 0.8em;
+}
+.tmt-block-mockup-disclosure[aria-expanded='true']::before {
+  content: '▾' / '';
+}
+.tmt-block-mockup-open {
+  color: var(--tmt-ui-color-text-action);
+}
+:is(.tmt-block-mockup-disclosure, .tmt-block-mockup-open, .tmt-block-mockup-full-close):hover {
+  background: var(--tmt-ui-surface-hover);
+}
+:is(
+  .tmt-block-mockup-disclosure,
+  .tmt-block-mockup-open,
+  .tmt-block-mockup-full-close
+):focus-visible {
+  outline: var(--tmt-ui-focus-width) solid var(--tmt-ui-color-focus);
+}
+/* The full-size view: the stage at its own width and height, up to the window, scrolling where it
+   is larger. */
+.tmt-block-mockup-full[data-slot='dialog-content'] {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--tmt-ui-space-s);
+  width: var(--tmt-layer-available-width, calc(100vw - 32px));
+  max-width: none;
+  height: auto;
+  max-height: var(--tmt-layer-available-height, calc(100dvh - 32px));
+  padding: var(--tmt-ui-space-s);
+  overflow: hidden;
+}
+.tmt-block-mockup-full-bar {
+  display: flex;
+  align-items: center;
+}
+.tmt-block-mockup-full-close {
+  min-height: var(--tmt-ui-control-size);
+  padding: 0 var(--tmt-ui-space-s);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius);
+  background: var(--tmt-ui-surface-sheet);
+  color: var(--tmt-ui-color-text);
+  font-size: inherit;
+}
+.tmt-block-mockup-full-viewport {
+  min-height: 0;
+  overflow: auto;
+  background: var(--tmt-ui-surface-hover);
+}
+.tmt-block-mockup-full-viewport > .tmt-block-mockup-stage {
+  transform: none;
 }
 .tmt-block-images[data-layout='grid'] figure img {
   aspect-ratio: 4/3;

@@ -111,6 +111,7 @@ const KIND: Partial<Record<BlockRecord['type'], BlockKind>> = {
   question: 'question',
   code: 'code',
   table: 'table',
+  mockup: 'mockup',
 };
 
 /** What the page shows a block as, for assistive technology: its type and opening text. */
@@ -1322,27 +1323,75 @@ export type MountMockup = (
 ) => Promise<{ destroy(): void; setTheme(theme?: Theme): void }>;
 
 /**
+ * How a block page draws a mockup's toolbar: the choice Ben's answer on Colab page ce0e285f makes
+ * (#6749). `collapsed` folds it behind Mockup settings and offers a full-size view when the preview
+ * is scaled down past reading; `open` keeps it showing. Either way the preview lines up with the
+ * text column.
+ */
+const MOCKUP_TOOLBAR: 'open' | 'collapsed' = 'collapsed';
+
+/**
  * A mockup block (#6005): DS `MockupBlock`'s stage around a sandboxed render frame. The markup is
  * untrusted page markup: it renders only in the frame, as an HTML page does, and never enters the
- * parent's DOM. A new source replaces the frame.
+ * parent's DOM. A new source replaces the frame; the full-size view draws a frame of its own.
  */
 function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup }) {
-  // The stage may draw its content again (a new size, a theme): the frame follows the node it is in.
-  const [node, setNode] = useState<HTMLDivElement | null>(null);
   const source = mockupSource(block);
   const [failed, setFailed] = useState(false);
-  // A design system may take a while to read: the stage says it is loading until the frame draws.
-  const [ready, setReady] = useState(false);
+  // A new source, or a frame host that has come back, tries again.
+  useEffect(() => setFailed(false), [source, mount]);
   // The stage's theme control is this viewer's: the frame paints it, and Viewer follows the app.
   const [theme, setTheme] = useState<Theme>();
+  const stage = mockupStage(block);
+  return (
+    <MockupBlock
+      system={typeof block.props.system === 'string' ? block.props.system : 'tmt-gui'}
+      width={stage.width}
+      height={stage.height}
+      unavailable={!mount || failed}
+      toolbar={MOCKUP_TOOLBAR}
+      onSettingsChange={(settings) =>
+        setTheme(settings.theme === 'viewer' ? undefined : settings.theme)
+      }
+      fullSize={mount && <MockupCanvas source={source} mount={mount} theme={theme} />}
+    >
+      {mount && (
+        <MockupCanvas
+          source={source}
+          mount={mount}
+          theme={theme}
+          onFailed={() => setFailed(true)}
+        />
+      )}
+    </MockupBlock>
+  );
+}
+
+/** One sandboxed frame drawing a mockup's markup, saying it is loading until the frame draws. */
+function MockupCanvas({
+  source,
+  mount,
+  theme,
+  onFailed,
+}: {
+  source: string;
+  mount: MountMockup;
+  theme?: Theme;
+  onFailed?: () => void;
+}) {
+  // The stage may draw its content again (a new size, a theme): the frame follows the node it is in.
+  const [node, setNode] = useState<HTMLDivElement | null>(null);
+  // A design system may take a while to read: the stage says it is loading until the frame draws.
+  const [ready, setReady] = useState(false);
   const themeRef = useRef(theme);
   themeRef.current = theme;
+  const failedRef = useRef(onFailed);
+  failedRef.current = onFailed;
   const frame = useRef<Awaited<ReturnType<MountMockup>>>(undefined);
   useEffect(() => frame.current?.setTheme(theme), [theme]);
   useEffect(() => {
-    if (!node || !mount) return;
+    if (!node) return;
     const controller = new AbortController();
-    setFailed(false);
     setReady(false);
     const drawn = () => {
       if (!controller.signal.aborted) setReady(true);
@@ -1356,7 +1405,7 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
         }
       },
       () => {
-        if (!controller.signal.aborted) setFailed(true);
+        if (!controller.signal.aborted) failedRef.current?.();
       },
     );
     return () => {
@@ -1366,28 +1415,15 @@ function MockupFrame({ block, mount }: { block: BlockRecord; mount?: MountMockup
       node.replaceChildren();
     };
   }, [node, mount, source]);
-  const stage = mockupStage(block);
   return (
-    <MockupBlock
-      system={typeof block.props.system === 'string' ? block.props.system : 'tmt-gui'}
-      width={stage.width}
-      height={stage.height}
-      unavailable={!mount || failed}
-      onSettingsChange={(settings) =>
-        setTheme(settings.theme === 'viewer' ? undefined : settings.theme)
-      }
-    >
-      {mount && !failed && !ready && (
+    <>
+      {!ready && (
         <p className="tmt-block-mockup-loading" role="status">
           Loading…
         </p>
       )}
-      <div
-        ref={setNode}
-        className="tmt-block-mockup-frame"
-        aria-busy={(!!mount && !failed && !ready) || undefined}
-      />
-    </MockupBlock>
+      <div ref={setNode} className="tmt-block-mockup-frame" aria-busy={!ready || undefined} />
+    </>
   );
 }
 
