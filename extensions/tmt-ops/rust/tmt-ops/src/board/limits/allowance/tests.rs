@@ -275,10 +275,9 @@ fn allowance_budget_forecasts_use_only_complete_owner_quotes() {
         Outcome::RunsOut(NOW + 8 * HOUR),
         lasts(50),
         lasts(80),
-        Outcome::Unknown,
         lasts(60),
     ];
-    let no_data = [Outcome::Unknown; 5];
+    let no_data = [Outcome::Unknown; 4];
     for (label, quote, left, lines) in [
         ("complete", Some(quote.clone()), Some(80), full),
         (
@@ -288,13 +287,7 @@ fn allowance_budget_forecasts_use_only_complete_owner_quotes() {
                 ..quote.clone()
             }),
             Some(80),
-            [
-                full[0],
-                Outcome::Unknown,
-                Outcome::Unknown,
-                Outcome::Unknown,
-                full[4],
-            ],
+            [full[0], Outcome::Unknown, Outcome::Unknown, full[3]],
         ),
         (
             "price floor",

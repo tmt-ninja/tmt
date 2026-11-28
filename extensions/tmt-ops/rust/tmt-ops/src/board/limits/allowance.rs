@@ -237,8 +237,8 @@ impl BudgetQuote {
 pub(crate) struct BudgetForecast {
     pub left_usd_micros: Option<u64>,
     pub need_usd_micros_per_hour: Option<f64>,
-    /// `Outcome::Lasts` is in USD micros on these lines.
-    pub lines: [Outcome; 5],
+    /// Dollar projections in 3 h, 6 h, 24 h and phase order, in USD micros.
+    pub lines: [Outcome; 4],
 }
 
 pub(crate) fn budget_forecast(
@@ -251,7 +251,7 @@ pub(crate) fn budget_forecast(
     let unknown = BudgetForecast {
         left_usd_micros: None,
         need_usd_micros_per_hour: None,
-        lines: [Outcome::Unknown; 5],
+        lines: [Outcome::Unknown; 4],
     };
     if !(period_start_ms..period_end_ms).contains(&now_ms) {
         return unknown;
@@ -268,19 +268,14 @@ pub(crate) fn budget_forecast(
     let remaining_ms = period_end_ms - now_ms;
     let remaining_hours = remaining_ms as f64 / HOUR_MS as f64;
     let observed_ms = quote.to_ms - quote.from_ms;
-    let lines = Line::ALL.map(|line| {
-        let pace = match line {
-            Line::Hours3 => quote.pace_per_hour(3),
-            Line::Hours6 => quote.pace_per_hour(6),
-            Line::Hours24 => quote.pace_per_hour(24),
-            // The owner supplies monetary pace, with no independent token estimate.
-            Line::Tokens => None,
-            Line::SinceReset => {
-                (observed_ms > 0).then(|| spend as f64 / (observed_ms as f64 / HOUR_MS as f64))
-            }
-        };
-        project(left as f64, remaining_ms, now_ms, pace)
-    });
+    let phase = (observed_ms > 0).then(|| spend as f64 / (observed_ms as f64 / HOUR_MS as f64));
+    let lines = [
+        quote.pace_per_hour(3),
+        quote.pace_per_hour(6),
+        quote.pace_per_hour(24),
+        phase,
+    ]
+    .map(|pace| project(left as f64, remaining_ms, now_ms, pace));
     BudgetForecast {
         left_usd_micros: Some(left),
         need_usd_micros_per_hour: Some(left as f64 / remaining_hours),
