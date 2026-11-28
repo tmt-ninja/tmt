@@ -50,7 +50,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [x] GO1-20: Selected Digest checklist snapshot and summary-only counts after settlement.
 - [x] GO1-21: Observe future schema versions through an existing API session.
 - [ ] GO1-22: Decode authoritative Digest idle activity for Agy and Pi.
-- [ ] GO1-23: Preserve the retained thread-root frame when a request is sent now.
+- [x] GO1-23: Preserve the retained thread-root frame when a request is sent now.
   - Native `storage/room/tests.rs::a_roster_post_reaches_only_the_addressed_members`
     maps to Go `TestSendNowProjectsExactRetainedThreadRoot` for the stored root
     ID and retained prompt. The same test pins the root ID when the prompt or
@@ -58,8 +58,10 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
   - Native `storage/digest_hook.rs` uses the same request frame for live and
     held deliveries. Go `TestDigestClaimSealsExactPrefixAndSettlesOnce` pins the
     same root projection in both the claimable preview and exact claimed read.
-    It also checks ID-only fallback at expiry and content-free history. Shared
-    frame rendering remains in progress.
+    It also checks ID-only fallback at expiry and content-free history.
+  - Go `TestThreadReplyLineMatchesNativeAssertion` ports the bounded and
+    ID-only previews from native `request_frame.rs` and checks that the child
+    frame after the prefix is byte-for-byte unchanged.
 
 - [x] GO1-24: Read existing discovery ownership without provisioning.
   - Native `storage/bindings/service_tests/discovery.rs::read_only_discovery_preserves_rows_and_distinguishes_known_stale_hook_only_and_duplicates`
