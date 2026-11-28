@@ -42,6 +42,7 @@ type application struct {
 	caller   callerSelector
 	live     liveTalkHost
 	tmux     func() (tmux.Client, error)
+	launch   foregroundLaunch
 }
 
 func (app application) run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -81,6 +82,10 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return output.Publish(stdout, stderr, app.runRequest(ctx, root, invocation), invocation.json)
 	case "check":
 		return output.Publish(stdout, stderr, app.check(ctx, root, invocation), invocation.json)
+	case "add", "name", "rm", "mv", "whoami", "ls":
+		return output.Publish(stdout, stderr, app.runBinding(ctx, root, invocation), invocation.json)
+	case "run":
+		return app.runProvider(ctx, root, invocation, stdout, stderr)
 	case "__hook":
 		return output.Publish(stdout, stderr, app.runHook(ctx, root, invocation), invocation.json)
 	}

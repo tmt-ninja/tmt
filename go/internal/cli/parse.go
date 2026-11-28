@@ -272,6 +272,10 @@ func validateOperands(parsed invocation) string {
 		return failure
 	case "run":
 		return validateRunOperands(parsed)
+	case "__hook":
+		if parsed.operands[0] != "claude" {
+			return fmt.Sprintf("Invalid value '%s' for '<provider>'.", parsed.operands[0])
+		}
 	case "talk":
 		if parsed.has("timeout") && parsed.has("detach") {
 			return "Use either --timeout or --detach, not both."
