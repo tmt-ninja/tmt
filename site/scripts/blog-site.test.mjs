@@ -8,6 +8,7 @@ import {
   filesBelow,
   indexBody,
   layout,
+  postBody,
   localOrigin,
   locationConfig,
   repositoryUrl,
@@ -167,4 +168,16 @@ test("blog chrome requires explicit publication decisions from build configurati
         }),
       /explicit published/,
     );
+});
+
+// Shared presentation is attached outside the approval-bound article bytes.
+test("blog pages pin dark and articles opt into editorial without rewriting approved content", () => {
+  const location = locationConfig({ base: "/" });
+  const article = '<article id="blog-article" class="author"><p>Original body</p></article>';
+  const body = postBody({ meta, html: article }, location);
+  assert.ok(body.includes(`<div class="tmt-ui-prose">${article}</div>`));
+  assert.match(
+    layout({ site, location, title: "Journal", description: "Notes", body }),
+    /data-theme="dark"/,
+  );
 });

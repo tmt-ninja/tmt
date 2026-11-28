@@ -46,9 +46,13 @@ export async function tmt(...args) {
 export async function draft({ root, sourcePath, meta, call = tmt }) {
   metadata(meta);
   const article = articleFromSource(await readFile(sourcePath, "utf8"));
-  const css = await readFile(join(root, "src/blog/blog.css"), "utf8");
+  // Use the same CSS import resolution as the site build; Colab cannot fetch package styles.
+  const { preprocessCSS, resolveConfig } = await import("vite");
+  const cssPath = join(root, "src/blog/blog.css");
+  const config = await resolveConfig({ configFile: false, root }, "build");
+  const { code: css } = await preprocessCSS(await readFile(cssPath, "utf8"), cssPath, config);
   const e = escapeHtml;
-  const source = `<!doctype html><html lang="${languageInfo(meta.language).tag}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(meta.title)}</title><style>${css}</style></head><body><main class="post-shell"><header class="post-heading"><p class="eyebrow">ARTICLE DRAFT / ${meta.date}</p><h1>${e(meta.title)}</h1><p class="post-summary">${e(meta.summary)}</p></header>${article}</main></body></html>`;
+  const source = `<!doctype html><html lang="${languageInfo(meta.language).tag}" data-theme="dark"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(meta.title)}</title><style>${css}</style></head><body><main class="post-shell"><header class="post-heading"><p class="eyebrow">ARTICLE DRAFT / ${meta.date}</p><h1>${e(meta.title)}</h1><p class="post-summary">${e(meta.summary)}</p></header><div class="tmt-ui-prose">${article}</div></main></body></html>`;
   const directory = join(root, ".private/drafts");
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const path = join(directory, randomUUID() + ".html");

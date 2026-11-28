@@ -196,7 +196,7 @@ export function layout({
     })
     .join("");
   return `<!doctype html>
-<html lang="${e(language)}"><head>
+<html lang="${e(language)}" data-theme="dark"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="${e(policy)}">
 <title>${e(title)}</title><meta name="description" content="${e(description)}">
@@ -219,7 +219,7 @@ ${chrome.footer}
 
 function tagLinks(meta, location) {
   if (!meta.tags?.length) return "";
-  return `<ul class="post-tags" aria-label="Tags" lang="en">${meta.tags.map((tag) => `<li><a href="${escapeHtml(location.base + tagPath(tag, meta.language))}">#${escapeHtml(tag)}</a></li>`).join("")}</ul>`;
+  return `<ul class="post-tags" aria-label="Tags" lang="en">${meta.tags.map((tag) => `<li><a class="tmt-ui-tag" href="${escapeHtml(location.base + tagPath(tag, meta.language))}">#${escapeHtml(tag)}</a></li>`).join("")}</ul>`;
 }
 
 export function indexBody(
@@ -244,7 +244,7 @@ ${posts.length ? posts.map(({ meta }) => `<div class="article-row" lang="${langu
 export function postBody(post, location, language = "en") {
   const e = escapeHtml;
   const { meta } = post;
-  return `<div class="post-shell"><a class="back-link" lang="en" href="${e(location.base + indexPath(language))}">← All articles</a>${meta.language !== language ? `<p class="translation-notice" lang="en">${e(languageInfo(language).label)} translation is not available yet. Showing the English article.</p>` : ""}<header class="post-heading"><p class="eyebrow">TMT JOURNAL <span> / </span> <time datetime="${meta.date}">${meta.date}</time></p><h1>${e(meta.title)}</h1><p class="post-summary">${e(meta.summary)}</p>${tagLinks(meta, location)}</header>${post.html}</div>`;
+  return `<div class="post-shell"><a class="back-link" lang="en" href="${e(location.base + indexPath(language))}">← All articles</a>${meta.language !== language ? `<p class="translation-notice" lang="en">${e(languageInfo(language).label)} translation is not available yet. Showing the English article.</p>` : ""}<header class="post-heading"><p class="eyebrow">TMT JOURNAL <span> / </span> <time datetime="${meta.date}">${meta.date}</time></p><h1>${e(meta.title)}</h1><p class="post-summary">${e(meta.summary)}</p>${tagLinks(meta, location)}</header><div class="tmt-ui-prose">${post.html}</div></div>`;
 }
 
 export function rss(posts, site, location, language = "en") {
