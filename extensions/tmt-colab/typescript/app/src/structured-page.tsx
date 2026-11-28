@@ -70,6 +70,7 @@ import {
   type QuestionPage,
   StructuredQuestion,
 } from './structured-question.js';
+import { blockAnswerChoices } from './question-form.js';
 import { ParentPageView, type ParentPageViewSource } from './parent-page-view.js';
 import { StructuredImages } from './block-images.js';
 import type { DocumentImageInput } from './document-images.js';
@@ -1076,7 +1077,13 @@ function ActionsPopover({
             .map((id) => {
               // Turn into (#6742) opens its list in this menu; the rest are the catalog's actions.
               const action = actions.find((entry) => entry.id === id);
-              if (id !== 'turn-into' && !action) return null;
+              const label =
+                id === 'edit-question'
+                  ? strings.blockActions.editQuestion
+                  : id === 'turn-into'
+                    ? strings.blockActions.turnInto
+                    : action?.label;
+              if (!label) return null;
               return (
                 <BlockMenuItem
                   key={id}
@@ -1092,7 +1099,7 @@ function ActionsPopover({
                     onAction?.(id, block.id);
                   }}
                 >
-                  {action?.label ?? strings.blockActions.turnInto}
+                  {label}
                 </BlockMenuItem>
               );
             })}
@@ -1593,7 +1600,7 @@ function ReadOnlyQuestion({ block }: { block: BlockRecord }) {
       title={question.title}
       agent={question.agent}
       kind={question.kind === 'long' ? 'short' : question.kind}
-      choices={question.choices.map(({ label }) => label)}
+      choices={blockAnswerChoices(question)}
       other={question.other}
     />
   );
@@ -1804,13 +1811,7 @@ function Content({
           />
         );
       return rest.questionPage ? (
-        <StructuredQuestion
-          block={block}
-          page={rest.questionPage}
-          onEdit={
-            !rest.readonly && rest.onQuestionEdit ? () => rest.onAuthor?.(block.id) : undefined
-          }
-        />
+        <StructuredQuestion block={block} page={rest.questionPage} />
       ) : (
         <ReadOnlyQuestion block={block} />
       );

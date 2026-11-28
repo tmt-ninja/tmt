@@ -1906,8 +1906,8 @@ for (const [width, theme] of [
     const host = await mountFixture(page, 'spec');
     const question = host.locator('[data-block-id="7a1c2e3f-4b5d-4e6f-8a9b-0c1d2e3f4a5b"]');
     await expect(question.getByRole('group', { name: '先做哪個區塊？' })).toBeVisible();
-    // The question allows no Other answer, so the part offers none.
-    await expect(question.getByLabel('Other…')).toHaveCount(0);
+    // The built-in choice appears even on a question authored without Other.
+    await expect(question.getByLabel('Other…')).toHaveCount(1);
     await question.getByLabel('圖片', { exact: true }).check();
     await question.scrollIntoViewIfNeeded();
     await page.mouse.move(0, 0);
@@ -2248,8 +2248,11 @@ test('a person inserts, edits, answers and deletes a question block (#6194)', as
     .poll(() => page.evaluate((id) => window.serveProps(id), id))
     .toEqual({ kind: 'multiple', choices: ['表格', '圖片'], other: true });
   expect(await page.evaluate((id) => window.serveText(id), id)).toBe('先做哪一種？');
-  // At rest a writer's card offers Edit, which opens the editor again; Esc closes it.
-  await block.getByRole('button', { name: 'Edit' }).click();
+  // Block actions reopen the editor; Esc closes it.
+  await expect(block.getByRole('button', { name: 'Edit question' })).toHaveCount(0);
+  await block.hover();
+  await block.getByRole('button', { name: 'Block actions' }).click();
+  await page.getByRole('menuitem', { name: 'Edit question', exact: true }).click();
   await expect(
     host.getByRole('group', { name: 'Edit question' }).getByLabel('Question'),
   ).toBeFocused();
@@ -2361,8 +2364,7 @@ for (const width of [1440, 390])
       const sendBox = (await block.getByRole('button', { name: 'Send' }).boundingBox())!;
       expect(sendBox.x).toBe(doneBox.x);
       expect(sendBox.height).toBe(doneBox.height);
-      const editBox = (await block.getByRole('button', { name: 'Edit question' }).boundingBox())!;
-      expect(editBox.y + editBox.height).toBeLessThan(sendBox.y);
+      await expect(block.getByRole('button', { name: 'Edit question' })).toHaveCount(0);
       // 20 choices and a long title, from an agent once this tab's edits have committed.
       await expect
         .poll(() => page.evaluate((id) => window.serveProps(id)?.choices, id))
@@ -2387,7 +2389,10 @@ for (const width of [1440, 390])
       );
       await expect(block.getByLabel('選項 20', { exact: true })).toBeVisible();
       await shot('full-rest');
-      await block.getByRole('button', { name: 'Edit' }).click();
+      await expect(block.getByRole('button', { name: 'Edit question' })).toHaveCount(0);
+      await block.hover();
+      await block.getByRole('button', { name: 'Block actions' }).click();
+      await page.getByRole('menuitem', { name: 'Edit question', exact: true }).click();
       const open = block.getByRole('group', { name: 'Edit question' });
       await expect(open.getByLabel('Choice 20', { exact: true })).toHaveValue('選項 20');
       // At the limit there is no Add a choice.

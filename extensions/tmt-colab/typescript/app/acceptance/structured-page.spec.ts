@@ -2479,6 +2479,176 @@ test('a question written in the browser is registered and its answer reaches the
   });
 });
 
+test('short question answer keys cannot change the blocks on the page', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('short-answer-agent');
+    const browser = await pairBrowser(world, 'short-answer-owner', { talk: true });
+    world.linkExtensions();
+    const colab = world.binaries.colab;
+    const created = JSON.parse(
+      run(
+        world,
+        colab,
+        ['page', 'create', '--title', 'Answer keys', '--no-open', '--json'],
+        '',
+        agent.pane,
+      ),
+    );
+    const title = 'What should we bring?';
+    const id = crypto.randomUUID();
+    const next = crypto.randomUUID();
+    run(
+      world,
+      colab,
+      ['block', 'batch', created.pageId, '--file', '-', '--json'],
+      JSON.stringify([
+        { op: 'insert', type: 'question', id, text: title, props: { kind: 'short' } },
+        { op: 'insert', type: 'paragraph', id: next, after: id, text: 'Next passage' },
+      ]),
+    );
+    const page = await browser.context.newPage();
+    await page.goto(new URL(created.path, door.origin).href);
+    const block = page.locator(`[data-block-id="${id}"]`);
+    await selectBlockByFocus(block);
+    await page.keyboard.press('Enter');
+    const field = block.getByRole('textbox', { name: 'Your answer' });
+    await expect(field).toBeFocused();
+    await page.keyboard.press('Backspace');
+    await expect(field).toBeFocused();
+    await page.keyboard.type('Slides');
+    await field.evaluate((node: HTMLTextAreaElement) => node.setSelectionRange(0, 0));
+    await page.keyboard.press('Backspace');
+    await page.keyboard.press('Delete');
+    await expect(field).toHaveValue('lides');
+    await page.keyboard.press('Shift+F10');
+    await page.keyboard.press('Alt+Shift+ArrowDown');
+    await expect(field).toBeFocused();
+    await expect(block.getByRole('group', { name: title })).toBeVisible();
+    const originalBlocks = [
+      { id, type: 'question', text: { s: title } },
+      { id: next, type: 'paragraph', text: { s: 'Next passage' } },
+    ];
+    const listed = () =>
+      JSON.parse(run(world, colab, ['block', 'ls', created.pageId, '--json'])).blocks;
+    expect(listed()).toMatchObject(originalBlocks);
+    await field.fill('Slides');
+    await expect(block.getByRole('button', { name: 'Send', exact: true })).toBeEnabled();
+    await page.keyboard.press('Enter');
+    await until(() => agent.received().length === 1, 'the answer reached the agent', 30_000);
+    expect(agent.received()[0]!.message).toContain(`Answer to “${title}”: Slides`);
+    await page.reload();
+    await expect(block.getByRole('button', { name: /Slides/ })).toBeVisible();
+    // An Ask can add its own to-do, after the two original blocks.
+    expect(listed().slice(0, 2)).toMatchObject(originalBlocks);
+  });
+});
+
+test('built-in Other reaches the agent and survives every question read', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const agent = await world.startAgent('other-answer-agent');
+    const browser = await pairBrowser(world, 'other-answer-owner', { talk: true });
+    world.linkExtensions();
+    const colab = world.binaries.colab;
+    const { pageId, path: pagePath } = JSON.parse(
+      run(
+        world,
+        colab,
+        ['page', 'create', '--title', 'Other answers', '--no-open', '--json'],
+        '',
+        agent.pane,
+      ),
+    );
+    const cli = (args: string[], input?: string) =>
+      JSON.parse(run(world, colab, [...args, '--json'], input));
+    const single = crypto.randomUUID();
+    const multiple = crypto.randomUUID();
+    cli(
+      ['block', 'batch', pageId, '--file', '-'],
+      JSON.stringify([
+        {
+          op: 'insert',
+          id: single,
+          type: 'question',
+          text: 'Which format?',
+          props: { kind: 'single', choices: ['PDF', 'Other'] },
+        },
+        {
+          op: 'insert',
+          id: multiple,
+          after: single,
+          type: 'question',
+          text: 'Which days?',
+          props: { kind: 'multiple', choices: ['Monday', 'Friday'], other: false },
+        },
+      ]),
+    );
+    const page = await browser.context.newPage();
+    await page.goto(new URL(pagePath, door.origin).href);
+    const first = page.locator(`[data-block-id="${single}"]`);
+    const second = page.locator(`[data-block-id="${multiple}"]`);
+    const answer = async (block: Locator, value: string) => {
+      await block.getByLabel('Other…', { exact: true }).check();
+      await block.getByLabel('Other: your answer').fill(value);
+      await block.getByRole('button', { name: 'Send', exact: true }).click();
+    };
+    await expect(first.getByLabel('Other', { exact: true })).toHaveCount(0);
+    await expect(first.getByLabel('Other…', { exact: true })).toHaveCount(1);
+    expect(cli(['block', 'get', pageId, single]).block.props.choices).toEqual(['PDF', 'Other']);
+    await answer(first, 'Plain text');
+    await until(() => agent.received().length === 1, 'the single Other answer', 30_000);
+    expect(agent.received()[0]!.message).toContain('Answer to “Which format?”: Other: Plain text');
+    await second.getByLabel('Friday', { exact: true }).check();
+    await answer(second, 'Sunday afternoon');
+    await until(() => agent.received().length === 2, 'the multiple Other answer', 30_000);
+    const selection = 'Friday; Other: Sunday afternoon';
+    expect(agent.received()[1]!.message).toContain(`Answer to “Which days?”: ${selection}`);
+
+    const question = (id: string) =>
+      cli(['question', 'ls', pageId]).questions.find((item: { id: string }) => item.id === id);
+    await expect
+      .poll(() => question(single))
+      .toMatchObject({ state: 'answered', answer: 'Other: Plain text' });
+    await expect
+      .poll(() => question(multiple))
+      .toMatchObject({ state: 'answered', answer: selection });
+    type AnswerComment = { questionId: string; body: string };
+    const comment = (threads: { comments: AnswerComment[] }[], id: string) =>
+      threads.flatMap(({ comments }) => comments).find(({ questionId }) => questionId === id);
+    const threads = cli(['threads', pageId]).threads;
+    const recorded = comment(threads, multiple);
+    expect(recorded?.body).toContain(`Answer to “Which days?”: ${selection}`);
+    const { directory } = cli(['export', pageId, '--dir', world.root]);
+    const exported = JSON.parse(
+      fs.readFileSync(path.join(directory, 'conversations.json'), 'utf8'),
+    );
+    for (const id of [single, multiple])
+      expect(comment(exported.threads, id)?.body).toBe(comment(threads, id)?.body);
+    expect(fs.readFileSync(path.join(directory, 'conversations.md'), 'utf8')).toContain(selection);
+
+    await page.reload();
+    await expect(first.getByRole('button', { name: /Other: Plain text/ })).toBeVisible();
+    await second.getByRole('button', { name: /Sunday afternoon/ }).click();
+    await expect(second.getByLabel('Friday', { exact: true })).toBeChecked();
+    await expect(second.getByLabel('Other…', { exact: true })).toBeChecked();
+    await expect(second.getByLabel('Other: your answer')).toHaveValue('Sunday afternoon');
+    await expect(second.getByRole('button', { name: 'Edit question' })).toHaveCount(0);
+    cli(
+      ['block', 'batch', pageId, '--file', '-'],
+      JSON.stringify([{ op: 'text', id: multiple, base: 'Which days?', set: 'Which afternoon?' }]),
+    );
+    await expect
+      .poll(() => question(multiple))
+      .toMatchObject({
+        state: 'open',
+        earlierAnswer: { answer: selection },
+      });
+    await expect(second.getByText(text.questionEarlierVersion(selection))).toBeVisible();
+    expect(comment(cli(['threads', pageId]).threads, multiple)?.body).toBe(recorded?.body);
+  });
+});
+
 // #6749: changing an answer starts from the answer given, after a reload too, so adding a choice
 // or editing a short answer keeps the rest. The change reaches the agent, and the page's verified
 // record ends with the whole answer.
@@ -2641,7 +2811,10 @@ test('the agent picked in the question editor receives the answer, and the creat
     await page.goto(new URL(pagePath, `${door.address}/`).href);
     const block = page.locator(`[data-block-id="${question}"]`);
     await expect(block).toBeVisible({ timeout: 30_000 });
-    await block.getByRole('button', { name: 'Edit' }).click();
+    await expect(block.getByRole('button', { name: 'Edit question' })).toHaveCount(0);
+    await block.hover();
+    await block.getByRole('button', { name: 'Block actions' }).click();
+    await page.getByRole('menuitem', { name: 'Edit question', exact: true }).click();
     const edit = page.getByRole('group', { name: 'Edit question' });
     await expect(edit).toContainText('Answers go to');
     const pick = edit.locator('.question-recipient-trigger');
@@ -2679,7 +2852,10 @@ test('the agent picked in the question editor receives the answer, and the creat
     // Choosing the page creator clears the question's own agent: the registry follows the creator.
     // An answered question is one line; pressing it opens the card again, with its Edit.
     await block.getByRole('button', { name: /Which heading should we use\?/ }).click();
-    await block.getByRole('button', { name: 'Edit' }).click();
+    await expect(block.getByRole('button', { name: 'Edit question' })).toHaveCount(0);
+    await block.hover();
+    await block.getByRole('button', { name: 'Block actions' }).click();
+    await page.getByRole('menuitem', { name: 'Edit question', exact: true }).click();
     await expect(pick).toHaveText(chosen.name);
     await pick.click();
     await page

@@ -4035,7 +4035,14 @@ Only trusted explicit Send publishes complete unsent drafts in its own block, in
 Choosing answers, opening/closing rows, render, reload and sync publish nothing. Each
 answer is one plain-text comment, `Answer to “<question>”: <answer>`, followed by page
 title and the visible recipient text. Multiple choices retain authored order;
-Other uses `Other: <text>`. Partial Sends retain untouched and failed drafts.
+Other uses `Other: <text>`. Block-page single- and multiple-choice questions always offer one
+built-in Other with a text field, including questions with absent or false legacy `other` props.
+An authored literal Other label counts as that built-in choice on the answer card only. The
+authored choices, form digest and existing answers keep their original data. The signed
+question-bound comment, exports and agent Ask use the existing body format. The answering card
+has no title or choice edit controls. Block actions → Edit question opens the authoring editor.
+Answer fields handle their keys without invoking page block commands. Partial Sends retain
+untouched and failed drafts.
 A short, a long and an Other answer carry files through the attachment tray of comments
 and Chat (`AttachButton`, `PendingAttachments`, paste and drop, the same limits and
 notices; choices have no tray). The parent group holds one attachment draft per question

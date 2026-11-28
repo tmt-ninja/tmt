@@ -143,6 +143,7 @@ export const TURN_INTO: readonly TurnInto[] = [
 export type BlockMenuAction =
   | (typeof BLOCK_MENU_ACTIONS)[number]
   | (typeof HEADING_MENU_ACTIONS)[number]
+  | 'edit-question'
   | 'turn-into'
   | 'turn-back'
   | `turn-${TurnInto}`;
@@ -163,6 +164,8 @@ export function blockMenuActions(
         (into) => `turn-${into}` as const,
       ),
     ];
+  if (block?.type === 'question')
+    return ['move-up', 'move-down', 'duplicate', 'edit-question', 'delete'];
   // Turn into goes before Delete, which stays last of the block's own actions.
   const own: readonly BlockMenuAction[] = retype
     ? ['move-up', 'move-down', 'duplicate', 'turn-into', 'delete']
@@ -1809,6 +1812,10 @@ export function useBlockEditing(
         return;
       }
       setBlockMenu(undefined);
+      if (action === 'edit-question') {
+        setAuthoring(id);
+        return;
+      }
       if (action.startsWith('turn-')) {
         gesture(retypeBlock(tree, id, action.slice('turn-'.length) as TurnInto));
         setSelection(selectBlock(id));
@@ -1910,6 +1917,13 @@ export function useBlockEditing(
   /** A key on the page outside a block's editor; true when taken. */
   const pageKey = useCallback(
     (event: KeyboardEvent): boolean => {
+      // The question handles its own answer keys before they bubble here. They must never run
+      // page commands, even while the question or another block is still selected.
+      if (
+        event.target instanceof Element &&
+        event.target.closest('.tmt-block-question :is(input, textarea)')
+      )
+        return false;
       const menuOn = blockMenu;
       if (menuOn) {
         if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {

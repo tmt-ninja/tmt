@@ -12,7 +12,7 @@ import {
   verifiedQuestionStates,
 } from './question-registry.js';
 import { answerOf, draftOf, type QuestionGroup } from './questions.js';
-import { blockQuestion } from './question-form.js';
+import { blockAnswerChoices, blockQuestion } from './question-form.js';
 export { blockQuestion } from './question-form.js';
 import { text } from './strings.js';
 import type { ThreadBinding } from './thread-store.js';
@@ -50,12 +50,10 @@ export interface QuestionPage {
 export function StructuredQuestion({
   block,
   page,
-  onEdit,
 }: {
   block: BlockRecord;
   page: QuestionPage;
   /** A writer opens the question's editor. */
-  onEdit?(): void;
 }) {
   const question = useMemo(() => blockQuestion(block), [block]);
   const group = useMemo<QuestionGroup>(
@@ -117,8 +115,9 @@ export function StructuredQuestion({
     row.echo ?? (row.answer ? (answerOf(question, row.answer.body) ?? row.answer.body) : undefined);
   // The form a change opens with: the answer's choices, Other text or short text (#6749).
   const given = answered === undefined ? undefined : draftOf(question, answered);
+  const choices = blockAnswerChoices(question);
   const saved = given && {
-    choices: given.choices,
+    choices: given.choices.filter((choice) => choices.includes(choice)),
     ...(given.other ? { other: given.value } : {}),
     ...(question.kind === 'short' || question.kind === 'long' ? { text: given.value } : {}),
   };
@@ -136,7 +135,7 @@ export function StructuredQuestion({
         title={question.title}
         agent={recipient ?? text.questionNoAgent}
         kind={question.kind === 'long' ? 'short' : question.kind}
-        choices={question.choices.map(({ label }) => label)}
+        choices={choices}
         other={question.other}
         state={
           state === 'handled'
@@ -174,7 +173,6 @@ export function StructuredQuestion({
               }
         }
         onRetry={row.draft.failed ? () => void send() : undefined}
-        onEdit={onEdit}
         onFollowUp={
           answered !== undefined
             ? () =>

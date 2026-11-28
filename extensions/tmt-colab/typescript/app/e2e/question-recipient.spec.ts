@@ -170,7 +170,10 @@ async function openEditor(page: Page, options: { recipients?: boolean; follows?:
   }, options);
   const block = page.locator(`#structured-page-fixture [data-block-id="${QUESTION}"]`);
   await block.scrollIntoViewIfNeeded();
-  await block.getByRole('button', { name: 'Edit' }).click();
+  await expect(block.getByRole('button', { name: 'Edit question' })).toHaveCount(0);
+  await block.hover();
+  await block.getByRole('button', { name: 'Block actions' }).click();
+  await page.getByRole('menuitem', { name: 'Edit question', exact: true }).click();
   const edit = page.getByRole('group', { name: 'Edit question' });
   await expect(edit).toBeVisible();
   return { block, edit, line: edit.locator('.tmt-block-question-eyebrow') };

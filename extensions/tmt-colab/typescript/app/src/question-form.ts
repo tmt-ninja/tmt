@@ -4,7 +4,7 @@ import type { BlockRecord } from './block-model.js';
 import type { CommentView } from './thread-records.js';
 
 export function blockQuestion(block: Pick<BlockRecord, 'id' | 'props' | 'text'>): Question {
-  const { kind, choices, agent, other } = block.props;
+  const { kind, choices, agent } = block.props;
   const mode = kind === 'multiple' || kind === 'short' ? kind : 'single';
   return {
     id: block.id,
@@ -17,11 +17,19 @@ export function blockQuestion(block: Pick<BlockRecord, 'id' | 'props' | 'text'>)
             .slice(0, 20)
             .map((label) => ({ label }))
         : [],
-    other: mode !== 'short' && other === true,
+    other: mode !== 'short',
     agent: typeof agent === 'string' ? agent : '',
     group: null,
     label: null,
   };
+}
+
+/** The built-in Other replaces legacy labels on the answer card. The authored form and digest
+ * still include the original choices. */
+export function blockAnswerChoices(question: Pick<Question, 'choices'>): string[] {
+  return question.choices
+    .map(({ label }) => label)
+    .filter((label) => !/^other(?:…|\.\.\.)?$/i.test(label.trim()));
 }
 
 export type QuestionForm = [1, string, Question['kind'], [string, string | null][]];
