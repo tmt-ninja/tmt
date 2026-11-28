@@ -18,8 +18,9 @@ const (
 // SessionResponse is one compact API resource or error. Stale ends the
 // session after publication so that a client can reopen the current binary.
 type SessionResponse struct {
-	Body  []byte
-	Stale bool
+	Body   []byte
+	Status int
+	Stale  bool
 }
 
 // ServeSession publishes responses in request order. deliverPending runs
