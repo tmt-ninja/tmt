@@ -73,6 +73,24 @@ func TestPublishBindingKeepsNativeMetadataOnPrivateServer(t *testing.T) {
 	if state, _ := core.EvaluateBinding(identity, &binding, got); state != core.BindingActive {
 		t.Fatalf("EvaluateBinding = %v, probe = %+v", state, got)
 	}
+	raw := strings.TrimSpace(server.Run("show-options", "-p", "-t", pane.PaneID, "-v", AgentOption))
+	withField := strings.TrimSuffix(raw, "}") + `,"retained":{"value":"#;,"}}`
+	server.Run("set-option", "-p", "-t", pane.PaneID, AgentOption, withField)
+	if cleared, err := client.ClearBinding(t.Context(), foreign, identity); err != nil || cleared {
+		t.Fatalf("foreign ClearBinding = %t, %v", cleared, err)
+	}
+	if cleared, err := client.ClearBinding(t.Context(), binding, identity); err != nil || !cleared {
+		t.Fatalf("ClearBinding = %t, %v", cleared, err)
+	}
+	after := server.Run("show-options", "-p", "-t", pane.PaneID, "-v", AgentOption)
+	document := uniqueObject([]byte(after))
+	if document["globalIdentity"] != nil || string(document["version"]) != "1" ||
+		string(document["retained"]) != `{"value":"#;,"}` {
+		t.Fatalf("clearing changed unrelated Go metadata: %q", after)
+	}
+	if cleared, err := client.ClearBinding(t.Context(), binding, identity); err != nil || cleared {
+		t.Fatalf("repeat ClearBinding = %t, %v", cleared, err)
+	}
 	if native := server.Run("show-options", "-p", "-t", pane.PaneID, "-v", nativePane); native != nativeMarker+"\n" {
 		t.Fatalf("native pane marker changed: %q", native)
 	}
