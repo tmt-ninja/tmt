@@ -201,6 +201,20 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     populate their own state. Fresh-open, bootstrap and schema migration
     fixtures continue to exercise fresh storage.
 
+- [x] GO1-33: Read native TalkFacts and share the sending rule with Room dispatch.
+  - Native `storage/orchestration/sending.rs` pair-window, pair-count and held-row
+    behavior maps to `TestReadTalkFactsKeepsPairWindowAndBoundsHeldEvidence`.
+    The fixture checks the first 20 holds and a later live hold, count-only
+    present routes, historical policy-only reads, and an unchanged cursor.
+  - Main native `orchestration/talks.rs` member selection and evaluation limits
+    map to `TestReadTalkFactsPreservesNativeMemberOverflowEvidence`: 257 members
+    with no selected evaluation can succeed, while selected route or talk
+    evaluation sees the overflow evidence.
+  - Native `orchestration/sending.rs` and the routes tie rule in
+    `orchestration/talks.rs` map to `TestResolveOrchSendingKeepsGrantAndPairLimitIndependent`.
+    Room dispatch uses the same Core decision, including a live route grant
+    that still permits a writer to hold at the pair limit.
+
 ## go-2 (sys, process, tmux, host, drivers, channel)
 
 - [x] GO2-01: Native selected-process start reads on Darwin and Linux before the bounded ps fallback. Rust `process/process_info.rs::stopped_and_exited_owned_children_keep_batch_parity` → `TestNativeProcessStartsForLiveStoppedAndGone` and `TestNativeStartTokenMatchesTheBoundedPSFallback`; Linux stat parsing → `TestNativeLinuxStatKeepsTheStartFieldAfterComplexCommand`. Under concurrent test suites, repeated batched ps reads exhausted the swap budget, including the fresh post-swap check. Native reads preserve the persisted token and remove those subprocesses. Each focus ancestry proof also checks both required links from one snapshot (`TestProcessTreeProvesBothSegmentsFromOneSnapshot`), with fresh rechecks and deadlines intact.

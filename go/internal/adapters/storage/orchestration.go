@@ -46,10 +46,7 @@ func (s *Storage) ReadPolicySnapshot(ctx context.Context, q core.OrchSnapshotQue
 		if err != nil {
 			return err
 		}
-		page.IdentityIDs = make([]core.IdentityID, 0, len(members))
-		for _, member := range members {
-			page.IdentityIDs = append(page.IdentityIDs, member.id)
-		}
+		page.IdentityIDs = orchMemberIDs(members)
 		page.Policy, err = readOrchPolicy(r, orchMemberNames(members))
 		return err
 	})
@@ -65,7 +62,15 @@ type orchMember struct {
 }
 
 func readOrchMembers(r records, normalized *string) ([]orchMember, error) {
-	members, err := scanRows(r, `SELECT id,name FROM identities WHERE retired_at_ms IS NULL
+	members, err := scanOrchMembers(r, normalized)
+	if err == nil && len(members) > orchSnapshotMemberLimit {
+		return nil, orchReadLimit()
+	}
+	return members, err
+}
+
+func scanOrchMembers(r records, normalized *string) ([]orchMember, error) {
+	return scanRows(r, `SELECT id,name FROM identities WHERE retired_at_ms IS NULL
 		AND (?1 IS NULL OR instr(canonical_name,?1)>0)
 		ORDER BY CASE WHEN ?1 IS NOT NULL AND substr(canonical_name,1,length(?1))=?1 THEN 0 ELSE 1 END,
 		canonical_name COLLATE BINARY LIMIT ?2`, func(row scanner) (orchMember, error) {
@@ -73,10 +78,6 @@ func readOrchMembers(r records, normalized *string) ([]orchMember, error) {
 		err := row.Scan(&member.id, &member.name)
 		return member, err
 	}, normalized, orchSnapshotMemberLimit+1)
-	if err == nil && len(members) > orchSnapshotMemberLimit {
-		return nil, orchReadLimit()
-	}
-	return members, err
 }
 
 func orchMemberNames(members []orchMember) map[core.IdentityID]core.Name {

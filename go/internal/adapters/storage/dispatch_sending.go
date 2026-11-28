@@ -88,27 +88,29 @@ func (p *roomSendingPolicy) admit(r records, to core.IdentityID, cal digestCalen
 	if err != nil || person {
 		return decision, err
 	}
-	if sending := p.sender.Sending.Value; sending != "anyone" && !(sending == "leads" && p.isLead(to)) {
-		decision.granted = slices.ContainsFunc(p.snapshot.RouteGrants, func(grant core.OrchRouteGrant) bool {
-			return grant.FromID == p.from && grant.ToID == to && now < grant.UntilMs
-		})
-		if !decision.granted {
-			decision.acceptance = core.DispatchRestricted
-			return decision, nil
+	evidence := core.OrchSendingEvidence{
+		AtMs: now, SenderIsLead: p.isLead(p.from), RecipientIsLead: p.isLead(to),
+	}
+	for _, grant := range p.snapshot.RouteGrants {
+		if grant.FromID == p.from && grant.ToID == to {
+			evidence.GrantUntilMs = grant.UntilMs
+			break
 		}
 	}
-	if p.isLead(p.from) {
+	route := core.ResolveOrchSending(p.sender, core.OrchEffective{}, evidence).Route
+	if route == core.OrchSendingRestricted {
+		decision.acceptance = core.DispatchRestricted
+		return decision, nil
+	}
+	decision.granted = route == core.OrchSendingGranted
+	if evidence.SenderIsLead {
 		return decision, nil
 	}
 	recipient, err := core.ResolveOrchEffective(p.snapshot, to, now, cal.calendar)
 	if err != nil {
 		return decision, err
 	}
-	limit := p.sender.TalkLimit.Value
-	if other := recipient.TalkLimit.Value; other != nil && (limit == nil || *other < *limit) {
-		limit = other
-	}
-	if limit == nil {
+	if core.OrchPairLimit(p.sender.TalkLimit.Value, recipient.TalkLimit.Value) == nil {
 		return decision, nil
 	}
 	start, err := readTalkPairWindow(r, p.from, to, now)
@@ -116,10 +118,14 @@ func (p *roomSendingPolicy) admit(r records, to core.IdentityID, cal digestCalen
 		return decision, err
 	}
 	count, err := countTalkPair(r, p.from, to, start)
-	if err == nil && count >= uint64(*limit) {
+	if err != nil {
+		return decision, err
+	}
+	evidence.Count = &count
+	if core.ResolveOrchSending(p.sender, recipient, evidence).NeedsPerson {
 		decision.acceptance = core.DispatchHeld
 	}
-	return decision, err
+	return decision, nil
 }
 
 func readTalkPairWindow(r records, a, b core.IdentityID, now uint64) (uint64, error) {
