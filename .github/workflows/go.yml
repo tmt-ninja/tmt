@@ -12,9 +12,9 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: go-${{ github.ref }}
-  cancel-in-progress: false
+# No concurrency group: with several members pushing a minute apart, one
+# serialized group cancels almost every pending run. Ubuntu runs are cheap and
+# independent, so every pushed head gets its own complete result.
 
 defaults:
   run:
