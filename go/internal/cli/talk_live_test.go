@@ -134,7 +134,7 @@ func TestLiveTalkFencesDeliveryAndSettlesBeforeReadingFinal(t *testing.T) {
 				Kind: core.RequestKindRequest, Message: message, Wait: true,
 				Route: core.RequestRoute{Kind: core.RequestRouteInbox, Recipient: &recipient.ID},
 			}, "a<b")
-		want := []string{"probe", "prepare", "begin", "probe", "deliver", "settle"}
+		want := []string{"prepare", "begin", "probe", "deliver", "settle"}
 		if uncertain {
 			failure, ok := result.(*output.Failure)
 			if !ok || failure.Code != "DELIVERY_UNCERTAIN" || failure.Request.DeliveryState != "uncertain" {

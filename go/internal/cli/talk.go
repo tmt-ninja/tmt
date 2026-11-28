@@ -29,13 +29,16 @@ type talkPlan struct {
 	timeout    time.Duration
 	poll       time.Duration
 	retention  uint64
+	digestKind core.DigestKind
+	urgent     bool
 }
 
 func (app application) prepareTalk(ctx context.Context, root home.Root, inv invocation) (talkPlan, *output.Failure) {
 	plan := talkPlan{
-		target: inv.operands[0], message: inv.operands[1], detach: inv.has("detach"),
+		target: inv.operands[0], message: inv.operands[1], detach: inv.has("detach"), urgent: inv.has("urgent"),
+		digestKind: core.DigestKind(inv.options["kind"]),
 	}
-	for _, option := range []string{"remote", "room", "passthrough", "urgent", "kind", "expect-name"} {
+	for _, option := range []string{"remote", "room", "passthrough", "expect-name"} {
 		if inv.has(option) {
 			// NOT PORTED (#6938): nonlocal routing, passthrough and delivery policy.
 			return plan, &output.Failure{Code: "NOT_PORTED", Message: fmt.Sprintf("Talk option '--%s' is not yet ported.", option), Status: 2}
@@ -128,6 +131,9 @@ type talkReport struct {
 	RecipientIdentityID core.IdentityID       `json:"recipientIdentityId,omitempty"`
 	Offline             bool                  `json:"offline,omitempty"`
 	Notification        string                `json:"notification,omitempty"`
+	Digest              bool                  `json:"digest,omitempty"`
+	DigestUntilMs       *uint64               `json:"digestUntilMs,omitempty"`
+	RemainingMs         *uint64               `json:"remainingMs,omitempty"`
 	WaitingFor          string                `json:"waitingFor,omitempty"`
 	Suggestion          string                `json:"suggestion,omitempty"`
 	Response            *string               `json:"response,omitempty"`
@@ -142,6 +148,17 @@ func (r talkReport) ExitStatus() int            { return 0 }
 func (r talkReport) Human(w io.Writer) error {
 	target := r.Target
 	term := outputTerminal(w)
+	if r.DigestUntilMs != nil {
+		seconds := *r.RemainingMs / 1000
+		if *r.RemainingMs%1000 != 0 {
+			seconds++
+		}
+		if _, err := fmt.Fprintf(w, "Queued %s: %s is in digest mode for %d seconds (until UTC epoch %d ms); delivery is in its next checklist.\n",
+			r.RequestID, clistyle.Escape(target), seconds, *r.DigestUntilMs); err != nil {
+			return err
+		}
+		return clistyle.WriteHint(w, term, fmt.Sprintf("retrieve it later with tmt-go result %s", r.RequestID))
+	}
 	var message string
 	switch {
 	case r.Pane != "" && r.Response != nil:
@@ -166,6 +183,15 @@ func (r talkReport) Human(w io.Writer) error {
 		}
 	}
 	return clistyle.WriteHint(w, term, fmt.Sprintf("retrieve it later with tmt-go result %s", r.RequestID))
+}
+
+func (r talkReport) heldByDigest(until uint64, recipient core.IdentityID, now uint64) talkReport {
+	remaining := until - min(until, now)
+	r.Pane = ""
+	r.Status, r.RecipientIdentityID = "queued", recipient
+	r.Digest, r.DigestUntilMs, r.RemainingMs = true, &until, &remaining
+	r.Notification, r.WaitingFor = "held", "digest_checklist"
+	return r
 }
 
 func (r talkReport) recipientHints() string {
@@ -241,12 +267,19 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 	if !waitForTalkTimer(ctx, plan.delay) {
 		return &output.Failure{Code: "INTERRUPTED", Message: "Interrupted before preparing the request. No message was sent.", Status: 1}
 	}
+	kind := plan.digestKind
+	if kind == "" {
+		kind = core.DigestKindFyi
+	}
 	req := core.PrepareRequest{
 		RequestID: core.RequestID("req_" + talkUUID()), AttemptID: core.AttemptID(talkUUID()),
 		Kind: core.RequestKindRequest, Origin: core.RequestOriginPerson, Originator: originator,
 		Route: core.RequestRoute{Kind: core.RequestRouteInbox, Recipient: &recipient.ID}, Recipient: &recipient.ID,
 		Message: plan.message, Wait: !plan.detach, RetentionDays: plan.retention,
 		ExpiresAtMs: uint64(time.Now().Add(plan.timeout).UnixMilli()),
+		DeliveryPolicy: &core.RequestDeliveryPolicy{
+			Urgent: plan.urgent, Kind: kind, Automatic: true, Mode: core.RequestDeliveryRequest,
+		},
 	}
 	if binding != nil {
 		return app.liveTalk(ctx, plan, *recipient, *binding, req, senderName)
@@ -258,6 +291,9 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 	report := talkReport{
 		RequestID: prepared.RequestID, Target: plan.target, RecipientIdentityID: recipient.ID,
 		Identity: output.TargetIdentity{Name: string(recipient.Name), CanonicalName: recipient.CanonicalName},
+	}
+	if prepared.DigestUntilMs != nil {
+		return report.heldByDigest(*prepared.DigestUntilMs, recipient.ID, uint64(wallClock{}.NowMs()))
 	}
 	if plan.detach {
 		report.Status, report.Offline = "queued", true

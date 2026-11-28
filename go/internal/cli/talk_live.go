@@ -100,10 +100,6 @@ func (app application) liveTalk(ctx context.Context, plan talkPlan, recipient co
 	req core.PrepareRequest, sender string,
 ) (result output.Report) {
 	pane := ports.PaneRef{Server: binding.Server.Socket, PaneID: binding.PaneID}
-	if _, failure := app.liveDriver(ctx, recipient, binding, pane); failure != nil {
-		return failure
-	}
-
 	prepared, err := app.requests.Prepare(ctx, req)
 	if err != nil {
 		return talkFailure(err)
@@ -111,6 +107,9 @@ func (app application) liveTalk(ctx context.Context, plan talkPlan, recipient co
 	report := talkReport{
 		RequestID: prepared.RequestID, Target: plan.target, Pane: pane.PaneID,
 		Identity: output.TargetIdentity{Name: string(recipient.Name), CanonicalName: recipient.CanonicalName},
+	}
+	if prepared.DigestUntilMs != nil {
+		return report.heldByDigest(*prepared.DigestUntilMs, recipient.ID, uint64(wallClock{}.NowMs()))
 	}
 	if req.Wait {
 		defer app.releaseTalkWait(ctx, prepared, report, &result)
