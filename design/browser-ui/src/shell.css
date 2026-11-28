@@ -927,6 +927,7 @@ nav.tmt-ui-rail .tmt-ui-rail-group-action:disabled {
     --tmt-ui-rail-pill-width: 48px;
     --tmt-ui-rail-pill-radius: 14px;
     --tmt-ui-rail-pill-height: auto;
+    --tmt-ui-rail-lane: 0px;
     --tmt-ui-rail-target: var(--tmt-ui-rail-width);
     --tmt-ui-rail-progress: 1;
     --tmt-ui-rail-space: calc(var(--tmt-ui-rail-width) * var(--tmt-ui-rail-progress));
