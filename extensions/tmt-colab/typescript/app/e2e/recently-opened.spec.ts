@@ -29,6 +29,11 @@ test('opening a page on this device records it, newest last opened, and nothing 
   page,
 }) => {
   await mount(page);
+  const storedPreferences = () =>
+    page.evaluate(() => Object.fromEntries(Object.entries(localStorage)));
+  // The fixture starts on Work List, which remembers its active tab independently of page opens.
+  await expect.poll(storedPreferences).toEqual({ 'tmt-colab-work-tab': 'list' });
+  const beforeOpening = await storedPreferences();
   expect(await recorded(page)).toEqual({});
   const before = Date.now();
   await open(page, first);
@@ -38,7 +43,7 @@ test('opening a page on this device records it, newest last opened, and nothing 
   const times = await recorded(page);
   expect(times[first]).toBeGreaterThanOrEqual(before - 5000);
   expect(times[second]).toBeGreaterThanOrEqual(times[first]);
-  // The record is this device's alone: one IndexedDB key for the space, no other storage.
+  // The record is this device's alone: one IndexedDB key for the space, no preference changes.
   const keys = await page.evaluate(
     () =>
       new Promise<string[]>((resolve, reject) => {
@@ -52,7 +57,7 @@ test('opening a page on this device records it, newest last opened, and nothing 
       }),
   );
   expect(keys.filter((key) => key.startsWith('recent-pages:'))).toEqual([`recent-pages:${SPACE}`]);
-  expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([]);
+  expect(await storedPreferences()).toEqual(beforeOpening);
 });
 
 test('a switcher opened after the space home loaded shows that list on its first render', async ({
