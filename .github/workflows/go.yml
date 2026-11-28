@@ -164,6 +164,7 @@ jobs:
                   ("test/native/api.test.ts", "ends an incomplete session frame after publishing only the preceding complete response"),
                   ("test/native/api.test.ts", "bounds incomplete and oversized input before opening storage"),
                   ("test/native/extension-command.test.ts", "executes the exact tail, preserves stdin/output/exit and exposes the invoking executable"),
+                  ("test/native/digest-delivery.test.ts", "advertises only digest operations and rejects the retired feature names without creating state"),
               ],
               "e2e": [
                   ("test/e2e/notes-path.e2e.test.ts", "uses the verified saved identity implicitly and remains available explicitly offline"),
