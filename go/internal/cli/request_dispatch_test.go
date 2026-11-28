@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
@@ -37,18 +38,6 @@ func TestMainUsesRealRequestStoreAcrossInvocations(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	const id = "req_33333333-0000-4000-8000-000000000000"
-	prepared, err := storage.NewRequestService(store, clock).Enqueue(ctx, core.PrepareRequest{
-		RequestID: id, AttemptID: "44444444-0000-4000-8000-000000000000",
-		Kind: core.RequestKindRequest, Origin: core.RequestOriginPerson,
-		Route:      core.RequestRoute{Kind: core.RequestRouteInbox, Recipient: &to.ID},
-		Originator: core.Originator{Kind: core.OriginatorExplicit, IdentityID: &from.ID},
-		Recipient:  &to.ID, Message: "Inspect durable work", ExpiresAtMs: uint64(clock.NowMs()) + 60_000,
-		RetentionDays: core.DefaultRetentionDays,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -66,6 +55,15 @@ func TestMainUsesRealRequestStoreAcrossInvocations(t *testing.T) {
 		}
 		return value
 	}
+	const prompt = "Inspect durable work"
+	queued := run(0, "talk", "Worker", prompt, "--detach", "--identity", "Lead")
+	id, ok := queued["requestId"].(string)
+	if !ok || !strings.HasPrefix(id, "req_") || !core.IsCanonicalIdentityID(strings.TrimPrefix(id, "req_")) ||
+		queued["status"] != "queued" || queued["offline"] != true ||
+		queued["notification"] != "not_attempted" || queued["waitingFor"] != "recipient_inbox_pull" ||
+		queued["recipientIdentityId"] != string(to.ID) || queued["target"] != "Worker" {
+		t.Fatalf("queued result = %+v", queued)
+	}
 	inbox := run(0, "inbox", "--identity", string(to.ID))
 	items, ok := inbox["items"].([]any)
 	if !ok || len(items) != 1 || items[0].(map[string]any)["requestId"] != id {
@@ -77,21 +75,33 @@ func TestMainUsesRealRequestStoreAcrossInvocations(t *testing.T) {
 		t.Fatalf("incoming exchange = %+v", show)
 	}
 	reply, ok := detail["reply"].(map[string]any)
-	if !ok || reply["receipt"] != string(prepared.Receipt) {
+	receipt, valid := reply["receipt"].(string)
+	if !ok || !valid || !strings.HasPrefix(receipt, "v2_") {
 		t.Fatal("the incoming exchange did not provide the enrolled receipt")
 	}
 	const body = "exact reply ☃\r\n"
-	ack := run(0, "reply", id, "--receipt", string(prepared.Receipt), "--message", body)
-	final := run(0, "result", "33333333")
+	ack := run(0, "reply", id, "--receipt", receipt, "--message", body)
+	final := run(0, "result", strings.TrimPrefix(id, "req_")[:8])
 	if ack["status"] != "submitted" || ack["requestId"] != id ||
 		final["status"] != "completed" || final["requestId"] != id || final["response"] != body ||
 		final["bodyBytes"] != float64(len(body)) || final["submittedAtMs"] != ack["submittedAtMs"] {
 		t.Fatalf("reply = %+v, result = %+v", ack, final)
 	}
-	conflict := run(5, "reply", id, "--receipt", string(prepared.Receipt), "--message", "different")
+	conflict := run(5, "reply", id, "--receipt", receipt, "--message", "different")
 	if fault, ok := conflict["error"].(map[string]any); !ok || fault["code"] != "RESPONSE_CONFLICT" {
 		t.Fatalf("conflicting final = %v", conflict)
 	}
+	timeout := run(4, "talk", "--timeout", "1ms", "Worker", "still waiting")
+	second, ok := timeout["requestId"].(string)
+	if !ok || second == id || timeout["status"] != "timeout" {
+		t.Fatalf("timed out result = %+v", timeout)
+	}
+	pending := run(0, "inbox", "--identity", string(to.ID))
+	items, ok = pending["items"].([]any)
+	if !ok || len(items) != 1 || items[0].(map[string]any)["requestId"] != second {
+		t.Fatalf("timed out request was not retained: %+v", pending)
+	}
+
 }
 
 func TestMainRejectsMalformedReceiptBeforeCreatingDatabase(t *testing.T) {

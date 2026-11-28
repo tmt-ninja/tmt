@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"os/signal"
 	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
@@ -20,7 +22,17 @@ func (app application) runRequest(ctx context.Context, root home.Root, inv invoc
 	var body string
 	var failure *output.Failure
 	command := inv.path[0]
+	var talk talkPlan
 	switch command {
+	case "talk":
+		var stop context.CancelFunc
+		ctx, stop = signal.NotifyContext(ctx, os.Interrupt)
+		defer stop()
+		talk, failure = app.prepareTalk(ctx, root, inv)
+		if failure != nil {
+			return failure
+		}
+
 	case "inbox", "answer", "x":
 		if command == "x" && len(inv.path) == 2 && (inv.path[1] == "flow" || inv.path[1] == "listen") {
 			// NOT PORTED (#6938): content-free flow and inbox listen are outside the initial service.
@@ -72,6 +84,8 @@ func (app application) runRequest(ctx context.Context, root home.Root, inv invoc
 	}
 
 	switch command {
+	case "talk":
+		return app.talk(ctx, talk)
 	case "reply":
 		return app.reply(ctx, inv, body)
 	case "result":
@@ -87,6 +101,8 @@ func requestOpenFailure(command string, err error) *output.Failure {
 	switch command {
 	case "x":
 		return exchangeFailure(err)
+	case "talk":
+		return talkFailure(err)
 	case "answer", "inbox":
 		return incomingFailure(err)
 	default:

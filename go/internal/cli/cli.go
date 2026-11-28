@@ -63,7 +63,7 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return output.Publish(stdout, stderr, failure, invocation.json)
 	}
 	switch invocation.path[0] {
-	case "reply", "result", "inbox", "answer", "x":
+	case "reply", "result", "inbox", "answer", "x", "talk":
 		return output.Publish(stdout, stderr, app.runRequest(ctx, root, invocation), invocation.json)
 	}
 	// NOT PORTED (#6938): compose the remaining commands over storage and host ports.
