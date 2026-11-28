@@ -37,8 +37,8 @@ func TestHookCoordinatesRejectUnknownAndDuplicateFields(t *testing.T) {
 	}
 }
 
-func TestStopHookDoesNotProbeHostOrOpenStorage(t *testing.T) {
-	const payload = `{"hook_event_name":"Stop","session_id":"fixture"}`
+func TestSubagentStopDoesNotProbeHostOrOpenStorage(t *testing.T) {
+	const payload = `{"hook_event_name":"SubagentStop","session_id":"fixture"}`
 	raw, err := json.Marshal(hookCoordinates{IdentityID: "identity", BindingID: "binding",
 		Owner: core.ProcessIncarnation{PID: 42, StartIdentity: hookStart}})
 	if err != nil {

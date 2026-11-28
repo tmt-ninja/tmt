@@ -18,7 +18,19 @@ import (
 )
 
 // Runner executes bounded foreground captures in invocation-owned groups.
-type Runner struct{}
+type Runner struct {
+	underSupervisor bool
+}
+
+// SupervisedProbes keeps bounded leaf probes inside a worker's outer owned
+// group. A local timeout signals the exact leaf while the outer parent can
+// still clean up the entire group if it loses the worker.
+func SupervisedProbes() (Runner, error) {
+	if !sys.OwnsProcessGroup() {
+		return Runner{}, errors.New("probe worker does not own its process group")
+	}
+	return Runner{underSupervisor: true}, nil
+}
 
 var _ ports.Process = Runner{}
 
@@ -30,7 +42,7 @@ func (Runner) NativeProcessStarts(ctx context.Context, pids []int) ([]sys.Proces
 // ErrOutputLimit means the child exceeded its byte budget on one stream.
 var ErrOutputLimit = errors.New("child output limit exceeded")
 
-func (Runner) Run(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
+func (r Runner) Run(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
 	if !filepath.IsAbs(spec.Path) {
 		return ports.Bounded{}, errors.New("child executable must be absolute")
 	}
@@ -52,7 +64,9 @@ func (Runner) Run(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, e
 	if cmd.Env == nil {
 		cmd.Env = []string{}
 	}
-	sys.OwnProcessGroup(cmd)
+	if !r.underSupervisor {
+		sys.OwnProcessGroup(cmd)
+	}
 
 	// With direct descriptors, Go does not create internal copy workers or
 	// own the pipes. Keep the child unreaped until all pipe observations end.
@@ -107,16 +121,16 @@ func (Runner) Run(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, e
 		case <-inputDone:
 			inputDone = nil
 		case <-ctx.Done():
-			return ports.Bounded{}, stop(cmd.Process, ctx.Err())
+			return ports.Bounded{}, r.stop(cmd.Process, ctx.Err())
 		case stream := <-out:
 			if stream.err != nil {
-				return ports.Bounded{Truncated: errors.Is(stream.err, ErrOutputLimit)}, stop(cmd.Process, stream.err)
+				return ports.Bounded{Truncated: errors.Is(stream.err, ErrOutputLimit)}, r.stop(cmd.Process, stream.err)
 			}
 			result.Stdout = stream.data
 			out = nil
 		case stream := <-diagnostics:
 			if stream.err != nil {
-				return ports.Bounded{Truncated: errors.Is(stream.err, ErrOutputLimit)}, stop(cmd.Process, stream.err)
+				return ports.Bounded{Truncated: errors.Is(stream.err, ErrOutputLimit)}, r.stop(cmd.Process, stream.err)
 			}
 			result.Stderr = stream.data
 			diagnostics = nil
@@ -126,7 +140,7 @@ func (Runner) Run(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, e
 	result.ExitCode, err = sys.WaitChild(ctx, cmd.Process)
 	if err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return ports.Bounded{}, stop(cmd.Process, err)
+			return ports.Bounded{}, r.stop(cmd.Process, err)
 		}
 		// A failed wait no longer proves ownership of the numeric group ID.
 		_ = cmd.Process.Release()
@@ -163,9 +177,17 @@ func readStream(reader *os.File, name string, limit int) <-chan streamResult {
 	return done
 }
 
-func stop(child *os.Process, cause error) error {
+func (r Runner) stop(child *os.Process, cause error) error {
 	pid := child.Pid
-	signalErr := sys.KillChildGroup(pid)
+	var signalErr error
+	if r.underSupervisor {
+		signalErr = child.Kill()
+		if errors.Is(signalErr, os.ErrProcessDone) {
+			signalErr = nil
+		}
+	} else {
+		signalErr = sys.KillChildGroup(pid)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	_, waitErr := sys.WaitChild(ctx, child)
@@ -176,7 +198,7 @@ func stop(child *os.Process, cause error) error {
 		_ = child.Release()
 	}
 	// Darwin can deny a signal to a group containing only zombies.
-	if waitErr == nil && errors.Is(signalErr, os.ErrPermission) && sys.ChildGroupGone(pid) {
+	if !r.underSupervisor && waitErr == nil && errors.Is(signalErr, os.ErrPermission) && sys.ChildGroupGone(pid) {
 		signalErr = nil
 	}
 	if cleanupErr := errors.Join(signalErr, waitErr); cleanupErr != nil {

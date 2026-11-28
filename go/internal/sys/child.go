@@ -16,6 +16,11 @@ func OwnProcessGroup(cmd *exec.Cmd) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 }
 
+// OwnsProcessGroup reports whether this process is its group's leader.
+func OwnsProcessGroup() bool {
+	return syscall.Getpgrp() == os.Getpid()
+}
+
 // WaitChild waits for a child without reaping it on context failure. This must
 // be the sole waiter so the caller can safely signal the group before reaping.
 func WaitChild(ctx context.Context, child *os.Process) (int, error) {

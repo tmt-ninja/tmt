@@ -1,9 +1,9 @@
 package claude
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
-	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -64,6 +64,10 @@ func StartsAtPrompt(command ports.ProcessSpec) bool {
 // withHooks adds the native lifecycle observations to Claude's invocation-only
 // settings layer. The caller supplies the current build’s executable with a wired __hook handler.
 func withHooks(args []string, executable string) ([]string, error) {
+	return composeLaunchHooks(args, executable, nil)
+}
+
+func composeLaunchHooks(args []string, executable string, digest *digestLaunchSettings) ([]string, error) {
 	if !filepath.IsAbs(executable) || filepath.Base(executable) != flavor.Binary ||
 		strings.IndexFunc(executable, unicode.IsControl) >= 0 || !invoke.IsExecutable(executable) {
 		return nil, errors.New("Claude hooks require an absolute " + flavor.Binary + " callback executable")
@@ -74,12 +78,39 @@ func withHooks(args []string, executable string) ([]string, error) {
 	}
 	insert, remove := boundary, 0
 	input := "{}"
+	includeUser := true
+	var sourcesSeen bool
 	for i := 0; i < boundary; i++ {
 		word := args[i]
 		if word == "--bare" || word == "--safe-mode" {
 			return nil, errors.New("the Claude launch disables hooks")
 		}
-		value, inline := strings.CutPrefix(word, "--settings=")
+		value, inline := strings.CutPrefix(word, "--setting-sources=")
+		if word == "--setting-sources" || inline {
+			if sourcesSeen {
+				return nil, errClaudeSettings
+			}
+			sourcesSeen = true
+			if !inline {
+				i++
+				if i >= boundary {
+					return nil, errClaudeSettings
+				}
+				value = args[i]
+			}
+			includeUser = false
+			for source := range strings.SplitSeq(value, ",") {
+				switch source {
+				case "user":
+					includeUser = true
+				case "", "project", "local":
+				default:
+					return nil, errClaudeSettings
+				}
+			}
+			continue
+		}
+		value, inline = strings.CutPrefix(word, "--settings=")
 		if word == "--settings" || inline {
 			if remove != 0 {
 				return nil, errors.New("multiple Claude --settings values cannot be composed")
@@ -96,27 +127,28 @@ func withHooks(args []string, executable string) ([]string, error) {
 			input = value
 		}
 	}
-	if len(input) > settingsLimit || !strings.HasPrefix(strings.TrimSpace(input), "{") {
-		return nil, errors.New("Claude hooks require bounded inline settings JSON")
+	if digest != nil && !strings.HasPrefix(strings.TrimSpace(input), "{") {
+		value, exists, err := readClaudeSettings(claudeAbsolutePath(digest.dir, input))
+		if err != nil || !exists {
+			return nil, errClaudeSettings
+		}
+		input = value
 	}
-	var settings map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(input), &settings); err != nil {
-		return nil, fmt.Errorf("decode Claude inline settings: %w", err)
+	settings, hooks, err := decodeClaudeSettings(input)
+	if err != nil {
+		return nil, err
 	}
-
-	if value := settings["disableAllHooks"]; string(value) == "true" {
-		return nil, errors.New("Claude inline settings disable hooks")
-	}
-	hooks := make(map[string][]json.RawMessage)
-	if value, exists := settings["hooks"]; exists {
-		if err := json.Unmarshal(value, &hooks); err != nil || hooks == nil {
-			return nil, errors.New("Claude inline hooks must be an object of event arrays")
+	var global claudeHookSettings
+	if digest != nil {
+		global, err = digest.global(includeUser)
+		if err != nil {
+			return nil, err
 		}
 	}
-	launcher := "'" + strings.ReplaceAll(executable, "'", "'\\''") + "' __hook claude"
+	launcher := quoteHookWord(executable)
 	for _, event := range []string{"SessionStart", "SessionEnd", "UserPromptSubmit", "Stop",
 		"Notification", "PostToolUse", "PostToolUseFailure", "PreToolUse", "PermissionRequest"} {
-		command := launcher
+		command := launcher + " __hook claude"
 		matcher := ""
 		if event == "Stop" {
 			command += " --activity-only"
@@ -124,26 +156,70 @@ func withHooks(args []string, executable string) ([]string, error) {
 		if event == "PreToolUse" {
 			matcher = "AskUserQuestion|ExitPlanMode"
 		}
+		localGroups, err := hooks.groups(event)
+		if err != nil {
+			return nil, err
+		}
+		if digest != nil {
+			localOwned, err := claudeSetupOwnsEvent(localGroups, matcher)
+			if err != nil {
+				return nil, err
+			}
+			globalGroups, err := global.groups(event)
+			if err != nil {
+				return nil, err
+			}
+			globalOwned, err := claudeSetupOwnsEvent(globalGroups, matcher)
+			if err != nil {
+				return nil, err
+			}
+			if localOwned || globalOwned {
+				continue
+			}
+		}
 		group := hookGroup{Matcher: matcher, Hooks: []hookCommand{{Type: "command", Command: command, Timeout: 3}}}
 		encoded, err := json.Marshal(group)
 		if err != nil {
 			return nil, err
 		}
-		if slices.ContainsFunc(hooks[event], func(existing json.RawMessage) bool {
+		if slices.ContainsFunc(localGroups, func(existing jsontext.Value) bool {
 			var group hookGroup
 			return json.Unmarshal(existing, &group) == nil && group.Matcher == matcher &&
 				slices.Contains(group.Hooks, hookCommand{Type: "command", Command: command, Timeout: 3})
 		}) {
 			continue
 		}
-		hooks[event] = append(hooks[event], encoded)
+		hooks[event], err = json.Marshal(append(localGroups, encoded))
+		if err != nil {
+			return nil, err
+		}
 	}
-	data, err := json.Marshal(hooks)
+	if digest != nil {
+		scope, err := json.Marshal(digest.launch)
+		if err != nil {
+			return nil, err
+		}
+		entry, err := json.Marshal(hookGroup{Hooks: []hookCommand{{Type: "command", Timeout: 3,
+			Command: launcher + " __digest-hook claude --launch " + quoteHookWord(string(scope)),
+		}}})
+		if err != nil {
+			return nil, err
+		}
+		groups, err := hooks.groups("Stop")
+		if err != nil {
+			return nil, err
+		}
+		hooks["Stop"], err = json.Marshal(append(groups, entry))
+		if err != nil {
+			return nil, err
+		}
+	}
+	data, err := json.Marshal(hooks, json.Deterministic(true))
 	if err != nil {
 		return nil, err
 	}
 	settings["hooks"] = data
-	data, err = json.Marshal(settings)
+	data, err = json.Marshal(settings, json.Deterministic(true))
 	if err != nil {
 		return nil, err
 	}
