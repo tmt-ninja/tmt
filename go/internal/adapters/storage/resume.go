@@ -273,9 +273,6 @@ func currentResumeRefusal(snapshot *core.ResumeSnapshot) error {
 	case selected.Channel != nil && *selected.Channel:
 		result.Reason = "channel_enrolled"
 		result.Message = "The remembered session requires a provider channel."
-	case selected.HasMatchingPreset:
-		result.Reason = "launch_preset"
-		result.Message = "The remembered session requires a saved launch preset."
 	case selected.Driver != core.DriverClaude && selected.Driver != core.DriverCodex:
 		result.Reason = "unsupported_driver"
 		result.Message = fmt.Sprintf("The %s driver cannot resume %s's remembered session. Start fresh with: tmt run %s", selected.Driver, name, name)

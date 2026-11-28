@@ -136,7 +136,25 @@ func TestResumeFenceSurvivesActivationAndAdmissionRequiresIt(t *testing.T) {
 	parallelStorageFixture(t)
 	store := bindingFixture(t)
 	seedResumeFixture(t, store)
+	preset := `{"executable":"saved-wrapper","model":"opus","effort":null,"env":{},"binding":"` +
+		string(bindingID1) + `","owner_pid":100,"owner_start":"start","harness":"claude","session":"` + savedResumeSession + `"}`
+	editResumeFixture(t, store, "INSERT INTO identity_metadata VALUES (?,'resume.launch',?)", bindingOwnerID, preset)
 	original := resumeFixtureSnapshot(t, store, bindingOwnerID)
+	if original.ReplayPreset == nil || original.ReplayPreset.Executable != "saved-wrapper" {
+		t.Fatalf("matching replay candidate = %+v", original.ReplayPreset)
+	}
+	replacePreset := func(document string) {
+		t.Helper()
+		editResumeFixture(t, store, "UPDATE identity_metadata SET value=? WHERE identity_id=? AND key='resume.launch'",
+			document, bindingOwnerID)
+	}
+	driftedPreset := strings.Replace(preset, "saved-wrapper", "changed-wrapper", 1)
+	replacePreset(driftedPreset)
+	err := store.Write(t.Context(), func(tx ports.StoreTx) error {
+		return tx.Bindings().VerifyResume(*original)
+	})
+	requireResumeFailure(t, err, "RUNTIME_CONFLICT", "resume_drift")
+	replacePreset(preset)
 	reservation := reservationFixture(bindingID1, bindingOwnerID, "%1")
 	var binding *core.Binding
 	writeBindingTest(t, store, func(tx ports.StoreTx) error {
@@ -171,12 +189,33 @@ func TestResumeFenceSurvivesActivationAndAdmissionRequiresIt(t *testing.T) {
 			ProviderSession: savedResumeSession, Fence: original.Fence,
 		},
 	}
+	replacePreset(driftedPreset)
+	err = store.Write(t.Context(), func(tx ports.StoreTx) error {
+		_, err := tx.Bindings().CreateLaunchIntent(intent)
+		return err
+	})
+	requireResumeFailure(t, err, "RUNTIME_CONFLICT", "resume_drift")
+	replacePreset(preset)
 	writeBindingTest(t, store, func(tx ports.StoreTx) error {
 		ok, err := tx.Bindings().CreateLaunchIntent(intent)
 		requireBindingChange(t, ok, err, true)
 		return nil
 	})
 	child := core.ProcessIncarnation{PID: 602, StartIdentity: "child"}
+	replacePreset(driftedPreset)
+	err = store.Write(t.Context(), func(tx ports.StoreTx) error {
+		repo := tx.Bindings()
+		observation := ports.LaunchActivityObservation{
+			Expected: *binding, Owner: intent.Owner, Runtime: child, ProviderSession: savedResumeSession,
+			Transition: core.LaunchTransitionResumed, ObservedAtMs: 2600,
+		}
+		ok, err := repo.ObserveLaunchActivity(observation)
+		requireBindingChange(t, ok, err, false)
+		_, err = repo.AdmitLaunch(ports.LaunchAdmission{Intent: intent, Runtime: child, ObservedAtMs: 2600})
+		return err
+	})
+	requireResumeFailure(t, err, "RUNTIME_CONFLICT", "resume_drift")
+	replacePreset(preset)
 	writeBindingTest(t, store, func(tx ports.StoreTx) error {
 		replayedFresh := intent
 		replayedFresh.Resume = nil
@@ -187,7 +226,7 @@ func TestResumeFenceSurvivesActivationAndAdmissionRequiresIt(t *testing.T) {
 		return nil
 	})
 	editResumeFixture(t, store, `UPDATE identity_session_preferences SET driver_state='new state' WHERE identity_id=?`, bindingOwnerID)
-	err := store.Write(t.Context(), func(tx ports.StoreTx) error {
+	err = store.Write(t.Context(), func(tx ports.StoreTx) error {
 		_, err := tx.Bindings().AdmitLaunch(ports.LaunchAdmission{Intent: intent, Runtime: child, ObservedAtMs: 2600})
 		return err
 	})
@@ -241,7 +280,9 @@ func TestResumePresetProjectionAndFence(t *testing.T) {
 	err := store.Write(t.Context(), func(tx ports.StoreTx) error {
 		return tx.Bindings().VerifyResume(*current)
 	})
-	requireResumeFailure(t, err, "RESUME_UNSUPPORTED", "launch_preset")
+	if err != nil {
+		t.Fatalf("exact matching preset refused: %v", err)
+	}
 
 	editResumeFixture(t, store, "UPDATE identity_metadata SET value=? WHERE identity_id=? AND key='resume.launch'",
 		strings.Replace(preset, "CLAUDE_MINI_PCT", "UNSUPPORTED_ENV", 1), bindingOwnerID)
