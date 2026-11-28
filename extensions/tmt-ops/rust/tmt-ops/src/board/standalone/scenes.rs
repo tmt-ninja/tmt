@@ -182,7 +182,7 @@ pub(in crate::board) fn capture_talk_run(state: &str, look: crate::look::Look, w
         screen
             .draw(|frame| {
                 crate::board::view::prepare(&mut app, frame.area());
-                crate::board::view::render(frame, &mut app);
+                crate::board::view::render(frame, &app);
             })
             .unwrap();
         press(&mut app, KeyCode::PageDown);
