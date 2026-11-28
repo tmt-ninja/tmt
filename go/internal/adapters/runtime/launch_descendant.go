@@ -23,13 +23,30 @@ func (o Observer) ProbeLaunchCommand(ctx context.Context, launch Incarnation, ma
 	if err != nil || live.Match(launch) != Alive {
 		return false, err
 	}
-	got, err := o.queryPS(ctx, 32*1024, "-p", strconv.Itoa(launch.PID), "-o", "comm=,args=")
-	if err != nil || got.ExitCode != 0 || !utf8.Valid(got.Stdout) {
+	// Darwin ps truncates comm to its column width when args follows it.
+	// A separate final column preserves the path without trusting argv[0]
+	// as the process name.
+	pid := strconv.Itoa(launch.PID)
+	readField := func(field string, limit int) (string, error) {
+		got, err := o.queryPS(ctx, limit, "-p", pid, "-o", field)
+		if err != nil || got.ExitCode != 0 || !utf8.Valid(got.Stdout) {
+			return "", err
+		}
+		value := strings.TrimSpace(string(got.Stdout))
+		if strings.ContainsRune(value, '\n') {
+			return "", nil
+		}
+		return value, nil
+	}
+	command, err := readField("comm=", 16*1024)
+	if err != nil || command == "" {
 		return false, err
 	}
-	line := strings.TrimSpace(string(got.Stdout))
-	command, args := splitPSField(line)
-	if strings.ContainsRune(line, '\n') || !match(command, args) {
+	args, err := readField("args=", 32*1024)
+	if err != nil || args == "" {
+		return false, err
+	}
+	if !match(command, args) {
 		return false, nil
 	}
 	live, err = o.Observe(ctx, launch.PID)

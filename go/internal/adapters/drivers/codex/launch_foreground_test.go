@@ -38,10 +38,14 @@ func TestNpmForegroundRechecksExactLauncherAndUniqueImmediateChild(t *testing.T)
 		name          string
 		newChild      bool
 		changedScript bool
+		commandPath   string
+		argv0         string
 		reusedPID     string
 		want          int
 	}{
-		{name: "exact", want: 40},
+		{name: "exact", commandPath: "node", want: 40},
+		{name: "absolute node path exceeds Darwin comm column width", commandPath: "/private/fixture/long-installation/bin/node", want: 40},
+		{name: "forged node argv with a different executable", commandPath: "/private/fixture/different/bin/sh", argv0: "node"},
 		{name: "second child appears", newChild: true},
 		{name: "launcher argv changes", changedScript: true},
 		{name: "intermediate PID is recycled", reusedPID: "15"},
@@ -50,6 +54,10 @@ func TestNpmForegroundRechecksExactLauncherAndUniqueImmediateChild(t *testing.T)
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tables, argv, reused := 0, 0, 0
+			command := tc.commandPath
+			if command == "" {
+				command = "node"
+			}
 			observer := runtime.Observer{Process: foregroundFixture(func(spec ports.ProcessSpec) ports.Bounded {
 				if spec.Args[0] == "-A" {
 					tables++
@@ -59,13 +67,20 @@ func TestNpmForegroundRechecksExactLauncherAndUniqueImmediateChild(t *testing.T)
 					}
 					return ports.Bounded{Stdout: []byte(output)}
 				}
-				if spec.Args[len(spec.Args)-1] == "comm=,args=" {
+				switch spec.Args[len(spec.Args)-1] {
+				case "comm=":
+					return ports.Bounded{Stdout: []byte(command + "\n")}
+				case "args=":
 					argv++
 					path := script
 					if tc.changedScript && argv == 2 {
 						path = "/foreign/codex.js"
 					}
-					return ports.Bounded{Stdout: []byte("node node " + path + "\n")}
+					argv0 := tc.argv0
+					if argv0 == "" {
+						argv0 = command
+					}
+					return ports.Bounded{Stdout: []byte(argv0 + " " + path + "\n")}
 				}
 				if spec.Args[1] == tc.reusedPID {
 					reused++
