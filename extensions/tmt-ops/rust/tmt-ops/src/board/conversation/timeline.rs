@@ -35,7 +35,7 @@ struct Paint<'a> {
     look: Look,
     read_only: bool,
     inventory: &'a crate::board::inventory::Inventory,
-    work: Option<&'a crate::board::work::References>,
+    work: Option<&'a crate::board::work_references::References>,
     lines: Vec<Line<'static>>,
     mentions: Vec<Vec<crate::board::member_links::Link>>,
     anchors: Vec<String>,
@@ -54,7 +54,7 @@ impl<'a> Paint<'a> {
         width: usize,
         look: Look,
         inventory: &'a crate::board::inventory::Inventory,
-        work: Option<&'a crate::board::work::References>,
+        work: Option<&'a crate::board::work_references::References>,
     ) -> Self {
         Self {
             width,
@@ -435,7 +435,7 @@ impl Session {
         width: usize,
         look: Look,
         inventory: &crate::board::inventory::Inventory,
-        work: Option<&crate::board::work::References>,
+        work: Option<&crate::board::work_references::References>,
     ) -> transcript::RenderedTranscript {
         let empty = match &self.pane_output {
             crate::board::recent_responses::Observation::Observed(page) => model::Page {

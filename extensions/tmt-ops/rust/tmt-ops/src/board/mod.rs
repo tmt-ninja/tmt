@@ -110,6 +110,7 @@ mod view;
 mod view_state;
 pub(crate) use view_state::Layer as ViewLayer;
 mod work;
+mod work_references;
 mod workspace;
 
 pub use tabs::{ALL, LEADS};

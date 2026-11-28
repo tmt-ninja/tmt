@@ -345,7 +345,7 @@ pub enum Effect {
     PickTheme,
     SaveTheme,
     Act(Request),
-    OpenWorkPage(super::work::OpenTarget),
+    OpenWorkPage(super::work_references::OpenTarget),
     WorkOrder(super::work::OrderMove),
     AnswerProviderForm(super::provider_answer::Send),
     Checklist(super::checklist::load::Task),
@@ -425,7 +425,7 @@ pub enum Choice {
     MemberNotes,
     OpenWorkReference {
         number: String,
-        target: super::work::OpenTarget,
+        target: super::work_references::OpenTarget,
     },
     OpenChecklistItem {
         key: super::conversation_checklist::Key,

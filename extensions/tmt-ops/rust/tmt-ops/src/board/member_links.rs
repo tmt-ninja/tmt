@@ -799,7 +799,7 @@ impl App {
     pub(super) fn open_work_reference(
         &mut self,
         number: &str,
-        expected: &super::work::OpenTarget,
+        expected: &super::work_references::OpenTarget,
     ) -> Effect {
         let current = self.work.references().and_then(|index| index.get(number));
         if current.is_some_and(|reference| &reference.target == expected) {

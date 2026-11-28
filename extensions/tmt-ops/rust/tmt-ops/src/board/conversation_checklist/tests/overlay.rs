@@ -2030,7 +2030,7 @@ fn received_work_reference_opens_its_block_or_copies_only_the_number() {
     );
     assert_eq!(
         press(&mut app, KeyCode::Enter),
-        Effect::OpenWorkPage(crate::board::work::OpenTarget {
+        Effect::OpenWorkPage(crate::board::work_references::OpenTarget {
             page: "12345678-aaaa-4aaa-8aaa-123456789abc".into(),
             block: Some("12345678-bbbb-4bbb-8bbb-123456789abc".into()),
         })

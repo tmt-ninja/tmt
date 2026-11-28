@@ -176,7 +176,7 @@ struct Rendered {
     width: usize,
     look: Look,
     identities: Option<Arc<()>>,
-    work: Option<Arc<super::work::References>>,
+    work: Option<Arc<super::work_references::References>>,
     mapped: Mapped,
     anchor_text: super::notes::IndexedText,
     anchor_sources: Vec<usize>,
@@ -463,7 +463,7 @@ impl Session {
         width: usize,
         look: Look,
         inventory: &super::inventory::Inventory,
-        work: Option<&Arc<super::work::References>>,
+        work: Option<&Arc<super::work_references::References>>,
     ) -> bool {
         let identities = Some(std::sync::Arc::clone(&inventory.generation));
         let changed = self.stale

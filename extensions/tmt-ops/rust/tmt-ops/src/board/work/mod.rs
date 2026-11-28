@@ -14,7 +14,11 @@ use std::{
 use ratatui::layout::Rect;
 use tmt_tui::components::{DialogHits, DialogState};
 
-pub(super) use model::{Item, List, Progress, Reference, References, Status};
+use super::work_references::WITHIN;
+#[cfg(test)]
+use super::work_references::open_link;
+pub(super) use super::work_references::{OpenTarget, References, Status};
+pub(super) use model::{Item, List, Progress};
 pub(super) use order::{Job as OrderJob, Move as OrderMove, Reply as OrderReply, run as run_order};
 pub(super) use surface::render;
 
@@ -32,7 +36,6 @@ pub(super) fn age_label(at: Option<i64>, now: i64) -> String {
     )
 }
 
-const WITHIN: Duration = Duration::from_secs(3);
 const REFRESH_EVERY: Duration = Duration::from_secs(60);
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -495,78 +498,6 @@ pub(super) fn read(core: &crate::core::Core) -> Result<List, ReadFailure> {
         }
     }
     Ok(list)
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::board) struct OpenTarget {
-    pub page: String,
-    pub block: Option<String>,
-}
-
-pub(super) fn open(core: &crate::core::Core, target: &OpenTarget) -> Result<String, String> {
-    let (link, notice) = open_link(core, target)?;
-    crate::effects::open(&link, None)?;
-    Ok(notice.into())
-}
-
-fn open_link(
-    core: &crate::core::Core,
-    target: &OpenTarget,
-) -> Result<(String, &'static str), String> {
-    let page = target.page.as_str();
-    if !super::recent_responses::canonical_identity(page) {
-        return Err("The Colab page ID is unavailable.".into());
-    }
-    let started = Instant::now();
-    let page_args = ["colab", "open", page];
-    let (value, block, notice) = if let Some(block) = target.block.as_deref() {
-        let option = format!("--block={block}");
-        match core.json_within(&["colab", "open", page, &option], WITHIN) {
-            Err(error) if error.code == "COLAB_NOT_STRUCTURED" => (
-                core.json_within(&page_args, WITHIN.saturating_sub(started.elapsed())),
-                None,
-                "Opened Colab page.",
-            ),
-            Err(error)
-                if error.code == "COLAB_INPUT_INVALID"
-                    && error.message.lines().next()
-                        == Some("error: unexpected argument '--block' found") =>
-            {
-                (
-                    core.json_within(&page_args, WITHIN.saturating_sub(started.elapsed())),
-                    None,
-                    "Opened the page; this Colab cannot open a section",
-                )
-            }
-            result => (result, Some(block), "Opened Colab block."),
-        }
-    } else {
-        (
-            core.json_within(&page_args, WITHIN),
-            None,
-            "Opened Colab page.",
-        )
-    };
-    let value = value.map_err(|error| super::notes::single_line(&error.message))?;
-    if value["pageId"] != page {
-        return Err("Colab did not confirm the selected page.".into());
-    }
-    if value["running"] != true {
-        return Err("Colab is stopped · run tmt colab serve to open pages.".into());
-    }
-    let link = value["link"]
-        .as_str()
-        .or_else(|| value["shortLink"].as_str())
-        .ok_or_else(|| "No Colab link · check serve and pairing.".to_owned())?;
-    crate::effects::web_link(link)
-        .map_err(|_| "Colab did not return a valid web link.".to_owned())?;
-    if let Some(block) = block {
-        let expected = format!("anchor=block-{block}");
-        if link.split_once('#').map(|(_, fragment)| fragment) != Some(expected.as_str()) {
-            return Err("Colab did not confirm the selected block.".into());
-        }
-    }
-    Ok((link.to_owned(), notice))
 }
 
 pub(super) fn row_chip(item: &Item, count: usize) -> String {

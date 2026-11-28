@@ -27,7 +27,7 @@ pub(super) enum Job {
     AnswerProviderForm(super::provider_answer::Send),
     Standalone(super::standalone::Task),
     Act(Request),
-    OpenWorkPage(super::work::OpenTarget),
+    OpenWorkPage(super::work_references::OpenTarget),
     WorkOrder(super::work::OrderJob),
     Jump {
         member: String,
@@ -139,7 +139,9 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
             BoardEvent::Standalone(super::standalone::Completed::Saved(Box::new(task), result))
         }
         Job::Standalone(_) => unreachable!("standalone session has a dedicated worker"),
-        Job::OpenWorkPage(target) => BoardEvent::WorkOpened(super::work::open(core, &target)),
+        Job::OpenWorkPage(target) => {
+            BoardEvent::WorkOpened(super::work_references::open(core, &target))
+        }
         Job::WorkOrder(job) => BoardEvent::WorkOrder(super::work::run_order(core, job)),
         Job::LocalUnread(task) => {
             let actor = task.actor().to_owned();

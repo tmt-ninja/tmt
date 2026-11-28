@@ -6,100 +6,11 @@ use crate::board::{
     notes::single_line, recent_responses::canonical_identity, workspace::OpsRoster,
 };
 
-use super::order::ProjectOrder;
+use super::{References, Status, order::ProjectOrder};
 
 const MAX_PAGES: usize = 1_000;
 const MAX_TODOS: usize = 64;
 pub(super) const MAX_BYTES: usize = 2 * 1024 * 1024;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::board) enum Status {
-    Blocked,
-    Stalled,
-    NeedsYou,
-    Working,
-    WaitingCi,
-    WaitingRelease,
-    Discussing,
-    Unchecked,
-    Unknown,
-    Done,
-}
-
-impl Status {
-    fn decode(value: &Value) -> Option<Self> {
-        Some(match value.as_str() {
-            Some("blocked") => Self::Blocked,
-            Some("possibly-stalled") => Self::Stalled,
-            Some("needs-you") => Self::NeedsYou,
-            Some("working") => Self::Working,
-            Some("waiting-ci") => Self::WaitingCi,
-            Some("waiting-release") => Self::WaitingRelease,
-            Some("discussing") => Self::Discussing,
-            Some("unchecked") => Self::Unchecked,
-            Some("unknown") => Self::Unknown,
-            Some("done") => Self::Done,
-            None if value.is_null() => Self::Unchecked,
-            _ => return None,
-        })
-    }
-
-    fn rank(self) -> u8 {
-        match self {
-            Self::Blocked => 0,
-            Self::Stalled => 1,
-            Self::NeedsYou => 2,
-            Self::Working => 3,
-            Self::WaitingCi | Self::WaitingRelease => 4,
-            _ => 5,
-        }
-    }
-
-    pub fn mark(self) -> &'static str {
-        match self {
-            Self::Blocked => "✗",
-            Self::Stalled => "◷",
-            Self::NeedsYou => "◆",
-            Self::Working => "●",
-            Self::WaitingCi | Self::WaitingRelease => "○",
-            Self::Discussing => "◇",
-            Self::Unchecked | Self::Unknown => "·",
-            Self::Done => "✓",
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Blocked => "Blocked",
-            Self::Stalled => "Possibly stalled",
-            Self::NeedsYou => "Needs you",
-            Self::Working => "In progress",
-            Self::WaitingCi => "Waiting for CI",
-            Self::WaitingRelease => "Waiting for release",
-            Self::Discussing => "Discussing",
-            Self::Unchecked => "Not checked yet",
-            Self::Unknown => "Status unknown",
-            Self::Done => "Done",
-        }
-    }
-
-    pub fn marked_label(self) -> String {
-        format!("{} {}", self.mark(), self.label())
-    }
-
-    pub fn overview(self) -> Option<usize> {
-        Some(match self {
-            Self::Working => 0,
-            Self::WaitingCi | Self::WaitingRelease => 1,
-            Self::NeedsYou => 2,
-            Self::Blocked => 3,
-            Self::Stalled => 4,
-            Self::Discussing => 5,
-            Self::Unknown | Self::Unchecked => 6,
-            Self::Done => return None,
-        })
-    }
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::board) struct Progress {
@@ -238,57 +149,6 @@ impl Item {
             || self.next.as_deref().is_some_and(contains)
             || self.projects.iter().any(|project| contains(project))
             || self.sections.iter().any(|section| contains(&section.title))
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub(in crate::board) struct Reference {
-    pub number: String,
-    pub title: String,
-    pub status: Status,
-    pub target: super::OpenTarget,
-}
-
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(in crate::board) struct References(BTreeMap<String, Option<Reference>>);
-
-impl References {
-    fn add(&mut self, number: &str, title: &str, status: Status, page: &str, block: Option<&str>) {
-        let Some((prefix, serial)) = number.split_once('-') else {
-            return;
-        };
-        if !(1..=6).contains(&prefix.len())
-            || !prefix.bytes().all(|ch| ch.is_ascii_alphabetic())
-            || !serial.bytes().all(|byte| byte.is_ascii_digit())
-            || serial.parse::<u64>().ok().is_none_or(|serial| serial == 0)
-        {
-            return;
-        }
-        self.0
-            .entry(number.to_ascii_uppercase())
-            .and_modify(|entry| *entry = None)
-            .or_insert_with(|| {
-                Some(Reference {
-                    number: number.to_ascii_uppercase(),
-                    title: title.to_owned(),
-                    status,
-                    target: super::OpenTarget {
-                        page: page.into(),
-                        block: block.map(str::to_owned),
-                    },
-                })
-            });
-    }
-
-    pub fn get(&self, number: &str) -> Option<&Reference> {
-        if number.len() > 26 {
-            return None;
-        }
-        self.0.get(&number.to_ascii_uppercase())?.as_ref()
-    }
-
-    pub fn iter(&self) -> impl Iterator<Item = &Reference> {
-        self.0.values().filter_map(Option::as_ref)
     }
 }
 
