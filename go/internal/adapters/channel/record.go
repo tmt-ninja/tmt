@@ -114,10 +114,14 @@ func (dir *channelDir) close() {
 }
 
 func (dir *channelDir) lock(ctx context.Context) (*os.File, error) {
+	return dir.lockNamed(ctx, lockName)
+}
+
+func (dir *channelDir) lockNamed(ctx context.Context, name string) (*os.File, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	file, err := sys.OpenEntryNoFollow(dir.file, lockName, os.O_CREATE|os.O_RDWR, 0600)
+	file, err := sys.OpenEntryNoFollow(dir.file, name, os.O_CREATE|os.O_RDWR, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +163,15 @@ func privateRegular(file *os.File) error {
 }
 
 func (dir *channelDir) readClaude(bindingID string) (*claudeRecord, error) {
-	file, err := sys.OpenEntryNoFollow(dir.file, bindingID+".json", os.O_RDONLY, 0)
+	data, err := dir.readPrivate(bindingID+".json", recordLimit)
+	if err != nil || data == nil {
+		return nil, err
+	}
+	return decodeClaudeRecord(data, bindingID)
+}
+
+func (dir *channelDir) readPrivate(name string, limit int) ([]byte, error) {
+	file, err := sys.OpenEntryNoFollow(dir.file, name, os.O_RDONLY, 0)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -170,14 +182,14 @@ func (dir *channelDir) readClaude(bindingID string) (*claudeRecord, error) {
 	if err := privateRegular(file); err != nil {
 		return nil, err
 	}
-	data, err := io.ReadAll(io.LimitReader(file, recordLimit+1))
+	data, err := io.ReadAll(io.LimitReader(file, int64(limit)+1))
 	if err != nil {
 		return nil, err
 	}
-	if len(data) > recordLimit || !utf8.Valid(data) {
+	if len(data) > limit || !utf8.Valid(data) {
 		return nil, errors.New("invalid channel enrollment record")
 	}
-	return decodeClaudeRecord(data, bindingID)
+	return data, nil
 }
 
 func decodeClaudeRecord(data []byte, bindingID string) (*claudeRecord, error) {
@@ -235,11 +247,15 @@ func strictObject(data []byte, names ...string) (map[string]json.RawMessage, err
 }
 
 func (dir *channelDir) writeClaude(record claudeRecord) error {
+	return dir.writePrivate(record.BindingID+".json", record, recordLimit)
+}
+
+func (dir *channelDir) writePrivate(name string, record any, limit int) error {
 	raw, err := json.Marshal(record)
 	if err != nil {
 		return err
 	}
-	if len(raw) > recordLimit {
+	if len(raw) > limit {
 		return errors.New("channel enrollment record exceeds its bound")
 	}
 	var nonce [16]byte
@@ -258,7 +274,7 @@ func (dir *channelDir) writeClaude(record claudeRecord) error {
 	if err := errors.Join(writeErr, syncErr, file.Close()); err != nil {
 		return err
 	}
-	if err := dir.root.Rename(pending, record.BindingID+".json"); err != nil {
+	if err := dir.root.Rename(pending, name); err != nil {
 		return err
 	}
 	return dir.file.Sync()
