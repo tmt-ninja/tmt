@@ -17,13 +17,11 @@ var _ ports.OrchReader = (*Storage)(nil)
 var errInvalidOrchRow = errors.New("invalid stored orchestration data")
 
 func (s *Storage) SchemaVersion(ctx context.Context) (uint64, error) {
-	var version int
+	var version uint64
 	err := s.transact(ctx, true, func(r records) error {
-		var err error
-		version, err = validateHistory(ctx, r.tx)
-		return err
+		return r.one("SELECT COALESCE(MAX(version), 0) FROM _migrations").Scan(&version)
 	})
-	return uint64(version), err
+	return version, err
 }
 
 func (s *Storage) WakeAdmissionMs(ctx context.Context) (uint64, error) {

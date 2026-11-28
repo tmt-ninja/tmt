@@ -224,8 +224,7 @@ func settleCurrentCapture(r records, c *core.HookPendingCapture, usage bool, seq
 		return err
 	}
 	if c.Continuation {
-		if _, err := r.exec(`UPDATE focus_checklists SET confirmed_at_ms=?2 WHERE identity_id=?1 AND projection='full'
-			AND opportunity='turn_boundary' AND state IN ('delivered','uncertain') AND confirmed_at_ms IS NULL`, c.Identity, c.NowMs); err != nil {
+		if err := endDigestContinuation(r, c.Identity, c.NowMs); err != nil {
 			return err
 		}
 	}

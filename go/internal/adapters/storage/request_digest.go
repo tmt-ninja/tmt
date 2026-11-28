@@ -114,6 +114,7 @@ type digestRecipient struct {
 	driver            *core.DriverName
 	rememberedSession *string
 	state             digestRecipientState
+	stateVersion      *uint16
 	currentUsage      bool
 }
 
@@ -128,9 +129,9 @@ func digestRecipientEvidence(r records, id core.IdentityID) (digestRecipient, er
 	err = r.one(`SELECT COALESCE(p.remembered_harness,p.preferred_harness,
 		(SELECT driver FROM launch_observations l JOIN bindings b ON b.id=l.binding_id
 		WHERE b.identity_id=?1 AND l.owner_pid=b.launch_owner_pid AND l.owner_start=b.launch_owner_start_identity)),
-		p.provider_session_id,p.driver_state,p.remembered_harness IS NOT NULL AND p.stale_at_ms IS NULL AND p.resume_pending_at_ms IS NULL
+		p.provider_session_id,p.driver_state,p.driver_state_version,p.remembered_harness IS NOT NULL AND p.stale_at_ms IS NULL AND p.resume_pending_at_ms IS NULL
 		FROM identities i LEFT JOIN identity_session_preferences p ON p.identity_id=i.id WHERE i.id=?1`, id).
-		Scan(&recipient.driver, &recipient.rememberedSession, &raw, &recipient.currentUsage)
+		Scan(&recipient.driver, &recipient.rememberedSession, &raw, &recipient.stateVersion, &recipient.currentUsage)
 	if err != nil {
 		return recipient, err
 	}

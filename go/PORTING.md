@@ -30,15 +30,16 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO1-10: Enumerate the full native Colab backup set in footprint.
 - [ ] GO1-11: Reply callbacks, provider capture and flow accounting.
 - [ ] GO1-12: Partial usage totals for unmeasured wake turns.
-- [ ] GO1-13: End the binding’s Digest continuation.
+- [ ] GO1-13: End Digest continuations on a verified prompt or binding detach.
 - [ ] GO1-14: Exact resume for Claude and Codex, including the read-only preset projection.
 - [ ] GO1-15: Resume forget, move, new, retry, driver switching and stale/pending settlement.
 - [ ] GO1-16: Gemini exact resume.
 - [ ] GO1-17: Resume with saved wrapper, model, effort and channel settings, plus the associated preset model refresh in --show.
 - [ ] GO1-18: Exact send-now release, guarded claim and settlement.
 - [ ] GO1-19: Reply and timeout notice production.
-- [ ] GO1-20: Selected Digest checklist snapshot and summary-only counts after settlement.
-- [ ] GO1-21: Observe future schema versions through an existing API session.
+- [x] GO1-20: Selected Digest checklist snapshot and summary-only counts after settlement.
+- [x] GO1-21: Observe future schema versions through an existing API session.
+- [ ] GO1-22: Decode authoritative Digest idle activity for Agy and Pi.
 
 ## go-2 (sys, process, tmux, host, drivers, channel)
 

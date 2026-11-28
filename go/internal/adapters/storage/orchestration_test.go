@@ -226,3 +226,16 @@ func TestOrchPolicySnapshotMatchesFollowingDigestReceivingRead(t *testing.T) {
 		t.Fatalf("following jobs policy revision = %d, %v", jobs.Policy.DigestRevision, err)
 	}
 }
+
+func TestSchemaVersionObservesNewerHistoryOnOpenHandle(t *testing.T) {
+	parallelStorageFixture(t)
+	store := testStorage(t)
+	ctx := t.Context()
+	const version = uint64(SchemaVersion + 1)
+	if _, err := store.db.ExecContext(ctx, "INSERT INTO _migrations VALUES (?, 'future-schema', 'future')", version); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.SchemaVersion(ctx); err != nil || got != version {
+		t.Fatalf("observed schema = %d, %v, want %d", got, err, version)
+	}
+}

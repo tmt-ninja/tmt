@@ -31,6 +31,10 @@ func (r bindingRows) EndLaunch(end ports.LaunchEnd) (bool, error) {
 		WHERE identity_id = ? AND binding_id = ? AND runtime_pid = ? AND runtime_start = ?
 			AND session_id IS ? AND closed_ms IS NULL`,
 		end.ObservedAtMs, current.IdentityID, current.ID, end.Runtime.PID, end.Runtime.StartIdentity, session.ProviderSessionID)
+	if err != nil {
+		return false, err
+	}
+	err = endDigestContinuation(r.records, current.IdentityID, end.ObservedAtMs)
 	return err == nil, err
 }
 

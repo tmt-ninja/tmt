@@ -106,8 +106,15 @@ func (s *Storage) ReadChecklist(ctx context.Context, q core.DigestChecklistQuery
 			return err
 		}
 		if q.ChecklistID != nil {
-			if _, err := exactDigest(r, q.IdentityID, *q.ChecklistID); err != nil {
+			selected, err := exactDigest(r, q.IdentityID, *q.ChecklistID)
+			if err != nil {
 				return err
+			}
+			page.SelectedChecklist = &selected.DigestChecklist
+			if selected.Projection == core.DigestProjectionIncomingSummary {
+				page.Total = selected.Summary.IncomingCount
+				page.Items = []core.DigestItem{}
+				return nil
 			}
 		}
 		active, err := activeDigest(r, q.IdentityID)

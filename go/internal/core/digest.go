@@ -44,9 +44,10 @@ type DigestClaimableQuery struct {
 	Limit, NowMs uint64
 }
 type DigestChecklistPage struct {
-	ActiveChecklist *DigestChecklist
-	Total           uint64
-	Items           []DigestItem
+	ActiveChecklist   *DigestChecklist
+	SelectedChecklist *DigestChecklist
+	Total             uint64
+	Items             []DigestItem
 }
 type DigestItem struct {
 	DigestItemEvidence

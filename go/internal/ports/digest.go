@@ -16,6 +16,8 @@ type DigestStore interface {
 	ReadChecklist(context.Context, core.DigestChecklistQuery) (core.DigestChecklistPage, error)
 	ClaimableItems(context.Context, core.DigestClaimableQuery) (core.DigestChecklistPage, error)
 	ReadHistory(context.Context, core.DigestChecklistQuery) (core.DigestHistoryPage, error)
+	// DigestIdleBinding reports saved eligibility and leaves host verification to the caller.
+	DigestIdleBinding(context.Context, core.IdentityID) (*core.DigestLaunchFence, error)
 	Claim(context.Context, core.DigestClaim) (*core.DigestChecklist, error)
 	Settle(context.Context, core.DigestSettlement) (bool, error)
 	SyncReceiving(context.Context, core.DigestReceivingWrite) (uint64, error)

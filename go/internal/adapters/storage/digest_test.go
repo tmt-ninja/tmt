@@ -229,6 +229,18 @@ func TestDigestReceivingSummaryFreezeAndWakeAdmission(t *testing.T) {
 	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM orchestration_decisions WHERE reason='digest_uncertain'").Scan(&count); err != nil || count != 1 {
 		t.Fatalf("frozen receiving decision unavailable: %d %v", count, err)
 	}
+	// The settled summary still has two retained members as asserted above,
+	// but its public checklist page only exposes the frozen counts.
+	page, err := store.ReadChecklist(ctx, core.DigestChecklistQuery{
+		IdentityID: bindingOwnerID, ChecklistID: &q.ChecklistID, NowMs: 14000, Limit: 1,
+	})
+	selected := page.SelectedChecklist
+	if err != nil || selected == nil || selected.ID != q.ChecklistID || selected.State != core.DigestStateUncertain ||
+		selected.Projection != core.DigestProjectionIncomingSummary || selected.Summary == nil ||
+		selected.Summary.IncomingCount != 2 || selected.Summary.UrgentCount != 1 ||
+		page.ActiveChecklist != nil || page.Total != 2 || page.Items == nil || len(page.Items) != 0 {
+		t.Fatalf("settled summary selection = %+v, %v", page, err)
+	}
 }
 
 func TestDigestCalendarPinsDSTBoundaries(t *testing.T) {
