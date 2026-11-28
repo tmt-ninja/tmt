@@ -22,11 +22,12 @@ const (
 )
 
 type ClaimInput struct {
-	IdentityID   core.IdentityID
-	Opportunity  core.DigestOpportunity
-	Launch       *core.DigestLaunchFence
-	AllowSummary bool
-	NowMs        uint64
+	IdentityID      core.IdentityID
+	Opportunity     core.DigestOpportunity
+	Launch          *core.DigestLaunchFence
+	AllowSummary    bool
+	RequireFirstFit bool
+	NowMs           uint64
 }
 
 type ClaimedChecklist struct {
@@ -46,7 +47,7 @@ func ClaimChecklist(ctx context.Context, store ports.DigestStore, input ClaimInp
 		request.Kind = core.DigestProjectionIncomingSummary
 		batch, err := store.Claim(ctx, request)
 		if batch != nil || err != nil {
-			return renderClaim(ctx, store, batch, err, input.NowMs)
+			return renderClaim(ctx, store, batch, err, input.NowMs, input.RequireFirstFit)
 		}
 	}
 	page, err := store.ClaimableItems(ctx, core.DigestClaimableQuery{
@@ -61,19 +62,22 @@ func ClaimChecklist(ctx context.Context, store ports.DigestStore, input ClaimInp
 		added := len(checklistBlock(item))
 		if i > 0 {
 			added += len(separator)
-			if size+added > checklistLimit {
-				break
-			}
+		}
+		if size+added > checklistLimit && (i > 0 || input.RequireFirstFit) {
+			break
 		}
 		size += added
 		through = item.Sequence
 	}
+	if through == 0 {
+		return nil, nil
+	}
 	request.Kind, request.ThroughLimit = core.DigestProjectionFull, &through
 	batch, err := store.Claim(ctx, request)
-	return renderClaim(ctx, store, batch, err, input.NowMs)
+	return renderClaim(ctx, store, batch, err, input.NowMs, input.RequireFirstFit)
 }
 
-func renderClaim(ctx context.Context, store ports.DigestStore, batch *core.DigestChecklist, err error, now uint64) (*ClaimedChecklist, error) {
+func renderClaim(ctx context.Context, store ports.DigestStore, batch *core.DigestChecklist, err error, now uint64, requireFirstFit bool) (*ClaimedChecklist, error) {
 	if err != nil || batch == nil {
 		return nil, err
 	}
@@ -91,7 +95,7 @@ func renderClaim(ctx context.Context, store ports.DigestStore, batch *core.Diges
 				}
 				text.WriteString(checklistBlock(item))
 			}
-			if len(page.Items) == 1 || text.Len() <= checklistLimit {
+			if text.Len() <= checklistLimit || len(page.Items) == 1 && !requireFirstFit {
 				return &ClaimedChecklist{Batch: *batch, Page: page, Text: text.String()}, nil
 			}
 		}

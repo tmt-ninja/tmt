@@ -188,8 +188,10 @@ native and 2 E2E cases each against Go and Rust.
   lifecycle delivery, and CLI composition. Qualify MCP identity pinning and all
   eight tool calls against real Go request services.
 - [ ] Complete Digest receiving sync, consumption limits and changes, and live
-  claim/flush/wake parity. Port thread-root framing and pass the configured
-  paste-enter delay through CLI composition.
+  claim/flush/wake parity and pass the configured paste-enter delay through CLI
+  composition. The shared thread-root frame is measured before sealing, with
+  the native whole-first-item Stop bound. The retained and ID-only lines and
+  one-receipt assertion map to `storage/digest_hook.rs` in the Rust adapter.
   Port the finite and foreground tick, job and capture composition, and consented
   timer commands over the clock lease and minute window.
 - [ ] Port lifecycle-hook enable, disable and delivery with executable verification

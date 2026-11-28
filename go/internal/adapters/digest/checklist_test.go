@@ -69,3 +69,46 @@ func TestClaimMeasuresPrefixAndReleasesFailedExactRead(t *testing.T) {
 		t.Fatalf("failed read settlement = %+v", fixture.settled)
 	}
 }
+
+func TestClaimMeasuresThreadRootAndRefusesOversizeFirstItemForStop(t *testing.T) {
+	id := core.RequestID("req_09175482-a733-409c-b94e-05f93de8e1a8")
+	rootID := core.RequestID("req_22336688-a733-409c-b94e-05f93de8e1a8")
+	message := "Held request"
+	item := core.DigestItem{
+		DigestItemEvidence: core.DigestItemEvidence{Sequence: 1}, RequestID: id,
+		Source: core.DigestSourceIncoming, Kind: core.DigestKindFyi,
+		Prompt: &message, Reply: &core.DigestReplyProof{Receipt: "v2_fixture"},
+	}
+	// A complete unthreaded item is exactly at the native byte limit.
+	message += strings.Repeat("x", checklistLimit-len(checklistHeader)-len(checklistBlock(item)))
+	rootText := "Thread root"
+	for _, tc := range []struct {
+		name string
+		root *core.RequestThreadRoot
+		line string
+	}{
+		{"unthreaded", nil, ""},
+		{"retained root", &core.RequestThreadRoot{RequestID: rootID, Text: &rootText}, "Thread: " + string(rootID) + " · \"Thread root\"\n"},
+		{"expired root", &core.RequestThreadRoot{RequestID: rootID}, "Thread: " + string(rootID) + "\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			item.ThreadRoot = tc.root
+			fixture := &checklistFixture{items: []core.DigestItem{item}, readSize: 1}
+			input := ClaimInput{IdentityID: "worker", Opportunity: core.DigestOpportunityTurnBoundary, RequireFirstFit: true, NowMs: 5000}
+			claim, err := ClaimChecklist(t.Context(), fixture, input)
+			if tc.root != nil {
+				if err != nil || claim != nil || fixture.claim.ThroughLimit != nil || len(fixture.settled) != 0 {
+					t.Fatalf("oversized Stop item attempted a claim: claim=%v err=%v", claim != nil, err)
+				}
+				input.RequireFirstFit = false
+				claim, err = ClaimChecklist(t.Context(), fixture, input)
+			}
+			if err != nil || claim == nil || fixture.claim.ThroughLimit == nil ||
+				*fixture.claim.ThroughLimit != 1 || len(claim.Text) != checklistLimit+len(tc.line) ||
+				!strings.HasPrefix(claim.Text, checklistHeader+"▚ fyi · unknown\n"+tc.line+message+"\n\n") ||
+				strings.Count(claim.Text, flavor.Binary+" reply "+string(id)+" --receipt v2_fixture") != 1 {
+				t.Fatalf("claim=%v sequence=%v err=%v", claim != nil, fixture.claim.ThroughLimit, err)
+			}
+		})
+	}
+}
