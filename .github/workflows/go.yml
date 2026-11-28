@@ -121,3 +121,135 @@ jobs:
           name: tmt-go
           path: go/dist/
           retention-days: 14
+
+  typescript-parity:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - name: Build the replacement CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/tmt-go-parity/bin" "$RUNNER_TEMP/tmt-go-parity/reports"
+          go build -trimpath -tags nativecompat -o "$RUNNER_TEMP/tmt-go-parity/bin/tmt" ./cmd/tmt-go
+      - name: Configure the hosted Docker mirror
+        uses: ./.github/actions/setup-docker-mirror
+      - name: Build the existing native E2E image
+        working-directory: .
+        run: |
+          image="tmt-go-parity:${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          docker build --tag "$image" --build-arg TMT_E2E_ADAPTER_TESTS=0 --file typescript/test/e2e/Dockerfile .
+      - name: Run unchanged TypeScript cases on both executables
+        working-directory: .
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import subprocess
+          from collections import Counter
+          from pathlib import Path
+
+          # One list selects the suite cases and defines the expected counts.
+          cases = {
+              "native": [
+                  ("test/native/api.test.ts", "ends an incomplete session frame after publishing only the preceding complete response"),
+                  ("test/native/api.test.ts", "bounds incomplete and oversized input before opening storage"),
+                  ("test/native/extension-command.test.ts", "executes the exact tail, preserves stdin/output/exit and exposes the invoking executable"),
+              ],
+              "e2e": [
+                  ("test/e2e/notes-path.e2e.test.ts", "uses the verified saved identity implicitly and remains available explicitly offline"),
+                  ("test/e2e/cli-errors.e2e.test.ts", "preserves missing target and binding conflict exits without extra output"),
+              ],
+          }
+          project = "/workspace/typescript"
+
+          def measure(report, selected):
+              expected = Counter((f"{project}/{file}", title) for file, title in selected)
+              found = Counter()
+              results = Counter()
+              unexpected = []
+              for file in report["testResults"]:
+                  for test in file["assertionResults"]:
+                      key = (file["name"], test["title"])
+                      state = test["status"]
+                      if key in expected:
+                          found[key] += 1
+                          results[state] += 1
+                      elif state not in ("skipped", "pending", "todo"):
+                          unexpected.append(key)
+              # The raw reporter marks cases excluded by -t as skipped. Count
+              # statuses for the manifest only, retaining all selected skips.
+              counts = {
+                  "numTotalTests": sum(found.values()),
+                  "numPassedTests": results["passed"],
+                  "numFailedTests": results["failed"],
+                  "numPendingTests": results["skipped"] + results["pending"],
+                  "numTodoTests": results["todo"],
+              }
+              ok = (
+                  found == expected and not unexpected
+                  and counts["numTotalTests"] == len(selected)
+                  and counts["numPassedTests"] == len(selected)
+                  and counts["numPendingTests"] == counts["numTodoTests"] == counts["numFailedTests"] == 0
+                  and report["numFailedTests"] == 0
+              )
+              if not ok:
+                  print(f"Missing cases: {list((expected - found).elements())}; duplicate cases: {list((found - expected).elements())}; unexpected executions: {unexpected}", flush=True)
+              return counts, ok
+
+          root = Path(os.environ["RUNNER_TEMP"]) / "tmt-go-parity"
+          reports = root / "reports"
+          image = f"tmt-go-parity:{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          runtimes = {"native": "/workspace/rust/target/debug/tmt", "go": "/parity-bin/tmt"}
+          rows = ["| Runtime | Suite | Passed | Selected |", "| --- | --- | ---: | ---: |"]
+          failed = False
+          for runtime, executable in runtimes.items():
+              descriptor = json.dumps({"executable": executable, "args": []})
+              for suite, selected in cases.items():
+                  name = f"{runtime}-{suite}"
+                  files = sorted({file for file, _ in selected})
+                  pattern = "(?:" + "|".join(re.escape(title).replace(r"\ ", " ") for _, title in selected) + ")$"
+                  log = reports / f"{name}.log"
+                  print(f"Running {name}: {len(selected)} selected cases", flush=True)
+                  with log.open("w") as stream:
+                      result = subprocess.run([
+                          "docker", "run", "--rm", "--init", "--network", "none",
+                          "--mount", f"type=bind,source={root / 'bin'},target=/parity-bin,readonly",
+                          "--mount", f"type=bind,source={reports},target=/parity-reports",
+                          "--env", f"TMT_TEST_CLI={descriptor}", "--env", f"TMT_TEST_PEER_CLI={descriptor}",
+                          "--workdir", project, image, "env", "-u", "TMUX", "-u", "TMUX_PANE",
+                          "pnpm", "exec", "vp", "test", "run", "--config", f"test/{suite}/vitest.config.ts",
+                          *files, "-t", pattern, "--reporter=json", f"--outputFile=/parity-reports/{name}.json",
+                      ], stdout=stream, stderr=subprocess.STDOUT)
+                  try:
+                      report = json.loads((reports / f"{name}.json").read_text())
+                      counts, ok = measure(report, selected)
+                      (reports / f"{name}-selected.json").write_text(json.dumps(counts, indent=2) + "\n")
+                      passed = counts["numPassedTests"]
+                  except (OSError, ValueError, KeyError, TypeError) as error:
+                      print(f"{name} report unavailable: {error}", flush=True)
+                      passed, ok = "unavailable", False
+                  rows.append(f"| {runtime} | {suite} | {passed} | {len(selected)} |")
+                  if result.returncode != 0 or not ok:
+                      failed = True
+                      print(f"{name} failed (container exit {result.returncode})", flush=True)
+                      print("\n".join(log.read_text(errors="replace").splitlines()[-40:]), flush=True)
+          with Path(os.environ["GITHUB_STEP_SUMMARY"]).open("a") as summary:
+              summary.write("## TypeScript executable parity\n\n" + "\n".join(rows) + "\n")
+          raise SystemExit(1 if failed else 0)
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: typescript-executable-parity
+          path: ${{ runner.temp }}/tmt-go-parity/reports/
+          if-no-files-found: warn
