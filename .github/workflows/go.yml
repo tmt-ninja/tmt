@@ -1,0 +1,104 @@
+# Go port CI (#6938). Lives only on poc/go; main never carries this file.
+name: go
+on:
+  push:
+    branches: [poc/go]
+    paths:
+      - 'go/**'
+      - '.github/workflows/go.yml'
+      - 'rust/crates/tmt-adapters/src/storage/schema/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-${{ github.ref }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    working-directory: go
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - name: gofmt
+        run: |
+          start=$(date +%s)
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          sh scripts/check-schema-copy.sh
+          echo "check: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - name: tmux
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then sudo apt-get install -y tmux >/dev/null; else brew install tmux >/dev/null; fi
+          tmux -V
+      - name: build
+        run: |
+          start=$(date +%s)
+          go build ./...
+          echo "${{ matrix.os }} build: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
+      - name: test
+        run: |
+          start=$(date +%s)
+          env -u TMUX -u TMUX_PANE go test -count=1 ./...
+          echo "${{ matrix.os }} test: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
+      - name: race
+        if: runner.os == 'Linux'
+        env:
+          CGO_ENABLED: '1'
+        run: env -u TMUX -u TMUX_PANE go test -race -count=1 ./...
+
+  dist:
+    needs: [check, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CGO_ENABLED: '0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go/go.mod
+          cache-dependency-path: go/go.sum
+      - name: cross-build
+        run: |
+          version="0.0.0-go.${GITHUB_RUN_NUMBER}+${GITHUB_SHA::10}"
+          mkdir -p dist
+          for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+            os=${target%/*}; arch=${target#*/}
+            GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X github.com/tmt-ninja/tmt/go/internal/cli.Version=$version" \
+              -o "dist/tmt-go-$os-$arch" ./cmd/tmt-go
+          done
+          (cd dist && sha256sum tmt-go-* > SHA256SUMS)
+          ls -l dist >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tmt-go
+          path: go/dist/
+          retention-days: 14
