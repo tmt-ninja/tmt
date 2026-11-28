@@ -73,7 +73,7 @@ import {
   X,
 } from 'lucide-react';
 import { moreButtonRect, PageHeaderActions, type PageHeaderAction } from './page-header-actions.js';
-import { AppHeader } from './app-header.js';
+import { AppHeader, WorkReturnLink } from './app-header.js';
 import { SharedTopBar } from './shared-top-bar.js';
 import { ColabHeader } from './colab-header.js';
 import { creatorName, PageAttribution } from './page-attribution.js';
@@ -126,7 +126,16 @@ import { AnnotationInput } from './annotation-input.js';
 import { rememberPages, SwitcherSourceStore } from './quick-switcher-source.js';
 import { noteOpened } from './recently-opened.js';
 import { QuickSwitcherHost, QuickSwitcherModalPresence } from './quick-switcher-dialog.js';
-import { isListPath, keepListSearch, storedListSearch, WORK_LIST_PATH } from './list-history.js';
+import {
+  isListPath,
+  keepListSearch,
+  rememberWorkTab,
+  storedListSearch,
+  WORK_HOME_PATH,
+  WORK_LIST_PATH,
+  workTabPath,
+  type WorkTab,
+} from './list-history.js';
 import { ColabShell, ShellHostSlot } from './colab-shell.js';
 import {
   embeddedPageEnvironment,
@@ -1257,8 +1266,9 @@ const workTabs = [
   { id: 'list', tabId: 'work-tab-list', panelId: 'work-panel-list', label: text.workHome.listTab },
 ] as const;
 
-function WorkTabLayout({ selected, children }: { selected: 'home' | 'list'; children: ReactNode }) {
+function WorkTabLayout({ selected, children }: { selected: WorkTab; children: ReactNode }) {
   const router = useRouter();
+  useEffect(() => rememberWorkTab(selected), [selected]);
   return (
     <div className="colab-work-tabs" data-work-view={selected}>
       <BrowserTabs
@@ -1267,7 +1277,7 @@ function WorkTabLayout({ selected, children }: { selected: 'home' | 'list'; chil
         selected={selected}
         onSelect={(id) => {
           if (id !== selected)
-            void router.navigate({ to: id === 'list' ? WORK_LIST_PATH : '/work' });
+            void router.navigate({ to: workTabPath(id === 'list' ? 'list' : 'home') });
         }}
       >
         {(tab) => tab.id === selected && children}
@@ -1290,7 +1300,7 @@ function WorkTabs() {
 
 const work = createRoute({
   getParentRoute: () => root,
-  path: '/work',
+  path: WORK_HOME_PATH,
   component: WorkTabs,
 });
 const workOverview = createRoute({
@@ -1373,11 +1383,7 @@ function PageFrame() {
         remoteMenu={false}
         title={title || text.loading}
         remote={{ deviceName: transport.backendName }}
-        home={(brand, name) => (
-          <Link to="/" aria-label={name} title={name}>
-            {brand}
-          </Link>
-        )}
+        home={(brand, name) => <WorkReturnLink name={name}>{brand}</WorkReturnLink>}
       />
       <div className="page-opening">
         <span role="status" aria-label={text.openingPage} className="page-opening-mark">
@@ -1654,8 +1660,7 @@ function PagePath({ routing, project }: { routing: PageRouting; project?: string
   );
 }
 
-/** The page route's own routing: links go to page routes of this router, and the brand and the
- * project crumb link back to the space list. */
+/** The page route's own routing. The brand and project crumb return to the remembered Work tab. */
 function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
   return {
     open(route, anchor) {
@@ -1670,15 +1675,11 @@ function routePageRouting(router: ReturnType<typeof useRouter>): PageRouting {
       router.history.createHref(
         router.buildLocation({ to: '/pages/$pageId', params: { pageId }, search: hint }).publicHref,
       ),
-    home: (brand, name) => (
-      <Link to="/" aria-label={name} title={name}>
-        {brand}
-      </Link>
-    ),
+    home: (brand, name) => <WorkReturnLink name={name}>{brand}</WorkReturnLink>,
     scopeCrumb: (scope) => (
-      <Link to="/" search={{ project: [scope] }} className="colab-scope-crumb" title={scope}>
+      <WorkReturnLink name={scope} project={scope}>
         {scope}
-      </Link>
+      </WorkReturnLink>
     ),
   };
 }

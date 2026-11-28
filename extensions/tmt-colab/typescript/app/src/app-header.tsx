@@ -3,9 +3,40 @@ import { Link } from '@tanstack/react-router';
 import { Moon, Sun } from 'lucide-react';
 import { useContext, useSyncExternalStore, type ReactNode, type Ref } from 'react';
 import { ColabHeader } from './colab-header.js';
+import {
+  storedWorkPath,
+  subscribeWorkTab,
+  WORK_HOME_PATH,
+  WORK_LIST_PATH,
+} from './list-history.js';
 import { SharedTopBar } from './shared-top-bar.js';
 import { text } from './strings.js';
 import { getTheme, setThemeChoice, subscribeTheme } from './theme.js';
+
+export function WorkReturnLink({
+  name,
+  project,
+  children,
+}: {
+  name: string;
+  project?: string;
+  children: ReactNode;
+}) {
+  const to = useSyncExternalStore(subscribeWorkTab, storedWorkPath, () => WORK_HOME_PATH);
+  if (project === undefined) {
+    return (
+      <Link to={to} aria-label={name} title={name}>
+        {children}
+      </Link>
+    );
+  }
+  const props = { className: 'colab-scope-crumb', title: name, children };
+  return to === WORK_LIST_PATH ? (
+    <Link {...props} to={WORK_LIST_PATH} search={{ project: [project] }} />
+  ) : (
+    <Link {...props} to={WORK_HOME_PATH} search={{ project }} />
+  );
+}
 
 /** The header of a Colab route that is not a loaded page: its title in the shared bar's title slot,
  * or the module's own header outside it. */
@@ -46,13 +77,7 @@ export function AppHeader({
       remote={remote}
       headingSuffix={headingSuffix}
       home={
-        linked
-          ? (brand, name) => (
-              <Link to="/" aria-label={name} title={name}>
-                {brand}
-              </Link>
-            )
-          : undefined
+        linked ? (brand, name) => <WorkReturnLink name={name}>{brand}</WorkReturnLink> : undefined
       }
       actions={sharedBar ? undefined : <ThemeButton />}
     />

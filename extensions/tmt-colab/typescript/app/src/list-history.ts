@@ -3,7 +3,46 @@ import type { RouterHistory } from '@tanstack/react-router';
 /** The state key under which a history entry keeps the list's own search. */
 const KEY = 'tmtColabList';
 const MAX_SEARCH = 2048;
+export const WORK_HOME_PATH = '/work';
 export const WORK_LIST_PATH = '/work/list';
+const WORK_TAB_KEY = 'tmt-colab-work-tab';
+export type WorkTab = 'home' | 'list';
+
+export function workTabPath(tab: WorkTab) {
+  return tab === 'list' ? WORK_LIST_PATH : WORK_HOME_PATH;
+}
+
+export function storedWorkPath() {
+  try {
+    return workTabPath(localStorage.getItem(WORK_TAB_KEY) === 'list' ? 'list' : 'home');
+  } catch {
+    return WORK_HOME_PATH;
+  }
+}
+
+/** Only the active Work tab records a visit. Reading or following a crumb does not write. */
+export function rememberWorkTab(tab: WorkTab) {
+  try {
+    if (localStorage.getItem(WORK_TAB_KEY) === tab) return;
+    localStorage.setItem(WORK_TAB_KEY, tab);
+  } catch {
+    // The current tab still works when storage is blocked.
+    return;
+  }
+  window.dispatchEvent(new Event(WORK_TAB_KEY));
+}
+
+export function subscribeWorkTab(notify: () => void) {
+  const change = (event: StorageEvent) => {
+    if (event.key === WORK_TAB_KEY || event.key === null) notify();
+  };
+  window.addEventListener(WORK_TAB_KEY, notify);
+  window.addEventListener('storage', change);
+  return () => {
+    window.removeEventListener(WORK_TAB_KEY, notify);
+    window.removeEventListener('storage', change);
+  };
+}
 
 /** Whether a router path is the page list, with or without its search. */
 export function isListPath(path: string): boolean {
