@@ -27,8 +27,8 @@ func TestHumanOutputMatchesNative(t *testing.T) {
 	}
 	run := func(t *testing.T, status int, diagnostic bool, args ...string) {
 		t.Helper()
-		want := humanOutput(t, world, native, status, diagnostic, args)
-		got := humanOutput(t, world, goBinary, status, diagnostic, args)
+		want := humanOutput(t, world, native, "TMT_HOME="+filepath.Join(world, "native"), status, diagnostic, args)
+		got := humanOutput(t, world, goBinary, home.EnvHome+"="+filepath.Join(world, "go"), status, diagnostic, args)
 		got = bytes.ReplaceAll(got, []byte("tmt-go"), []byte("tmt"))
 		if !bytes.Equal(want, got) {
 			t.Errorf("%q\nnative: %q\n    Go: %q", args, want, got)
@@ -140,7 +140,7 @@ func seedHumanWorld(t *testing.T, world string, request core.RequestID) {
 	}
 }
 
-func humanOutput(t *testing.T, world, binary string, status int, diagnostic bool, args []string) []byte {
+func humanOutput(t *testing.T, world, binary, dataHome string, status int, diagnostic bool, args []string) []byte {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
@@ -149,8 +149,7 @@ func humanOutput(t *testing.T, world, binary string, status int, diagnostic bool
 	cmd.Env = []string{
 		"PATH=/usr/bin:/bin",
 		"HOME=" + world,
-		"TMT_HOME=" + filepath.Join(world, "native"),
-		"TMT_GO_HOME=" + filepath.Join(world, "go"),
+		dataHome,
 		"XDG_CONFIG_HOME=" + filepath.Join(world, ".config"),
 		"TMUX_TMPDIR=" + world,
 		"NO_COLOR=1",
