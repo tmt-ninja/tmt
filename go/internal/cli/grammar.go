@@ -193,6 +193,7 @@ var grammar = commandSpec{
 			operands: []operandSpec{required("target"), optional("capture-lines")}, options: []string{"lines", "capture-only", "expect-name"}},
 		{name: "stop", summary: "Stop an agent safely, keeping its identity, binding and session",
 			operands: []operandSpec{required("name")}, options: []string{"close"}},
+		{name: "unbind", summary: "Detach this pane; retire temporary identity"},
 		{name: "whoami", summary: "Show this pane's verified identity", options: []string{"context"}},
 		{name: "reply", summary: "Submit an exact final response",
 			operands: []operandSpec{required("request-id")}, options: []string{"file", "message", "stdin", "receipt"}},

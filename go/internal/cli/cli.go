@@ -116,6 +116,8 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return publish(stdout, stderr, app.check(ctx, root, invocation), invocation.json)
 	case "stop":
 		return publish(stdout, stderr, app.runStop(ctx, root, invocation), invocation.json)
+	case "unbind":
+		return publish(stdout, stderr, app.runUnbind(ctx, root), invocation.json)
 	case "add", "name", "rm", "mv", "whoami", "ls":
 		return publish(stdout, stderr, app.runBinding(ctx, root, invocation), invocation.json)
 	case "run":
