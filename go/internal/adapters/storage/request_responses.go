@@ -205,8 +205,7 @@ func selectResultID(r records, input core.RequestID, now uint64) (core.RequestID
 	if err != nil || lower == "" {
 		return input, err
 	}
-	const matches = `SELECT request_id FROM request_attempts WHERE request_id >= ?1 AND request_id < ?2 AND retention_expires_at_ms > ?3
-		UNION SELECT request_id FROM request_responses WHERE request_id >= ?1 AND request_id < ?2 AND response_expires_at_ms > ?3`
+	const matches = `SELECT request_id FROM request_attempts WHERE request_id >= ?1 AND request_id < ?2 AND retention_expires_at_ms > ?3`
 	rows, err := r.query("SELECT request_id FROM ("+matches+") ORDER BY request_id LIMIT 6", lower, upper, now)
 	if err != nil {
 		return "", err

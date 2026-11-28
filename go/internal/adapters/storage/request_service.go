@@ -57,6 +57,9 @@ func (s *RequestService) prepare(ctx context.Context, in core.PrepareRequest, en
 		if err != nil {
 			return err
 		}
+		if err := pruneRequests(r, now); err != nil {
+			return err
+		}
 		requests, responses := requestRows{r}, responseRows{r}
 		existing, err := responses.FindByRequest(in.RequestID)
 		if err != nil {
@@ -139,7 +142,7 @@ func validatePrepared(in core.PrepareRequest, enqueue bool) error {
 		return requestState()
 	}
 	pane := in.Route.Pane
-	if pane.Server.ID == "" || pane.Server.Socket == "" || pane.Server.StartTime == "" ||
+	if pane.Server.Host == "" || pane.Server.ID == "" || pane.Server.Socket == "" || pane.Server.StartTime == "" ||
 		pane.PaneID == "" || !safeTime(pane.Server.PID) || !safeTime(pane.PanePID) {
 		return requestState()
 	}

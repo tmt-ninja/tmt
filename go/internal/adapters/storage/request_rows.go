@@ -146,6 +146,14 @@ func (r requestRows) Insert(a core.RequestAttempt, prompt string) error {
 }
 
 func (r requestRows) UpdateState(plan core.AttemptTransition) (bool, error) {
+	var refund *core.IdentityID
+	if plan.To == core.AttemptDefinitelyFailed {
+		err := r.one(`SELECT identity_id FROM request_attempts
+			WHERE attempt_id = ? AND status = ? AND cadence_reserved = 1`, plan.AttemptID, plan.From).Scan(&refund)
+		if err != nil && !isNoRows(err) {
+			return false, err
+		}
+	}
 	result, err := r.exec(`UPDATE request_attempts SET status = ?1, cadence_reserved = ?2,
 		sending_at_ms = CASE WHEN ?1 = 'sending' THEN ?3 ELSE sending_at_ms END,
 		settled_at_ms = CASE WHEN ?1 IN ('sent', 'queued', 'uncertain', 'definitely_failed') THEN ?3 ELSE settled_at_ms END,
@@ -158,7 +166,18 @@ func (r requestRows) UpdateState(plan core.AttemptTransition) (bool, error) {
 		return false, err
 	}
 	count, err := result.RowsAffected()
-	return count == 1, err
+	if err != nil || count != 1 {
+		return false, err
+	}
+	if refund != nil {
+		_, err := r.exec(`INSERT INTO preamble_counters (identity_id, reserved_count, updated_at_ms)
+			VALUES (?, 0, ?) ON CONFLICT(identity_id) DO UPDATE SET
+				reserved_count = MAX(reserved_count - 1, 0), updated_at_ms = excluded.updated_at_ms`, *refund, plan.AtMs)
+		if err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func (r requestRows) ReleaseWait(id core.AttemptID, nowMs uint64) error {

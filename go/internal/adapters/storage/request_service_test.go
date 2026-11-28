@@ -248,3 +248,96 @@ func TestAnswerRequiresUnambiguousRecordedRecipient(t *testing.T) {
 	_, err = service.Answer(ctx, core.AnswerRequest{Recipient: "receiver", Originator: &from})
 	requireRequestFailure(t, err, "ANSWER_NOT_WAITING", 3)
 }
+
+func TestRequestRetentionPrunesOnWriteAndPreservesPinnedFinal(t *testing.T) {
+	store, service, clock := seedRequestService(t)
+	ctx := t.Context()
+
+	for _, id := range []core.RequestID{"prepared", "sending"} {
+		attempt, err := service.Prepare(ctx, paneRequest(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if id == "sending" {
+			if err := service.BeginSend(ctx, attempt.AttemptID); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	for _, id := range []core.RequestID{"final", "pinned"} {
+		attempt, err := service.Enqueue(ctx, inboxRequest(id))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := service.SubmitResponse(ctx, core.SubmitResponse{RequestID: id, Receipt: attempt.Receipt, Body: "retained"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.db.ExecContext(ctx, "UPDATE request_attempts SET keep_reply = 1 WHERE request_id = 'pinned'"); err != nil {
+		t.Fatal(err)
+	}
+	clock.ms += int64(core.RetentionDayMs)
+	result, err := service.Result(ctx, "final")
+	if err != nil || result.Status != core.ResponseUnavailable {
+		t.Fatalf("result at exact body expiry = %+v, %v", result, err)
+	}
+	var before int
+	if err := store.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM request_responses").Scan(&before); err != nil || before != 2 {
+		t.Fatalf("read changed physical response state: %d, %v", before, err)
+	}
+	if _, err := service.Prepare(ctx, paneRequest("triggers-cleanup")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Read(ctx, func(tx ports.StoreTx) error {
+		for id, want := range map[core.RequestID]core.AttemptStatus{
+			"prepared": core.AttemptDefinitelyFailed, "sending": core.AttemptUncertain, "final": core.AttemptQueued,
+		} {
+			a, err := tx.Requests().FindByID(id)
+			if err != nil {
+				return err
+			}
+			if a == nil || a.Status != want || a.WaitActive || a.WaitReleasedAtMs == nil {
+				t.Fatalf("cleanup %s = %+v, want %s and waiter release", id, a, want)
+			}
+		}
+		unpinned, err := tx.Responses().FindByRequest("final")
+		if err != nil {
+			return err
+		}
+		pinned, err := tx.Responses().FindByRequest("pinned")
+		if err != nil {
+			return err
+		}
+		if unpinned != nil || pinned == nil {
+			t.Fatalf("physical cleanup = %+v unpinned and %+v pinned", unpinned, pinned)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	detail, err := service.ShowX(ctx, "sender", core.XOutgoing, "final")
+	if err != nil || detail.Prompt != nil || detail.PromptExpiresAtMs == nil ||
+		detail.Exchange.Final.Status != core.FinalExpired || detail.Exchange.Final.SubmittedAtMs == nil {
+		t.Fatalf("expired metadata after physical cleanup = %+v, %v", detail, err)
+	}
+	clock.ms += int64(core.ResponseAcceptanceWindowMs)
+	if _, err := service.Prepare(ctx, paneRequest("triggers-metadata-cleanup")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Read(ctx, func(tx ports.StoreTx) error {
+		unpinned, err := tx.Requests().FindByID("final")
+		if err != nil {
+			return err
+		}
+		pinned, err := tx.Requests().FindByID("pinned")
+		if err != nil {
+			return err
+		}
+		if unpinned != nil || pinned == nil {
+			t.Fatalf("metadata cleanup = %+v unpinned and %+v pinned", unpinned, pinned)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
