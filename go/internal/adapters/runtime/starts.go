@@ -16,21 +16,33 @@ func (o Observer) ObserveStarts(ctx context.Context, pids []int) (map[int]Incarn
 		return nil, errors.New("invalid process observation batch size")
 	}
 	requested := make(map[int]bool, len(pids))
-	args := make([]string, 0, len(pids))
+	unique := make([]int, 0, len(pids))
 	for _, pid := range pids {
 		if !validPID(pid) {
 			return nil, errors.New("invalid process ID")
 		}
 		if !requested[pid] {
 			requested[pid] = true
-			args = append(args, strconv.Itoa(pid))
+			unique = append(unique, pid)
 		}
+	}
+	starts := make(map[int]Incarnation, len(unique))
+	if observations, ok := o.nativeStarts(ctx, unique); ok {
+		for i, observed := range observations {
+			if observed.State == Alive || observed.State == Suspended {
+				starts[unique[i]] = observed.Incarnation
+			}
+		}
+		return starts, nil
+	}
+	args := make([]string, 0, len(unique))
+	for _, pid := range unique {
+		args = append(args, strconv.Itoa(pid))
 	}
 	got, err := o.queryPS(ctx, len(pids)*probeLimit, "-p", strings.Join(args, ","), "-o", "pid=,lstart=,stat=")
 	if err != nil {
 		return nil, err
 	}
-	starts := make(map[int]Incarnation, len(pids))
 	if got.ExitCode != 0 {
 		return starts, nil
 	}
@@ -50,9 +62,9 @@ func (o Observer) ObserveStarts(ctx context.Context, pids []int) (map[int]Incarn
 	return starts, nil
 }
 
-// InProcessTree reports a complete ancestry chain from child to ancestor.
-func (o Observer) InProcessTree(ctx context.Context, child, ancestor int) (bool, error) {
-	if !validPID(child) || !validPID(ancestor) {
+// InProcessTree proves both ancestry segments from one process-table snapshot.
+func (o Observer) InProcessTree(ctx context.Context, child, through, ancestor int) (bool, error) {
+	if !validPID(child) || !validPID(through) || !validPID(ancestor) {
 		return false, nil
 	}
 	got, err := o.queryPS(ctx, ancestryLimit, "-A", "-o", "pid=,ppid=,comm=")
@@ -60,17 +72,21 @@ func (o Observer) InProcessTree(ctx context.Context, child, ancestor int) (bool,
 		return false, err
 	}
 	rows := parseProcessRows(got.Stdout, false)
+	return processDescends(rows, child, through) && processDescends(rows, through, ancestor), nil
+}
+
+func processDescends(rows map[int]processRow, child, ancestor int) bool {
 	for pid, depth := child, 0; pid > 0 && depth < 128; depth++ {
 		row := rows[pid]
 		if row.command == "" {
-			return false, nil
+			return false
 		}
 		if pid == ancestor {
-			return true, nil
+			return true
 		}
 		pid = row.parent
 	}
-	return false, nil
+	return false
 }
 
 // IsProcessParent verifies the immediate parent in one bounded observation.

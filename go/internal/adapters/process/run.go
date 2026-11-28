@@ -22,6 +22,11 @@ type Runner struct{}
 
 var _ ports.Process = Runner{}
 
+// NativeProcessStarts provides the local runtime observer with kernel evidence.
+func (Runner) NativeProcessStarts(ctx context.Context, pids []int) ([]sys.ProcessStart, bool) {
+	return sys.ReadProcessStarts(ctx, pids)
+}
+
 // ErrOutputLimit means the child exceeded its byte budget on one stream.
 var ErrOutputLimit = errors.New("child output limit exceeded")
 

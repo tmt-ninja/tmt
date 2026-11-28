@@ -72,12 +72,45 @@ type Observer struct {
 
 const probeLimit = 512
 
-// Observe takes a fixed-path, fixed-locale ps observation with a bounded
-// runner. ps-v1 is second-resolution evidence. It does not establish ownership.
-// NOT PORTED (GO2-01): native process-table reads before the bounded ps fallback.
+type nativeProcessReader interface {
+	NativeProcessStarts(ctx context.Context, pids []int) ([]sys.ProcessStart, bool)
+}
+
+func (o Observer) nativeStarts(ctx context.Context, pids []int) ([]Observation, bool) {
+	reader, ok := o.Process.(nativeProcessReader)
+	if !ok {
+		return nil, false
+	}
+	starts, ok := reader.NativeProcessStarts(ctx, pids)
+	if !ok || len(starts) != len(pids) || ctx.Err() != nil {
+		return nil, false
+	}
+	result := make([]Observation, len(pids))
+	for i, start := range starts {
+		if start.State == 'X' || start.State == 'x' {
+			result[i].State = Gone
+			continue
+		}
+		if start.Seconds > math.MaxInt64 {
+			continue
+		}
+		date := time.Unix(int64(start.Seconds), 0).UTC()
+		if date.Year() < 1000 || date.Year() > 9999 {
+			continue
+		}
+		result[i] = processObservation(pids[i], date.Format("Mon Jan 2 15:04:05 2006"), string(start.State))
+	}
+	return result, true
+}
+
+// Observe prefers a native start-time read and falls back to bounded ps.
+// Both produce the same second-resolution UTC token.
 func (o Observer) Observe(ctx context.Context, pid int) (Observation, error) {
 	if !validPID(pid) {
 		return Observation{}, nil
+	}
+	if starts, ok := o.nativeStarts(ctx, []int{pid}); ok {
+		return starts[0], nil
 	}
 	got, err := o.queryPS(ctx, probeLimit, "-p", strconv.Itoa(pid), "-o", "lstart=", "-o", "stat=")
 	if err != nil {
@@ -131,7 +164,10 @@ func parse(pid int, output []byte) Observation {
 	if len(fields) != 6 || !validStart(fields[:5]) {
 		return Observation{}
 	}
-	state := fields[5]
+	return processObservation(pid, strings.Join(fields[:5], " "), fields[5])
+}
+
+func processObservation(pid int, stamp, state string) Observation {
 	if strings.ContainsRune("ZXx", rune(state[0])) || strings.ContainsRune(state[1:], 'E') {
 		return Observation{State: Gone}
 	}
@@ -144,7 +180,7 @@ func parse(pid int, output []byte) Observation {
 	default:
 		return Observation{}
 	}
-	return Observation{State: observed, Incarnation: Incarnation{PID: pid, Start: "ps-v1:" + strings.Join(fields[:5], " ")}}
+	return Observation{State: observed, Incarnation: Incarnation{PID: pid, Start: "ps-v1:" + stamp}}
 }
 
 func validStart(fields []string) bool {

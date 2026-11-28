@@ -101,6 +101,16 @@ func TestPrivateFocusAndSwapExactInvokingClient(t *testing.T) {
 	}
 }
 
+type tracingFocusRunner struct {
+	process.Runner
+	before func(ports.ProcessSpec)
+}
+
+func (r tracingFocusRunner) Run(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
+	r.before(spec)
+	return r.Runner.Run(ctx, spec)
+}
+
 func TestPrivateFocusHelper(t *testing.T) {
 	if os.Getenv(focusFixture) != "1" {
 		return
@@ -161,8 +171,7 @@ func TestPrivateFocusHelper(t *testing.T) {
 			return err
 		}
 		var mutations []string
-		runner := c.Process
-		c.Process = runFunc(func(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
+		c.Process = tracingFocusRunner{before: func(spec ports.ProcessSpec) {
 			if spec.Path == c.Path {
 				for _, arg := range spec.Args[3:] {
 					if strings.HasPrefix(arg, "swap-pane") || strings.HasPrefix(arg, "select-") ||
@@ -171,8 +180,7 @@ func TestPrivateFocusHelper(t *testing.T) {
 					}
 				}
 			}
-			return runner.Run(ctx, spec)
-		})
+		}}
 		after, err := c.SwapInto(ctx, claim, client, target, SwapRight)
 		if err != nil || after != (SwapResult{View: client, Target: want, Neighbour: neighbour}) {
 			return fmt.Errorf("swap did not report its exact participating panes: %+v, %v", after, err)

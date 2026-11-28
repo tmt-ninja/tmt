@@ -75,10 +75,7 @@ func (c Client) invokerPane(ctx context.Context, claim TmuxCaller) (PaneSnapshot
 		return PaneSnapshot{}, ErrInvokerClient
 	}
 	observer := runtime.Observer{Process: c.Process}
-	if inside, err := observer.InProcessTree(ctx, os.Getpid(), int(pane.Process.PID)); err != nil || !inside {
-		return PaneSnapshot{}, ErrInvokerClient
-	}
-	if inside, err := observer.InProcessTree(ctx, int(pane.Process.PID), int(pane.Server.PID)); err != nil || !inside {
+	if inside, err := observer.InProcessTree(ctx, os.Getpid(), int(pane.Process.PID), int(pane.Server.PID)); err != nil || !inside {
 		return PaneSnapshot{}, ErrInvokerClient
 	}
 	return pane, nil
