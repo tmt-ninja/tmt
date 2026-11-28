@@ -108,7 +108,7 @@ func (s *Storage) loadDigestCalendar(ctx context.Context) (digestCalendar, error
 }
 
 type digestReceiving struct {
-	source     digestReceivingSource
+	source     core.OrchSource
 	mode       core.OrchReceivingMode
 	nextChange *uint64
 	revision   uint64
@@ -128,7 +128,7 @@ func resolveDigestReceiving(r records, identity *core.Identity, cal digestCalend
 		return digestReceiving{}, errors.New("receiving calendar selection changed; retry the operation")
 	}
 	resolved := digestReceiving{mode: policy.BaseReceiving[identity.ID].Mode, revision: policy.Revision, zone: cal.location.String(),
-		source: digestReceivingSource{Kind: "base", IdentityID: &identity.ID, Revision: policy.DigestRevision}}
+		source: core.OrchSource{Kind: core.OrchSourceBase, IdentityID: &identity.ID, Revision: policy.DigestRevision}}
 	for _, plan := range policy.Plans {
 		if !plan.Enabled || !digestPlanMatches(plan, identity) {
 			continue
@@ -139,9 +139,9 @@ func resolveDigestReceiving(r records, identity *core.Identity, cal digestCalend
 		}
 		resolved.consider(now, next)
 		if active {
-			source := digestReceivingSource{Kind: "plan", PlanID: &plan.ID, Revision: plan.Revision, Slot: slot}
+			source := core.OrchSource{Kind: core.OrchSourcePlan, PlanID: &plan.ID, Revision: plan.Revision, Slot: slot}
 			resolved.apply(plan.Fields, source)
-			source.Kind, source.IdentityID = "member", &identity.ID
+			source.Kind, source.IdentityID = core.OrchSourceMember, &identity.ID
 			resolved.apply(plan.Members[identity.ID], source)
 		}
 	}
@@ -150,13 +150,13 @@ func resolveDigestReceiving(r records, identity *core.Identity, cal digestCalend
 		resolved.consider(now, focus.EndMs)
 		if focus.StartMs <= now && now < focus.EndMs {
 			resolved.mode = core.OrchReceivingUrgent
-			resolved.source = digestReceivingSource{Kind: "focus", IdentityID: &identity.ID, Revision: focus.Revision,
-				Slot: &digestJournalSlot{StartMs: focus.StartMs, EndMs: focus.EndMs}, Defaulted: true}
+			resolved.source = core.OrchSource{Kind: core.OrchSourceFocus, IdentityID: &identity.ID, Revision: focus.Revision,
+				Slot: &core.OrchTimeSlot{StartMs: focus.StartMs, EndMs: focus.EndMs}, Defaulted: true}
 		}
 	}
 	if !policy.DigestEnabled {
 		resolved.mode = core.OrchReceivingDirect
-		resolved.source = digestReceivingSource{Kind: "base", Revision: policy.DigestRevision}
+		resolved.source = core.OrchSource{Kind: core.OrchSourceBase, Revision: policy.DigestRevision}
 	}
 	return resolved, nil
 }
@@ -167,7 +167,7 @@ func (d *digestReceiving) consider(now, when uint64) {
 	}
 }
 
-func (d *digestReceiving) apply(f core.OrchPolicyFields, source digestReceivingSource) {
+func (d *digestReceiving) apply(f core.OrchPolicyFields, source core.OrchSource) {
 	if f.Receiving != nil {
 		d.mode, d.source = f.Receiving.Mode, source
 		return
@@ -222,7 +222,7 @@ func matchDigestPattern(pattern, name []rune) bool {
 	return i == len(pattern)
 }
 
-func digestPlanSlot(schedule core.OrchPlanSchedule, location *time.Location, now uint64) (bool, *digestJournalSlot, uint64, error) {
+func digestPlanSlot(schedule core.OrchPlanSchedule, location *time.Location, now uint64) (bool, *core.OrchTimeSlot, uint64, error) {
 	switch schedule.Kind {
 	case "always":
 		return true, nil, 0, nil
@@ -231,7 +231,7 @@ func digestPlanSlot(schedule core.OrchPlanSchedule, location *time.Location, now
 		case now < schedule.StartMs:
 			return false, nil, schedule.StartMs, nil
 		case now < schedule.EndMs:
-			return true, &digestJournalSlot{StartMs: schedule.StartMs, EndMs: schedule.EndMs}, schedule.EndMs, nil
+			return true, &core.OrchTimeSlot{StartMs: schedule.StartMs, EndMs: schedule.EndMs}, schedule.EndMs, nil
 		default:
 			return false, nil, 0, nil
 		}
@@ -261,7 +261,7 @@ func digestPlanSlot(schedule core.OrchPlanSchedule, location *time.Location, now
 	civil := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
 	startMinute, endMinute := start.Hour()*60+start.Minute(), end.Hour()*60+end.Minute()
 	next := digestReceiving{}
-	var slot *digestJournalSlot
+	var slot *core.OrchTimeSlot
 	for offset := -1; offset <= 16; offset++ {
 		date := civil.AddDate(0, 0, offset)
 		if schedule.Kind == "weekly" {
@@ -282,7 +282,7 @@ func digestPlanSlot(schedule core.OrchPlanSchedule, location *time.Location, now
 			continue
 		}
 		if from > 0 && from <= int64(now) && int64(now) < to {
-			slot = &digestJournalSlot{StartMs: uint64(from), EndMs: uint64(to)}
+			slot = &core.OrchTimeSlot{StartMs: uint64(from), EndMs: uint64(to)}
 		}
 		if from > 0 {
 			next.consider(now, uint64(from))

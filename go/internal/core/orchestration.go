@@ -1,5 +1,11 @@
 package core
 
+import (
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
+
 type OrchSnapshotQuery struct {
 	MemberQuery *string
 }
@@ -202,4 +208,179 @@ type OrchRouteGrant struct {
 	ToID      IdentityID
 	UntilMs   uint64
 	GrantedBy *IdentityID
+}
+
+type OrchJournalQuery struct {
+	Subject OrchJournalSubject
+	Before  *uint64
+	Limit   uint16
+	NowMs   uint64
+}
+
+type OrchJournalSubject struct {
+	Kind OrchSubjectKind
+	ID   string
+}
+
+func (s OrchJournalSubject) Valid() bool {
+	switch s.Kind {
+	case OrchSubjectRequest:
+		id, ok := strings.CutPrefix(s.ID, "req_")
+		return ok && validOrchJournalUUID(id)
+	case OrchSubjectIdentity:
+		return validOrchJournalUUID(s.ID)
+	case OrchSubjectJob:
+		return s.ID != "" && len(s.ID) <= 128 && utf8.ValidString(s.ID) && !strings.ContainsFunc(s.ID, unicode.IsControl)
+	default:
+		return false
+	}
+}
+
+func validOrchJournalUUID(id string) bool {
+	return ValidUUID(id) && id != "00000000-0000-0000-0000-000000000000"
+}
+
+type OrchJournalPage struct {
+	Items           []OrchJournalEntry
+	NextBefore      *uint64
+	RetainedAfterMs uint64
+}
+type OrchJournalEntry struct {
+	ID, RecordedAtMs      uint64
+	Subject               OrchJournalSubject
+	ActorID, RecipientID  *IdentityID
+	Action                OrchDecisionAction
+	Outcome               OrchDecisionOutcome
+	Reason                string
+	ConfigurationRevision uint64
+	TimeZone              string
+	Sources               []OrchDecisionSource
+}
+type OrchDecisionSource struct {
+	Field  OrchPolicyField `json:"field"`
+	Source OrchSource      `json:"source"`
+}
+type OrchSource struct {
+	Kind       OrchSourceKind `json:"kind"`
+	PlanID     *string        `json:"planId"`
+	IdentityID *IdentityID    `json:"identityId"`
+	Revision   uint64         `json:"revision"`
+	Slot       *OrchTimeSlot  `json:"slot"`
+	Defaulted  bool           `json:"defaulted"`
+}
+type OrchTimeSlot struct {
+	StartMs uint64 `json:"startMs"`
+	EndMs   uint64 `json:"endMs"`
+}
+
+func (s OrchSource) Valid() bool {
+	if !ValidJSSafeInteger(s.Revision) || s.PlanID != nil && !validOrchJournalUUID(*s.PlanID) ||
+		s.IdentityID != nil && !validOrchJournalUUID(string(*s.IdentityID)) ||
+		s.Slot != nil && (s.Slot.StartMs == 0 || s.Slot.StartMs >= s.Slot.EndMs || !ValidJSSafeInteger(s.Slot.EndMs)) {
+		return false
+	}
+	switch s.Kind {
+	case OrchSourceBase:
+		return s.PlanID == nil && s.Slot == nil && !s.Defaulted && (s.Revision > 0 || s.IdentityID == nil)
+	case OrchSourcePlan:
+		return s.PlanID != nil && s.IdentityID == nil && s.Revision > 0
+	case OrchSourceMember:
+		return s.PlanID != nil && s.IdentityID != nil && s.Revision > 0
+	case OrchSourceFocus:
+		return s.PlanID == nil && s.IdentityID != nil && s.Revision > 0
+	default:
+		return false
+	}
+}
+
+type OrchSubjectKind string
+
+const (
+	OrchSubjectRequest  OrchSubjectKind = "request"
+	OrchSubjectIdentity OrchSubjectKind = "identity"
+	OrchSubjectJob      OrchSubjectKind = "job"
+)
+
+func (v OrchSubjectKind) Valid() bool {
+	switch v {
+	case OrchSubjectRequest, OrchSubjectIdentity, OrchSubjectJob:
+		return true
+	default:
+		return false
+	}
+}
+
+type OrchDecisionAction string
+
+const (
+	OrchActionBlock  OrchDecisionAction = "block"
+	OrchActionDelay  OrchDecisionAction = "delay"
+	OrchActionSend   OrchDecisionAction = "send"
+	OrchActionJobRun OrchDecisionAction = "jobRun"
+)
+
+func (v OrchDecisionAction) Valid() bool {
+	switch v {
+	case OrchActionBlock, OrchActionDelay, OrchActionSend, OrchActionJobRun:
+		return true
+	default:
+		return false
+	}
+}
+
+type OrchDecisionOutcome string
+
+const (
+	OrchOutcomeAllowed   OrchDecisionOutcome = "allowed"
+	OrchOutcomeHeld      OrchDecisionOutcome = "held"
+	OrchOutcomeSent      OrchDecisionOutcome = "sent"
+	OrchOutcomeUncertain OrchDecisionOutcome = "uncertain"
+	OrchOutcomeFailed    OrchDecisionOutcome = "failed"
+	OrchOutcomeCompleted OrchDecisionOutcome = "completed"
+)
+
+func (v OrchDecisionOutcome) Valid() bool {
+	switch v {
+	case OrchOutcomeAllowed, OrchOutcomeHeld, OrchOutcomeSent, OrchOutcomeUncertain, OrchOutcomeFailed, OrchOutcomeCompleted:
+		return true
+	default:
+		return false
+	}
+}
+
+type OrchPolicyField string
+
+const (
+	OrchFieldState     OrchPolicyField = "state"
+	OrchFieldReceiving OrchPolicyField = "receiving"
+	OrchFieldSending   OrchPolicyField = "sending"
+	OrchFieldRoutine   OrchPolicyField = "routine"
+	OrchFieldTalkLimit OrchPolicyField = "talkLimit"
+)
+
+func (v OrchPolicyField) Valid() bool {
+	switch v {
+	case OrchFieldState, OrchFieldReceiving, OrchFieldSending, OrchFieldRoutine, OrchFieldTalkLimit:
+		return true
+	default:
+		return false
+	}
+}
+
+type OrchSourceKind string
+
+const (
+	OrchSourceBase   OrchSourceKind = "base"
+	OrchSourcePlan   OrchSourceKind = "plan"
+	OrchSourceMember OrchSourceKind = "member"
+	OrchSourceFocus  OrchSourceKind = "focus"
+)
+
+func (v OrchSourceKind) Valid() bool {
+	switch v {
+	case OrchSourceBase, OrchSourcePlan, OrchSourceMember, OrchSourceFocus:
+		return true
+	default:
+		return false
+	}
 }

@@ -55,7 +55,7 @@ func incomingDigestHold(r records, in core.PrepareRequest, cal digestCalendar, n
 	switch {
 	case resolved.mode == core.OrchReceivingDirect || p.Urgent && resolved.mode != core.OrchReceivingHold:
 		return nil, nil
-	case fromOwner && (resolved.mode == "" || resolved.source.Kind == "base" &&
+	case fromOwner && (resolved.mode == "" || resolved.source.Kind == core.OrchSourceBase &&
 		(resolved.mode == core.OrchReceivingAuto || resolved.mode == core.OrchReceivingBatch)):
 		return nil, nil
 	}

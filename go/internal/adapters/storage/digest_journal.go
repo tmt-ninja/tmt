@@ -6,24 +6,10 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/core"
 )
 
-type digestJournalSlot struct {
-	StartMs uint64 `json:"startMs"`
-	EndMs   uint64 `json:"endMs"`
-}
-
-type digestReceivingSource struct {
-	Kind       string             `json:"kind"`
-	PlanID     *string            `json:"planId"`
-	IdentityID *core.IdentityID   `json:"identityId"`
-	Revision   uint64             `json:"revision"`
-	Slot       *digestJournalSlot `json:"slot"`
-	Defaulted  bool               `json:"defaulted"`
-}
-
 type digestJournalContext struct {
-	Revision uint64                `json:"configurationRevision"`
-	TimeZone string                `json:"timeZone"`
-	Source   digestReceivingSource `json:"source"`
+	Revision uint64          `json:"configurationRevision"`
+	TimeZone string          `json:"timeZone"`
+	Source   core.OrchSource `json:"source"`
 }
 
 func recordDigestClaim(r records, c core.DigestChecklist, d digestReceiving, now uint64) error {
@@ -47,7 +33,7 @@ func recordDigestSettlement(r records, c digestChecklistRow, outcome core.Digest
 		return err
 	}
 	var evidence digestJournalContext
-	if json.Unmarshal(raw, &evidence, json.RejectUnknownMembers(true)) != nil || evidence.TimeZone == "" || !validDigestSource(evidence.Source) {
+	if json.Unmarshal(raw, &evidence, json.RejectUnknownMembers(true)) != nil || evidence.TimeZone == "" || !evidence.Source.Valid() {
 		return errDigestEvidence
 	}
 	switch outcome {
@@ -62,34 +48,12 @@ func recordDigestSettlement(r records, c digestChecklistRow, outcome core.Digest
 	}
 }
 
-func validDigestSource(s digestReceivingSource) bool {
-	if !core.ValidJSSafeInteger(s.Revision) || !optionalOrchID(s.PlanID) || !optionalOrchID(s.IdentityID) ||
-		s.Slot != nil && (!safeTime(s.Slot.StartMs) || !safeTime(s.Slot.EndMs) || s.Slot.StartMs >= s.Slot.EndMs) {
-		return false
-	}
-	switch s.Kind {
-	case "base":
-		return s.PlanID == nil && s.Slot == nil && !s.Defaulted && (s.Revision > 0 || s.IdentityID == nil)
-	case "plan":
-		return s.PlanID != nil && s.IdentityID == nil && s.Revision > 0
-	case "member":
-		return s.PlanID != nil && s.IdentityID != nil && s.Revision > 0
-	case "focus":
-		return s.PlanID == nil && s.IdentityID != nil && s.Revision > 0
-	default:
-		return false
-	}
-}
-
 func appendDigestDecision(r records, id core.IdentityID, e digestJournalContext, now uint64, outcome, reason string) error {
-	expires, ok := core.CheckedDeadline(now, 30*core.RetentionDayMs)
+	expires, ok := core.CheckedDeadline(now, orchJournalRetentionMs)
 	if !ok {
 		return errDigestEvidence
 	}
-	sources, err := json.Marshal([]struct {
-		Field  string                `json:"field"`
-		Source digestReceivingSource `json:"source"`
-	}{{Field: "receiving", Source: e.Source}})
+	sources, err := json.Marshal([]core.OrchDecisionSource{{Field: core.OrchFieldReceiving, Source: e.Source}})
 	if err != nil {
 		return err
 	}

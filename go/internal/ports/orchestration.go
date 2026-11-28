@@ -8,6 +8,7 @@ import (
 
 type OrchReader interface {
 	ReadPolicySnapshot(context.Context, core.OrchSnapshotQuery) (core.OrchSnapshotPage, error)
+	ReadJournal(context.Context, core.OrchJournalQuery) (core.OrchJournalPage, error)
 	ReadJobs(context.Context, core.OrchJobQuery) (core.OrchJobReadPage, error)
 	SchemaVersion(context.Context) (uint64, error)
 	WakeAdmissionMs(context.Context) (uint64, error)
