@@ -23,6 +23,7 @@ type commandSpec struct {
 	operands             []operandSpec
 	children             []commandSpec
 	trailing             bool
+	variadic             bool
 	hidden               bool
 	humanOnly            bool
 }
@@ -132,6 +133,16 @@ var grammar = commandSpec{
 		}},
 		{name: "notes", summary: "Access saved identity notes", children: []commandSpec{
 			{name: "path", summary: "Initialize and print the local Markdown path", options: []string{"identity"}},
+		}},
+		{name: "role", summary: "Manage role profiles", options: []string{"identity"}, children: []commandSpec{
+			{name: "show", summary: "Show a role", options: []string{"identity"}},
+			{name: "set", summary: "Set a role from inline text or file", options: []string{"identity", "file"}, operands: []operandSpec{optional("content")}},
+			{name: "rm", aliases: []string{"clear"}, summary: "Remove only the role", options: []string{"identity"}},
+		}},
+		{name: "preamble", summary: "Manage identity-owned preambles", children: []commandSpec{
+			{name: "show", summary: "Show preambles", operands: []operandSpec{optional("agent")}},
+			{name: "set", summary: "Set a preamble", operands: []operandSpec{required("agent"), required("content")}, variadic: true},
+			{name: "rm", aliases: []string{"clear"}, summary: "Remove only the preamble", operands: []operandSpec{required("agent")}},
 		}},
 		{name: "run", summary: "Start a known agent, or bind this pane and run a command", usage: "AGENT [ARGS...] | NAME [COMMAND...]",
 			humanOnly: true, trailing: true, operands: []operandSpec{required("run-argv")},

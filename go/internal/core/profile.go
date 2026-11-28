@@ -37,3 +37,17 @@ func NormalizeProfileContent(value string) (string, error) {
 	}
 	return value, nil
 }
+
+// ProfileKind distinguishes two independent identity-owned text records.
+type ProfileKind string
+
+const (
+	ProfileRole     ProfileKind = "role"
+	ProfilePreamble ProfileKind = "preamble"
+)
+
+type TextProfile struct {
+	IdentityID  IdentityID
+	Content     string
+	UpdatedAtMs uint64
+}

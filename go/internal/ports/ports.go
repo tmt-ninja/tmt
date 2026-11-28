@@ -33,6 +33,7 @@ type StoreTx interface {
 	Bindings() BindingRepo
 	Requests() RequestRepo
 	Responses() ResponseRepo
+	Profiles() ProfileRepo
 }
 
 // ---------- process (go-2) ----------

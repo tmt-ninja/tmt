@@ -206,7 +206,7 @@ func validateCommand(command *commandSpec, parsed invocation) string {
 	if command.summary == "" {
 		return ""
 	}
-	if !command.trailing && len(parsed.operands) > len(command.operands) {
+	if !command.trailing && !command.variadic && len(parsed.operands) > len(command.operands) {
 		return fmt.Sprintf("Unexpected argument '%s' found.", parsed.operands[len(command.operands)])
 	}
 	for i, operand := range command.operands {

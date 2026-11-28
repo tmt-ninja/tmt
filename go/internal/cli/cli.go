@@ -86,6 +86,8 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return publish(stdout, stderr, app.runIdentity(ctx, root, invocation), invocation.json)
 	case "notes":
 		return publish(stdout, stderr, app.runNotes(ctx, root, invocation), invocation.json)
+	case "role", "preamble":
+		return publish(stdout, stderr, app.runProfile(ctx, root, invocation), invocation.json)
 	case "reply", "result", "inbox", "answer", "x", "talk":
 		return publish(stdout, stderr, app.runRequest(ctx, root, invocation), invocation.json)
 	case "check":

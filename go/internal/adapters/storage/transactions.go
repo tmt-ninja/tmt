@@ -22,6 +22,7 @@ func (r records) Identities() ports.IdentityRepo { return identityRows{r} }
 func (r records) Bindings() ports.BindingRepo    { return bindingRows{r} }
 func (r records) Requests() ports.RequestRepo    { return requestRows{r} }
 func (r records) Responses() ports.ResponseRepo  { return responseRows{r} }
+func (r records) Profiles() ports.ProfileRepo    { return profileRows{r} }
 
 func (s *Storage) Read(ctx context.Context, fn func(ports.StoreTx) error) error {
 	return s.transact(ctx, true, func(r records) error { return fn(r) })
