@@ -221,6 +221,32 @@ func (s *requestSession) respond(body []byte) (SessionResponse, error) {
 			return encodeFault(operationFault(err))
 		}
 		value = result
+	case "digest.checklist.claim":
+		input, ok := decodeClaim(request.Input)
+		if !ok {
+			return encodeFault(invalid())
+		}
+		if fault := s.open(ctx); fault != nil {
+			return encodeFault(fault)
+		}
+		result, err := s.claimChecklist(ctx, input, now)
+		if err != nil {
+			return encodeFault(operationFault(err))
+		}
+		value = result
+	case "digest.checklist.flush":
+		input, ok := decodeFlush(request.Input)
+		if !ok {
+			return encodeFault(invalid())
+		}
+		if fault := s.open(ctx); fault != nil {
+			return encodeFault(fault)
+		}
+		result, err := s.flushChecklist(ctx, input, now)
+		if err != nil {
+			return encodeFault(operationFault(err))
+		}
+		value = result
 	default:
 		digest := decodeDigest(request.Operation, request.Input, now)
 		usage := decodeUsage(request.Operation, request.Input, now)

@@ -115,9 +115,11 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] Finish local API v1 operation admission, response parity, lazy schema fencing,
   lifecycle delivery, and CLI composition. Qualify MCP identity pinning and all
   eight tool calls against real Go request services.
-- [ ] Finish Digest checklist read, claim, delivery and settle, receiving sync,
-  consumption limits and changes, and the shared wake clock. Port the finite and
-  foreground tick clock, job and capture composition, and consented timer commands.
+- [ ] Complete Digest receiving sync, consumption limits and changes, and live
+  claim/flush/wake parity. Share the receipt-frame formatter with Talk, port thread
+  root framing and pass the configured paste-enter delay through CLI composition.
+  Port the finite and foreground tick, job and capture composition, and consented
+  timer commands over the clock lease and minute window.
 - [ ] Prove resolved child execution and callbacks against a real Rust companion
   using the Go home. Port lifecycle-hook enable, disable and delivery with
   executable verification and bounded context contributions.

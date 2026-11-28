@@ -22,9 +22,9 @@ type WakeStore interface {
 // A nil send leaves the candidate pending. The send rechecks the launch before
 // transport and returns whether delivery also proved that a message started.
 // Every return, including errors, carries authoritative transport evidence.
-type PrepareIdle func(context.Context, core.IdentityID) (*IdleDelivery, error)
+type PrepareIdle func(context.Context, core.IdentityID) (*PreparedDelivery, error)
 
-type IdleDelivery struct {
+type PreparedDelivery struct {
 	Launch core.DigestLaunchFence
 	Send   SendIdle
 }
@@ -119,7 +119,7 @@ func deliverWake(ctx, scan context.Context, store WakeStore, send SendIdle, now 
 		result.IdentityID, result.NextAtMs = &batch.IdentityID, &next
 		result.IncomingCount, result.UrgentCount = &counts.IncomingCount, &counts.UrgentCount
 		if scan.Err() == nil {
-			line := fmt.Sprintf("you have %d messages, %d urgent: tmt-go inbox", counts.IncomingCount, counts.UrgentCount)
+			line := summaryText(*counts)
 			// The transport outcome also covers failed attempts and controls replay.
 			outcome, started, _ := send(scan, line)
 			switch outcome {

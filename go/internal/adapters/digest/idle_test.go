@@ -21,7 +21,7 @@ func (f idleRuntimeFunc) ProveBoundMain(ctx context.Context, id core.Identity, b
 	return f(ctx, id, b, probe)
 }
 
-func TestIdleGuardRechecksExactLaunchAndContinuation(t *testing.T) {
+func TestLaunchGuardRechecksExactLaunchAndContinuation(t *testing.T) {
 	for _, state := range []string{"verified", "continuation", "replaced", "different_driver", "lost_during_probe"} {
 		t.Run(state, func(t *testing.T) {
 			providerSession := "remembered-session"
@@ -33,8 +33,8 @@ func TestIdleGuardRechecksExactLaunchAndContinuation(t *testing.T) {
 						Runtime:     &core.ProcessIncarnation{PID: 456, StartIdentity: "runtime"}}},
 			}
 			sent, reads, probes := 0, 0, 0
-			guard := IdleGuard{
-				ReadIdle: func(_ context.Context, id core.IdentityID) (*core.DigestLaunchFence, error) {
+			guard := LaunchGuard{
+				ReadLaunch: func(_ context.Context, id core.IdentityID) (*core.DigestLaunchFence, error) {
 					reads++
 					if id != "worker" {
 						t.Fatalf("read identity %q", id)

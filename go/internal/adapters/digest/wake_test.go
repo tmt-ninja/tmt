@@ -70,14 +70,14 @@ func TestWakeSpendsOneAdmissionAndSettlesExactClaim(t *testing.T) {
 		t.Run(test.state, func(t *testing.T) {
 			fixture := wakeFixture{claimBatch: true, page: core.DigestWakeCandidates{IdentityIDs: []core.IdentityID{"busy", "ready", "later"}}}
 			var sent int
-			prepare := func(_ context.Context, id core.IdentityID) (*IdleDelivery, error) {
+			prepare := func(_ context.Context, id core.IdentityID) (*PreparedDelivery, error) {
 				if id == "busy" {
 					return nil, nil
 				}
 				if id != "ready" {
 					t.Fatalf("unexpected candidate %s", id)
 				}
-				return &IdleDelivery{Send: func(_ context.Context, text string) (ports.DeliveryOutcome, bool, error) {
+				return &PreparedDelivery{Send: func(_ context.Context, text string) (ports.DeliveryOutcome, bool, error) {
 					sent++
 					if text != "you have 8 messages, 2 urgent: tmt-go inbox" {
 						t.Fatalf("notification = %q", text)
@@ -110,8 +110,8 @@ func TestWakeSpendsOneAdmissionAndSettlesExactClaim(t *testing.T) {
 
 func TestWakeClockAndNilClaimNeverSend(t *testing.T) {
 	fixture := wakeFixture{page: core.DigestWakeCandidates{IdentityIDs: []core.IdentityID{"first"}, Clock: core.DigestWakeClock{NextAdmissionMs: 6000}}}
-	prepare := func(context.Context, core.IdentityID) (*IdleDelivery, error) {
-		return &IdleDelivery{Send: func(context.Context, string) (ports.DeliveryOutcome, bool, error) {
+	prepare := func(context.Context, core.IdentityID) (*PreparedDelivery, error) {
+		return &PreparedDelivery{Send: func(context.Context, string) (ports.DeliveryOutcome, bool, error) {
 			t.Fatal("wake sent without fresh admission")
 			return ports.DeliveryNotStarted, false, nil
 		}}, nil
@@ -141,8 +141,8 @@ func TestWakeCanceledAfterClaimReleasesWithoutTransport(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	fixture := wakeFixture{claimBatch: true, afterClaim: cancel, page: core.DigestWakeCandidates{IdentityIDs: []core.IdentityID{"ready"}}}
-	prepare := func(context.Context, core.IdentityID) (*IdleDelivery, error) {
-		return &IdleDelivery{Send: func(context.Context, string) (ports.DeliveryOutcome, bool, error) {
+	prepare := func(context.Context, core.IdentityID) (*PreparedDelivery, error) {
+		return &PreparedDelivery{Send: func(context.Context, string) (ports.DeliveryOutcome, bool, error) {
 			t.Fatal("transport reached after cancellation")
 			return ports.DeliveryUncertain, false, nil
 		}}, nil

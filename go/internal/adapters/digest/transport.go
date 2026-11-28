@@ -12,14 +12,14 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
-// TmuxIdleGuard supplies the ordinary guarded transport for a verified idle
+// TmuxLaunchGuard supplies the ordinary guarded transport for a verified foreground
 // launch. The installed channel can prevent pane input at the last boundary.
-func TmuxIdleGuard(root home.Root, client tmux.Client, readIdle func(context.Context, core.IdentityID) (*core.DigestLaunchFence, error)) IdleGuard {
-	return IdleGuard{
-		ReadIdle: readIdle,
-		Host:     client,
-		Runtime:  runtime.Observer{Process: client.Process},
-		Send:     guardedDigestSend(root, client, client.Process),
+func TmuxLaunchGuard(root home.Root, client tmux.Client, readLaunch func(context.Context, core.IdentityID) (*core.DigestLaunchFence, error)) LaunchGuard {
+	return LaunchGuard{
+		ReadLaunch: readLaunch,
+		Host:       client,
+		Runtime:    runtime.Observer{Process: client.Process},
+		Send:       guardedDigestSend(root, client, client.Process),
 	}
 }
 

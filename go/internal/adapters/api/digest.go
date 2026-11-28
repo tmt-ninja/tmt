@@ -5,8 +5,8 @@ import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"strings"
-	"unicode"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/digest"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -21,6 +21,8 @@ var digestOperations = []string{
 	"digest.stats.show",
 	"digest.checklist.history",
 	"digest.checklist.read",
+	"digest.checklist.claim",
+	"digest.checklist.flush",
 	"digest.checklist.settle",
 }
 
@@ -289,18 +291,5 @@ func digestPreview(text *string) any {
 	if text == nil {
 		return nil
 	}
-	var preview strings.Builder
-	count := 0
-	for _, c := range strings.ReplaceAll(*text, "\r\n", "\n") {
-		if count == 160 {
-			break
-		}
-		count++
-		if unicode.IsControl(c) || c == '\u061c' || c == '\u200e' || c == '\u200f' ||
-			(c >= '\u2028' && c <= '\u202e') || (c >= '\u2066' && c <= '\u2069') {
-			c = ' '
-		}
-		preview.WriteRune(c)
-	}
-	return preview.String()
+	return digest.Preview(*text)
 }

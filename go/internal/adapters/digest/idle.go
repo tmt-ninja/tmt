@@ -18,24 +18,24 @@ type IdleRuntime interface {
 	ProveBoundMain(context.Context, core.Identity, core.Binding, core.EndpointProbe) (runtime.BoundProvider, error)
 }
 
-// IdleGuard checks both the stored idle session and its live foreground
-// placement. ReadIdle must return nil when a provider continuation is open.
+// LaunchGuard checks the stored session and its live foreground placement.
+// ReadLaunch selects the exact session that meets the requested readiness.
 // Send is the guarded Digest transport for the supplied exact launch.
-type IdleGuard struct {
-	ReadIdle func(context.Context, core.IdentityID) (*core.DigestLaunchFence, error)
-	Host     IdleHost
-	Runtime  IdleRuntime
-	Send     func(context.Context, core.DigestLaunchFence, string) (ports.DeliveryOutcome, bool, error)
+type LaunchGuard struct {
+	ReadLaunch func(context.Context, core.IdentityID) (*core.DigestLaunchFence, error)
+	Host       IdleHost
+	Runtime    IdleRuntime
+	Send       func(context.Context, core.DigestLaunchFence, string) (ports.DeliveryOutcome, bool, error)
 }
 
 // Prepare pins the launch for the durable claim and rechecks it before delivery.
-func (g IdleGuard) Prepare(ctx context.Context, id core.IdentityID) (*IdleDelivery, error) {
+func (g LaunchGuard) Prepare(ctx context.Context, id core.IdentityID) (*PreparedDelivery, error) {
 	launch, err := g.verified(ctx, id)
 	if launch == nil || err != nil {
 		return nil, err
 	}
 	var used atomic.Bool
-	return &IdleDelivery{
+	return &PreparedDelivery{
 		Launch: *launch,
 		Send: func(ctx context.Context, text string) (ports.DeliveryOutcome, bool, error) {
 			if used.Swap(true) {
@@ -50,8 +50,8 @@ func (g IdleGuard) Prepare(ctx context.Context, id core.IdentityID) (*IdleDelive
 	}, nil
 }
 
-func (g IdleGuard) verified(ctx context.Context, id core.IdentityID) (*core.DigestLaunchFence, error) {
-	launch, err := g.ReadIdle(ctx, id)
+func (g LaunchGuard) verified(ctx context.Context, id core.IdentityID) (*core.DigestLaunchFence, error) {
+	launch, err := g.ReadLaunch(ctx, id)
 	if err != nil || launch == nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func (g IdleGuard) verified(ctx context.Context, id core.IdentityID) (*core.Dige
 		uint64(provider.Incarnation.PID) != session.Runtime.PID || provider.Incarnation.Start != session.Runtime.StartIdentity {
 		return nil, err
 	}
-	fresh, err := g.ReadIdle(ctx, id)
+	fresh, err := g.ReadLaunch(ctx, id)
 	if err != nil || !reflect.DeepEqual(fresh, launch) {
 		return nil, err
 	}
