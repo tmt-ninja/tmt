@@ -12,6 +12,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
+	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/verifiedstop"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
@@ -27,6 +28,7 @@ type stopIdentity struct {
 type stopReport struct {
 	Identity stopIdentity `json:"identity"`
 	Outcome  string       `json:"outcome"`
+	Pane     string       `json:"pane,omitempty"`
 }
 
 func (r stopReport) JSON() any                  { return r }
@@ -36,9 +38,17 @@ func (r stopReport) ExitStatus() int            { return 0 }
 func (r stopReport) Human(w io.Writer) error {
 	switch r.Outcome {
 	case "stopped":
+		if r.Pane == "closed" {
+			_, err := fmt.Fprintf(w, "✓ Stopped %s's agent and closed its pane; its binding and remembered session are kept\n", r.Identity.Name)
+			return err
+		}
 		_, err := fmt.Fprintf(w, "✓ Stopped %s's agent; its binding and remembered session are kept\n", r.Identity.Name)
 		return err
 	case "already_ended":
+		if r.Pane == "closed" {
+			_, err := fmt.Fprintf(w, "✓ %s's agent had already ended; closed its pane, nothing was signalled\n", r.Identity.Name)
+			return err
+		}
 		_, err := fmt.Fprintf(w, "✓ %s's agent had already ended; nothing was signalled\n", r.Identity.Name)
 		return err
 	default:
@@ -48,10 +58,6 @@ func (r stopReport) Human(w io.Writer) error {
 }
 
 func (app application) runStop(ctx context.Context, root home.Root, inv invocation) (report output.Report) {
-	if inv.has("close") {
-		// NOT PORTED (#6938): closing only a pane that tmt-go opened.
-		return bindingUnavailable("--close")
-	}
 	if app.store == nil {
 		store, err := storage.Open(ctx, root)
 		if err != nil {
@@ -86,11 +92,11 @@ func (app application) runStop(ctx context.Context, root home.Root, inv invocati
 	}
 	stopped := stopReport{Identity: stopIdentity{ID: identity.ID, Name: identity.Name}, Outcome: "not_running"}
 	if binding == nil || binding.Session.Runtime == nil {
-		return stopped
+		return app.finishStop(ctx, inv.has("close"), stopped, *identity, binding)
 	}
 	if binding.Session.RuntimeState == "ended" {
 		stopped.Outcome = "already_ended"
-		return stopped
+		return app.finishStop(ctx, inv.has("close"), stopped, *identity, binding)
 	}
 	if binding.Server.Host != "tmux" || app.tmux == nil || binding.Session.LaunchOwner == nil ||
 		binding.PanePID > math.MaxInt32 || binding.Session.Runtime.PID > math.MaxInt32 {
@@ -111,7 +117,7 @@ func (app application) runStop(ctx context.Context, root home.Root, inv invocati
 			return bindingFailure("IDENTITY_ERROR", "Could not mark the recorded agent ended.", 1)
 		}
 		stopped.Outcome = "already_ended"
-		return stopped
+		return app.finishStop(ctx, inv.has("close"), stopped, *identity, binding)
 	}
 	if visible.Match(expected) != runtime.Alive || expected.PID == int(binding.PanePID) {
 		return stopRefused()
@@ -170,6 +176,62 @@ func (app application) runStop(ctx context.Context, root home.Root, inv invocati
 	stopped.Outcome = "already_ended"
 	if pending.Signalled() {
 		stopped.Outcome = "stopped"
+	}
+	return app.finishStop(ctx, inv.has("close"), stopped, *identity, binding)
+}
+
+func (app application) finishStop(ctx context.Context, closePane bool, stopped stopReport, identity core.Identity, binding *core.Binding) output.Report {
+	if !closePane {
+		return stopped
+	}
+	if binding == nil {
+		stopped.Pane = "none"
+		return stopped
+	}
+	if binding.Session.Runtime == nil || binding.Session.LaunchOwner == nil {
+		return bindingFailure("RESUME_UNAVAILABLE", "The member has no recorded agent session, so its process cannot be proven; no agent was stopped.", 1)
+	}
+	kept := func(reason string) *output.Failure {
+		return bindingFailure("PANE_NOT_CLOSED", fmt.Sprintf("%s's agent was stopped, but its pane was left open: %s. Close the pane yourself if you no longer need it.", identity.Name, reason), 1)
+	}
+	if app.tmux == nil || binding.Server.Host != "tmux" {
+		return kept("its host cannot close a pane")
+	}
+	// EndLaunch changes these three fields. Use the exact settled projection
+	// when the binding was originally read before stopping the agent.
+	expected := *binding
+	if expected.Session.RuntimeState == "running" {
+		ended := "ended"
+		expected.Session.RuntimeState = ended
+		expected.Session.LastTransition = &ended
+		expected.Session.PlainProgram = nil
+	}
+	var allowed bool
+	err := app.store.Read(ctx, func(tx ports.StoreTx) error {
+		var err error
+		allowed, err = tx.Bindings().CanClosePane(expected, uint64(wallClock{}.NowMs()))
+		return err
+	})
+	if err != nil || !allowed {
+		return kept("the stopped binding could not be confirmed or has a pending launch")
+	}
+	client, err := app.tmux()
+	if err != nil {
+		return kept("the tmux host is not available")
+	}
+	// The store read has ended. The adapter rechecks the exact endpoint
+	// and both Go ownership markers in tmux before targeting the pane.
+	outcome, err := client.CloseOwnedPane(ctx, expected, identity)
+	if err != nil {
+		return kept("the tmux host could not close it safely")
+	}
+	switch outcome {
+	case tmux.PaneClosed:
+		stopped.Pane = "closed"
+	case tmux.PaneGone:
+		stopped.Pane = "gone"
+	default:
+		return kept("its host cannot say whether tmt-go opened that pane")
 	}
 	return stopped
 }

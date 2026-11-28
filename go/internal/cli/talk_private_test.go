@@ -76,12 +76,12 @@ IFS= read -r ignored`, "fixture", binary, fake, exitFile, secondExit},
 		t.Fatal(err)
 	}
 	defer store.Close()
-	waitForState := func(state string) core.Binding {
+	waitForState := func(name string, pane ports.PaneRef, state string) core.Binding {
 		t.Helper()
 		var seen core.Binding
 		waitForPrivateFake(t, ctx, func() (bool, error) {
 			err := store.Read(ctx, func(tx ports.StoreTx) error {
-				identity, err := core.FindIdentityByName(tx.Identities(), "Worker")
+				identity, err := core.FindIdentityByName(tx.Identities(), name)
 				if err != nil || identity == nil {
 					return err
 				}
@@ -96,17 +96,26 @@ IFS= read -r ignored`, "fixture", binary, fake, exitFile, secondExit},
 		})
 		return seen
 	}
-	first := waitForState("running")
-	command := func(args ...string) []byte {
+	first := waitForState("Worker", pane, "running")
+	commandStatus := func(expected int, args ...string) []byte {
 		t.Helper()
 		cmd := exec.CommandContext(ctx, binary, args...)
 		cmd.Env = tmuxtest.Env()
 		out, err := cmd.CombinedOutput()
+		status := 0
 		if err != nil {
-			t.Fatalf("%v: %v\n%s", args, err, out)
+			var exited *exec.ExitError
+			if !errors.As(err, &exited) {
+				t.Fatalf("%v: %v\n%s", args, err, out)
+			}
+			status = exited.ExitCode()
+		}
+		if status != expected {
+			t.Fatalf("%v: exit %d, want %d\n%s", args, status, expected, out)
 		}
 		return out
 	}
+	command := func(args ...string) []byte { return commandStatus(0, args...) }
 	talkJSON := command("talk", "Worker", "verify", "--timeout", "8s", "--json")
 	var talk struct {
 		RequestID core.RequestID
@@ -143,31 +152,83 @@ IFS= read -r ignored`, "fixture", binary, fake, exitFile, secondExit},
 		})
 	}
 	waitForExit(exitFile, true)
-	afterReply := waitForState("ended")
+	afterReply := waitForState("Worker", pane, "ended")
 	if afterReply.ID != first.ID || *afterReply.Session.Runtime != *first.Session.Runtime {
 		t.Fatal("foreground exit did not settle the exact original binding")
 	}
 
 	server.Run("send-keys", "-t", pane.PaneID, "Enter")
-	second := waitForState("running")
+	second := waitForState("Worker", pane, "running")
 	if second.ID != first.ID || *second.Session.Runtime == *first.Session.Runtime {
 		t.Fatal("second run did not reuse the binding for a fresh runtime")
 	}
-	stoppedJSON := command("stop", "Worker", "--json")
-	var stopped struct {
-		Identity struct{ ID core.IdentityID }
-		Outcome  string
+	keptJSON := commandStatus(1, "stop", "Worker", "--close", "--json")
+	var kept struct {
+		Error struct{ Code string }
 	}
-	if err := json.Unmarshal(stoppedJSON, &stopped); err != nil || stopped.Outcome != "stopped" || stopped.Identity.ID != first.IdentityID {
-		t.Fatalf("stop output = %q, decode = %v", stoppedJSON, err)
+	if err := json.Unmarshal(keptJSON, &kept); err != nil || kept.Error.Code != "PANE_NOT_CLOSED" {
+		t.Fatalf("user pane close output = %q, decode = %v", keptJSON, err)
 	}
 	waitForExit(secondExit, false)
-	afterStop := waitForState("ended")
+	afterStop := waitForState("Worker", pane, "ended")
 	if afterStop.ID != second.ID || *afterStop.Session.Runtime != *second.Session.Runtime {
 		t.Fatal("stop did not preserve and settle the second binding")
 	}
+	if out := command("stop", "Worker", "--json"); !strings.Contains(string(out), `"outcome":"already_ended"`) {
+		t.Fatalf("plain stop after the refusal = %q", out)
+	}
 	if output := strings.TrimSpace(server.Run("display-message", "-p", "-t", pane.PaneID, "#{pane_id}")); output != pane.PaneID {
 		t.Fatalf("the verified stop changed its pane: %q", output)
+	}
+	owned := core.Identity{
+		ID: "9759f9ee-46a8-46e8-8b6e-294531382aca", Name: "Owned", CanonicalName: "owned", Lifetime: core.LifetimeSaved,
+	}
+	if err := store.Write(ctx, func(tx ports.StoreTx) error {
+		return tx.Identities().Insert(owned, uint64(wallClock{}.NowMs()))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ownedPane, err := host.LaunchOwned(ctx, ports.LaunchSpec{
+		Server: server.Socket, Session: "t", Window: "go-owned-provider", Dir: rootDir,
+		Command: ports.ProcessSpec{
+			Path: "/bin/sh",
+			Args: []string{"-c", `/bin/stty -echo || exit
+"$1" run --save Owned "$2"
+IFS= read -r ignored`, "fixture", binary, fake},
+			Env: []string{"TMT_GO_HOME=" + rootDir, "PATH=" + os.Getenv("PATH")},
+		},
+	}, owned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ownedRunning := waitForState("Owned", ownedPane, "running")
+	stoppedJSON := command("stop", "Owned", "--close", "--json")
+	var stopped struct {
+		Identity struct{ ID core.IdentityID }
+		Outcome  string
+		Pane     string
+	}
+	if err := json.Unmarshal(stoppedJSON, &stopped); err != nil || stopped.Outcome != "stopped" ||
+		stopped.Pane != "closed" || stopped.Identity.ID != owned.ID {
+		t.Fatalf("Go-owned pane close output = %q, decode = %v", stoppedJSON, err)
+	}
+	ownedEnded := waitForState("Owned", ownedPane, "ended")
+	if ownedEnded.ID != ownedRunning.ID || *ownedEnded.Session.Runtime != *ownedRunning.Session.Runtime {
+		t.Fatal("closing the Go-owned pane did not keep and settle the exact binding")
+	}
+	panes, err := host.Panes(ctx, server.Socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var userPaneKept bool
+	for _, observed := range panes {
+		if observed.Pane == ownedPane {
+			t.Fatalf("Go-owned pane %s still exists", ownedPane.PaneID)
+		}
+		userPaneKept = userPaneKept || observed.Pane == pane
+	}
+	if !userPaneKept {
+		t.Fatal("closing the Go-owned pane disturbed the user pane")
 	}
 }
 
