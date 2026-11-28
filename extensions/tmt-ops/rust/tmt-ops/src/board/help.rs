@@ -423,6 +423,7 @@ pub(super) fn model(app: &App) -> KeyHelp {
         ("Shift+Enter / Ctrl+N", "Ctrl+N always inserts a new line; Alt+Enter and Ctrl+J do too; Shift+Enter needs enhanced key reporting (in tmux: extended-keys on and extended-keys-format csi-u)"),
         ("Esc", "leave the editor and keep its draft; drafts and folded pastes are session-only and do not survive restart"),
         ("arrows / Home / End", "move by grapheme or wrapped line; Shift selects; Ctrl-A/E: line edges"),
+        ("Ctrl+X", "cut the selected Talk draft text; Cmd+X also works when the terminal forwards it"),
         ("click / drag", "place the caret or select text; terminal IME commits arrive as ordinary input"),
         ("paste / Ctrl-P", "bracketed paste never sends; large pastes fold, Ctrl-P previews the range at the caret, Backspace/Delete removes a folded range"),
         ("@ / tmt/", "at a word start, pick an agent to mention; the draft keeps who it is, the sent text is tmt/<name> and never broadcasts"),

@@ -3810,6 +3810,26 @@ impl App {
                 }
                 return Effect::None;
             }
+            KeyCode::Char('x')
+                if matches!(input.compose, Compose::Talk { .. })
+                    && matches!(key.modifiers, KeyModifiers::CONTROL | KeyModifiers::SUPER) =>
+            {
+                let selection = input.text.selection();
+                if selection.is_empty() {
+                    return Effect::None;
+                }
+                let text = input.text.as_str()[selection].to_owned();
+                if !input.text.insert("", limit) {
+                    return Effect::None;
+                }
+                self.composer.invalidate();
+                self.kept_replies.invalidate_hits();
+                return Effect::Act(Request::Copy {
+                    text,
+                    program: self.view.as_ref().and_then(|view| view.clipboard.clone()),
+                    feedback: CopyFeedback::Selection,
+                });
+            }
             KeyCode::Char('p') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 if input.draft_key.is_some() {
                     return self.preview_paste_at_cursor();
@@ -6202,6 +6222,32 @@ pub(crate) mod tests {
         assert!(app.input.as_ref().unwrap().text.is_empty());
         assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
         assert!(app.input.is_none());
+    }
+
+    #[test]
+    fn composer_cut_copies_the_exact_selection_and_removes_only_that_range() {
+        for cut in [KeyModifiers::CONTROL, KeyModifiers::SUPER] {
+            let mut app = workspace_composer();
+            assert_eq!(press(&mut app, KeyCode::Enter), Effect::None);
+            app.paste("keep e\u{301}界");
+            let cut_key = KeyEvent::new(KeyCode::Char('x'), cut);
+            assert_eq!(app.key(cut_key), Effect::None);
+            for _ in 0..2 {
+                app.key(KeyEvent::new(KeyCode::Left, KeyModifiers::SHIFT));
+            }
+            assert_eq!(
+                app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::ALT)),
+                Effect::None
+            );
+            assert!(matches!(
+                app.key(cut_key),
+                Effect::Act(Request::Copy { text, feedback: CopyFeedback::Selection, .. })
+                    if text == "e\u{301}界"
+            ));
+            let editor = &app.input.as_ref().unwrap().text;
+            assert_eq!(editor.as_str(), "keep ");
+            assert_eq!(editor.selection(), 5..5);
+        }
     }
 
     #[test]

@@ -1127,6 +1127,29 @@ fn dragging_to_the_edge_scrolls_and_keeps_extending() {
 }
 
 #[test]
+fn transcript_keyboard_selection_uses_the_editors_word_and_line_boundaries() {
+    let source = "alpha beta gamma";
+    // The rendered fixture includes two leading cells in its copied line.
+    for (code, modifiers, expected) in [
+        (KeyCode::Left, KeyModifiers::ALT, "be"),
+        (KeyCode::Right, KeyModifiers::CONTROL, "ta"),
+        (KeyCode::Left, KeyModifiers::SUPER, "  alpha be"),
+        (KeyCode::Right, KeyModifiers::SUPER, "ta gamma"),
+        (KeyCode::Home, KeyModifiers::NONE, "  alpha be"),
+        (KeyCode::End, KeyModifiers::NONE, "ta gamma"),
+    ] {
+        let mut app = fixture(source);
+        app.focus = 1;
+        let frame = draw(&mut app, 100, TALL);
+        let (x, y) = locate(&frame, source).expect("rendered message");
+        mouse(&mut app, MouseEventKind::Down(MouseButton::Left), x + 8, y);
+        mouse(&mut app, MouseEventKind::Up(MouseButton::Left), x + 8, y);
+        app.key(KeyEvent::new(code, modifiers | KeyModifiers::SHIFT));
+        assert_eq!(selected(&app).as_deref(), Some(expected), "{code:?}");
+    }
+}
+
+#[test]
 fn a_keyboard_selection_quotes_whole_lines_without_the_mouse() {
     let mut app = fixture(&long(10));
     draw(&mut app, 100, TALL);
