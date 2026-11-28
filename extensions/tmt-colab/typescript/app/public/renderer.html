@@ -1075,7 +1075,39 @@
                   )
                 )
                   return;
-                const { x, y, width, height } = input.getBoundingClientRect();
+                const box = input.getBoundingClientRect();
+                const label = [...(input.labels ?? [])].find(
+                  (node) => node.getClientRects().length,
+                );
+                let x = box.left;
+                let y = box.top;
+                let bottom = box.bottom;
+                let right = box.right;
+                if (label) {
+                  const row = label.getBoundingClientRect();
+                  x = row.left;
+                  y = Math.min(y, row.top);
+                  bottom = Math.max(bottom, row.bottom);
+                  right = Math.max(right, row.right);
+                  // A wrapping label's rectangle starts at the input; align to its visible text.
+                  const walker = document.createTreeWalker(label, NodeFilter.SHOW_TEXT);
+                  for (let seen = 0, node; seen < 64 && (node = walker.nextNode()); seen++) {
+                    if (!node.data.trim()) continue;
+                    const range = document.createRange();
+                    range.selectNodeContents(node);
+                    const text = [...range.getClientRects()].find(
+                      (rect) => rect.width && rect.height,
+                    );
+                    if (!text) continue;
+                    x = text.left;
+                    break;
+                  }
+                }
+                // The parent still treats this geometry as cosmetic and independently bounds it.
+                x = Math.max(0, x);
+                y = Math.max(0, y);
+                const width = Math.min(right, document.documentElement.clientWidth) - x;
+                const height = bottom - y;
                 event.preventDefault();
                 parent.postMessage(
                   {

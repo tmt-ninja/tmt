@@ -4,12 +4,17 @@
   margin: 0;
   box-sizing: border-box;
   max-width: min(20rem, calc(100vw - 16px));
+  overflow: auto;
   padding: var(--tmt-ui-space-s);
   color: var(--tmt-ui-color-text);
   background: var(--tmt-ui-surface-sheet);
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
   border-radius: var(--tmt-ui-radius-s);
   box-shadow: var(--tmt-ui-shadow-overlay);
+}
+
+.task-checkbox-confirm:focus {
+  outline: none;
 }
 
 .task-checkbox-confirm:popover-open {

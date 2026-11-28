@@ -83,19 +83,15 @@ export function useTaskCheckbox(view: PageView, binding?: PageBinding) {
     if (!node || !anchor) return;
     const position = () => {
       const gap = 8;
-      const { x, y, width, height } = anchor();
-      const { offsetWidth, offsetHeight } = node;
-      const right = x + width + gap;
-      const fitsBeside = right + offsetWidth <= window.innerWidth - gap;
-      const left = fitsBeside ? right : x;
+      const { x, y, height } = anchor();
       const below = y + height + gap;
-      const top = fitsBeside
-        ? y
-        : below + offsetHeight <= window.innerHeight - gap
-          ? below
-          : y - offsetHeight - gap;
-      node.style.left = `${Math.max(gap, Math.min(left, window.innerWidth - offsetWidth - gap))}px`;
-      node.style.top = `${Math.max(gap, Math.min(top, window.innerHeight - offsetHeight - gap))}px`;
+      const roomBelow = window.innerHeight - gap - below;
+      const roomAbove = y - 2 * gap;
+      node.style.maxHeight = '';
+      const openBelow = node.offsetHeight <= roomBelow || roomBelow >= roomAbove;
+      node.style.maxHeight = `${Math.max(0, openBelow ? roomBelow : roomAbove)}px`;
+      node.style.left = `${Math.max(gap, Math.min(x, window.innerWidth - node.offsetWidth - gap))}px`;
+      node.style.top = `${openBelow ? below : y - node.offsetHeight - gap}px`;
     };
     const outside = (event: PointerEvent) => {
       if (event.isTrusted && !node.contains(event.target as Node) && !writing.current) {
@@ -106,7 +102,11 @@ export function useTaskCheckbox(view: PageView, binding?: PageBinding) {
     node.showPopover();
     // A nomination can be forged. Move focus to the prompt so the reader's next
     // Enter cannot be redirected into a save. Tab deliberately enters the action.
-    node.focus({ preventScroll: true });
+    const focus: FocusOptions & { focusVisible: boolean } = {
+      preventScroll: true,
+      focusVisible: false,
+    };
+    node.focus(focus);
     position();
     const size = new ResizeObserver(position);
     size.observe(node);
