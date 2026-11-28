@@ -400,7 +400,7 @@ fn drop_nests_under_the_previous_member_and_outdent_returns_to_root() {
         shown
             .last()
             .unwrap()
-            .contains("↑↓ reorder/cross squads  → nest  ← out  ⏎ drop  Esc cancel")
+            .contains("↑↓ move  → nest  ← out  ⏎ drop  Esc cancel")
     );
     press(&mut app, KeyCode::Right);
     press(&mut app, KeyCode::Esc);

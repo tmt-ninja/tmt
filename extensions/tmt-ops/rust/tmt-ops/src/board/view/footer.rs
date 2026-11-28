@@ -356,7 +356,7 @@ fn agents_legend(app: &App) -> Option<Hints> {
         if moving.order().is_some() {
             return Some(Hints {
                 keys: vec![
-                    ("↑↓".into(), "reorder/cross squads".into()),
+                    ("↑↓".into(), "move".into()),
                     ("→".into(), "nest".into()),
                     ("←".into(), "out".into()),
                     ("⏎".into(), "drop".into()),
