@@ -46,6 +46,10 @@ pub(crate) enum Part {
     Heading(u8, String),
     /// A question or question group, by its `data-id`.
     Question(String),
+    /// An eligible task checkbox, with the boolean checked attribute from the source.
+    TaskCheckbox {
+        checked: bool,
+    },
     /// A link or a text node, either of which may name a pull request.
     Link(String),
     Text(String),
@@ -71,6 +75,20 @@ pub(crate) fn parts(source: &str) -> Option<Vec<Part>> {
             && let Some(id) = tree.attr(id, "data-id")
         {
             found.push(Part::Question(id.to_owned()));
+        } else if name == "input"
+            && tree.is_html(id)
+            && tree
+                .attr(id, "type")
+                .is_some_and(|value| value.eq_ignore_ascii_case("checkbox"))
+            && tree.attr(id, "disabled").is_none()
+            && tree.attr(id, "form").is_none()
+            && tree
+                .closest(id, &["form", "fieldset", "tmt-question", "tmt-questions"])
+                .is_none()
+        {
+            found.push(Part::TaskCheckbox {
+                checked: tree.attr(id, "checked").is_some(),
+            });
         } else if name == "a"
             && let Some(href) = tree.attr(id, "href")
         {

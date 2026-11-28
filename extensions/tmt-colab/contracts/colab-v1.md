@@ -7028,8 +7028,15 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     same `sections` decided with the facts it read. At most 64 counted sections are summarised (titles cut
     at 256 bytes); a page with more, or whose sections do not fit, carries `sectionsOmitted: true`.
     An HTML page's sections are its `h2` and `h3` outside questions and hidden subtrees, as the
-    page outline lists them, keyed `h1`, `h2`, ... in order; they count waiting questions and pull
-    request links only (no to-dos, no manual setting). Omitted for a read-only page. Display only:
+    page outline lists them, keyed `h1`, `h2`, ... in order. Each enabled native
+    `<input type="checkbox">` in the visible source contributes one task to every open section
+    that contains it. The type match is ASCII case-insensitive. Presence of the boolean `checked`
+    attribute contributes one done task. Inputs with `disabled` or `form`, or inside forms,
+    fieldsets, question groups or excluded subtrees, are ignored. The projection reads saved HTML
+    without evaluating CSS or scripts. A checkbox clicked in the renderer is local to that frame.
+    Work and the outline show the saved counts, and reloading restores the source state. Saving
+    an edit to the `checked` attribute updates the counts. HTML checkboxes contribute section
+    progress only. The data is omitted for a read-only page and is display only:
     it never authorizes anything. An open structured page counts its own sections live from the
     blocks it draws (#6687), the serve from its fold; `vectors/sections-v1.json` holds both to the
     same cases, and the page keeps the serve's state only where pull request facts decide it.

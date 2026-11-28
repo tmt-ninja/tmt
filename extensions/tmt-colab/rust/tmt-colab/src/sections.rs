@@ -97,8 +97,8 @@ pub fn sections(blocks: Option<&Value>) -> (Vec<Section>, bool) {
 }
 
 /// An HTML page's sections (#6619): each `h2` and `h3` the outline lists, keyed `h1`, `h2`, ... by
-/// its order, counting the questions in it still waiting (`open`) and the pull requests it links.
-/// HTML has no to-dos and no manual setting.
+/// its order. Saved task checkboxes contribute to the section's to-do counts alongside its
+/// waiting questions and pull request facts.
 pub fn html_sections(source: &str, open: &BTreeSet<&str>) -> (Vec<Section>, bool) {
     use crate::page_check::Part;
     let Some(parts) = crate::page_check::parts(source) else {
@@ -132,6 +132,13 @@ pub fn html_sections(source: &str, open: &BTreeSet<&str>) -> (Vec<Section>, bool
                     for &at in &inside {
                         found[at].open_questions += 1;
                     }
+                }
+                continue;
+            }
+            Part::TaskCheckbox { checked } => {
+                for &at in &inside {
+                    found[at].total += 1;
+                    found[at].done += usize::from(checked);
                 }
                 continue;
             }
@@ -491,6 +498,54 @@ mod tests {
         );
         assert!(found.iter().all(Section::counted));
         assert_eq!(found[1].state(Some(&[]), 0), "needs-you");
+    }
+
+    #[test]
+    fn html_task_checkboxes_count_from_saved_source_under_each_open_heading() {
+        let source = r#"
+<input type="checkbox" checked>
+<h2>Build</h2><label><input TYPE="CHECKBOX" checked="false"> Plan</label>
+<h3>Details</h3><ul><li><input type=checkbox> Review</li></ul>
+<input type=checkbox checked disabled>
+<div hidden><input type=checkbox checked></div>
+<input hidden type=checkbox checked>
+<form id=survey><input type=checkbox checked></form>
+<input type=checkbox checked form=survey>
+<fieldset><input type=checkbox checked></fieldset>
+<tmt-questions><input type=checkbox checked></tmt-questions>
+<tmt-question><input type=checkbox checked></tmt-question>
+<template><input type=checkbox checked></template>
+<svg><input type=checkbox checked /></svg>
+<script>const example = '<input type=checkbox checked>';</script>
+<p>[x] Example</p><input type=radio checked>
+<h2>Ship</h2><input type=checkbox checked>
+<h2>Notes</h2><p>[x] Sample text</p>"#;
+        let (found, omitted) = html_sections(source, &BTreeSet::new());
+        assert!(!omitted);
+        let facts: Vec<_> = found
+            .iter()
+            .map(|section| {
+                (
+                    section.id.as_str(),
+                    section.done,
+                    section.total,
+                    section.folded_state(0),
+                )
+            })
+            .collect();
+        assert_eq!(
+            facts,
+            [
+                ("h1", 1, 2, "working"),
+                ("h2", 0, 1, "not-started"),
+                ("h3", 1, 1, "done"),
+            ]
+        );
+        assert!(
+            html_sections("<h2>Notes</h2><p>[x] Sample text</p>", &BTreeSet::new())
+                .0
+                .is_empty()
+        );
     }
 
     #[test]

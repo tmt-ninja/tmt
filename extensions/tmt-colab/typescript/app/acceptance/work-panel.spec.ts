@@ -39,6 +39,77 @@ const bandIn = (details: Locator) => details.getByRole('region', { name: 'Work o
 
 test.afterEach(disposeActiveWorlds);
 
+test('HTML checklists supply saved section progress to Work and the outline', async () => {
+  await withWorld(async (world) => {
+    const unchecked = '<input type="checkbox" id="review">';
+    const created = createPage(
+      world,
+      'Release checklist',
+      `<h2>Prepare</h2>
+        <label><input type="checkbox" checked> Draft notes</label>
+        <label>${unchecked} Review notes</label>
+        <h2>Publish</h2><label><input type="checkbox" checked> Publish notes</label>
+        <h2>Notes</h2><p>[x] Example markup</p>`,
+    );
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'html-checklist-owner');
+    const page = await openPage(door, browser, created);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const cli = (...args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const assertWorkCounts = (done: number, inProgress: number) => {
+      const counts = { done, inProgress, todo: 0, unknown: 0, total: 2 };
+      expect(cli('show', created.pageId).page.sectionProgress).toEqual(counts);
+      const listed = cli('ls', '--work').pages.find(
+        (entry: { pageId: string }) => entry.pageId === created.pageId,
+      );
+      expect(listed.summary.sectionProgress).toEqual(counts);
+    };
+    const checkbox = page.frameLocator('iframe').getByRole('checkbox', { name: 'Review notes' });
+    await expect(checkbox).not.toBeChecked();
+    await page.getByRole('button', { name: 'Collapse side menu', exact: true }).click();
+    const outline = page.getByRole('navigation', { name: 'Page outline' });
+    const rings = outline.locator('.page-outline-strip .page-outline-ring');
+    await expect(rings).toHaveCount(3);
+    await expect(rings.nth(0).locator('.page-outline-ring-progress')).toHaveAttribute(
+      'stroke-dasharray',
+      '0.5 1',
+    );
+    await expect(rings.nth(1)).toHaveAttribute('data-state', 'done');
+    await expect(rings.nth(2)).toHaveAttribute('data-state', 'plain');
+    assertWorkCounts(1, 1);
+
+    await checkbox.check();
+    await expect(checkbox).toBeChecked();
+    assertWorkCounts(1, 1);
+    await expect(rings.nth(0)).toHaveAttribute('data-state', 'working');
+    await page.reload();
+    await expect(checkbox).not.toBeChecked();
+
+    cli(
+      'page',
+      'patch',
+      created.pageId,
+      '--find',
+      unchecked,
+      '--replace',
+      '<input type="checkbox" id="review" checked>',
+    );
+    await page.reload();
+    await expect(checkbox).toBeChecked();
+    await expect(rings.nth(0)).toHaveAttribute('data-state', 'done');
+    assertWorkCounts(2, 0);
+    await page.goto(new URL('/colab/work', door.origin).href);
+    await expect(
+      page
+        .locator('.work-home-row')
+        .filter({ hasText: 'Release checklist' })
+        .locator('.work-home-sections'),
+    ).toContainText('2/2');
+  });
+});
+
 test('an open linked PR supplies the owner page status', async () => {
   await withWorld(async (world) => {
     const result = JSON.stringify({

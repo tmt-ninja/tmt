@@ -154,6 +154,7 @@ pub(super) type Id = usize;
 
 struct ParsedElement {
     name: String,
+    html: bool,
     attrs: Vec<(String, String)>,
     /// The line of the end of the start tag, as the tokenizer counted it.
     line: u64,
@@ -240,6 +241,10 @@ impl Tree {
 
     pub(super) fn name(&self, id: Id) -> &str {
         &self.element(id).name
+    }
+
+    pub(super) fn is_html(&self, id: Id) -> bool {
+        self.element(id).html
     }
 
     pub(super) fn line(&self, id: Id) -> u64 {
@@ -549,6 +554,7 @@ impl TreeSink for Sink {
         });
         nodes.push(node(Kind::Element(ParsedElement {
             name: name.local.to_string(),
+            html: name.ns == ns!(html),
             attrs: attrs
                 .into_iter()
                 .map(|attr| (attr.name.local.to_string(), attr.value.to_string()))
