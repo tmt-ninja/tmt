@@ -11,31 +11,60 @@ use tmt_core::{
     responses::FinalText,
 };
 
-/// Starts the capture of a text just typed. Typed into a running turn (`folded_into`), it is
-/// bound to that turn at once: no prompt will announce it, and the turn's end settles it.
+/// Starts the `pending` capture of a passthrough whose paste was just claimed (#6921). It
+/// exists before the text is typed, so the prompt the text starts binds to it even when the
+/// hook reports it before the delivery settles. Its bind window runs from the claim.
 pub(in crate::storage) fn start_capture(
     db: &Connection,
     request_id: &str,
-    delivered_at_ms: u64,
-    folded_into: Option<&RunningTurn>,
+    claimed_at_ms: u64,
 ) -> Result<(), StorageError> {
-    let delivered = checked_i64(delivered_at_ms, "Passthrough delivery time")?;
-    match folded_into {
-        Some(turn) => db.execute(
-            "INSERT INTO request_passthrough(request_id,delivered_at_ms,state,bound_session,bound_turn,bound_at_ms,folded)
-             VALUES(?1,?2,'bound',?3,?4,?2,1) ON CONFLICT(request_id) DO NOTHING",
-            params![request_id, delivered, turn.session, turn.turn],
-        ),
-        None => db.execute(
-            "INSERT INTO request_passthrough(request_id,delivered_at_ms,state) VALUES(?1,?2,'pending')
-             ON CONFLICT(request_id) DO NOTHING",
-            params![request_id, delivered],
-        ),
-    }
+    db.execute(
+        "INSERT INTO request_passthrough(request_id,delivered_at_ms,state) VALUES(?1,?2,'pending')
+         ON CONFLICT(request_id) DO NOTHING",
+        params![
+            request_id,
+            checked_i64(claimed_at_ms, "Passthrough delivery time")?
+        ],
+    )
     .map_err(|error| classify(error, "Start passthrough capture"))?;
-    if folded_into.is_some() {
-        super::super::capture_batches::delivered(db, request_id, "delivered", delivered_at_ms)?;
+    Ok(())
+}
+
+/// The text was typed into a running turn: no prompt will announce it, so a capture still
+/// `pending` binds to that turn at once, and the turn's end settles it. A capture the prompt
+/// has already bound keeps its own turn.
+pub(in crate::storage) fn fold(
+    db: &Connection,
+    request_id: &str,
+    turn: &RunningTurn,
+    now: u64,
+) -> Result<(), StorageError> {
+    let folded = db
+        .execute(
+            "UPDATE request_passthrough SET state='bound',bound_session=?2,bound_turn=?3,bound_at_ms=?4,folded=1
+             WHERE request_id=?1 AND state='pending'",
+            params![
+                request_id,
+                turn.session,
+                turn.turn,
+                checked_i64(now, "Passthrough binding time")?
+            ],
+        )
+        .map_err(|error| classify(error, "Fold passthrough capture"))?;
+    if folded == 1 {
+        super::super::capture_batches::delivered(db, request_id, "delivered", now)?;
     }
+    Ok(())
+}
+
+/// Nothing was typed: a capture no prompt has bound is removed.
+pub(in crate::storage) fn withdraw(db: &Connection, request_id: &str) -> Result<(), StorageError> {
+    db.execute(
+        "DELETE FROM request_passthrough WHERE request_id=?1 AND state='pending'",
+        [request_id],
+    )
+    .map_err(|error| classify(error, "Withdraw passthrough capture"))?;
     Ok(())
 }
 

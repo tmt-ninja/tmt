@@ -90,6 +90,13 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                     digest_until_ms: None,
                 });
             }
+            if records.delivery_policy(request_id)?.mode
+                == super::super::digest::DeliveryMode::Passthrough
+            {
+                // The capture exists before the paste: the provider may report the prompt the
+                // text starts before this delivery's settlement commits (#6921).
+                records.start_passthrough_capture(request_id, now)?;
+            }
             Ok(WakeClaim {
                 state: WakeState::Claimed,
                 claimed: true,
@@ -191,7 +198,9 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                             attempt.sending_at_ms.unwrap_or(attempt.prepared_at_ms),
                         )
                     });
-                    records.create_passthrough_capture(request_id, now, running.as_ref())?;
+                    if let Some(turn) = running {
+                        records.fold_passthrough_capture(request_id, &turn, now)?;
+                    }
                     super::answers::answer_oldest_open(records, &attempt, now)?;
                 } else {
                     let attention = records
@@ -204,6 +213,7 @@ impl<R: RequestRepository, C: Fn() -> u64> RequestService<'_, R, C> {
                     )?;
                 }
             } else if state == WakeState::Unavailable {
+                records.withdraw_passthrough_capture(request_id)?;
                 refund_unsent_preamble(records, &attempt, positive(clock())?)?;
             }
             Ok(())

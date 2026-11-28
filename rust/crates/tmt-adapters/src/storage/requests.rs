@@ -293,13 +293,19 @@ impl RequestRecords for RequestRows<'_> {
     ) -> Result<Option<tmt_core::request::passthrough::RunningTurn>, Self::Error> {
         delivery::running_turn(self.0, identity_id)
     }
-    fn create_passthrough_capture(
+    fn start_passthrough_capture(&mut self, id: &str, at: u64) -> Result<(), Self::Error> {
+        passthrough::start_capture(self.0, id, at)
+    }
+    fn fold_passthrough_capture(
         &mut self,
         id: &str,
-        at: u64,
-        folded_into: Option<&tmt_core::request::passthrough::RunningTurn>,
+        turn: &tmt_core::request::passthrough::RunningTurn,
+        now: u64,
     ) -> Result<(), Self::Error> {
-        passthrough::start_capture(self.0, id, at, folded_into)
+        passthrough::fold(self.0, id, turn, now)
+    }
+    fn withdraw_passthrough_capture(&mut self, id: &str) -> Result<(), Self::Error> {
+        passthrough::withdraw(self.0, id)
     }
     fn hold_digest_item(
         &mut self,

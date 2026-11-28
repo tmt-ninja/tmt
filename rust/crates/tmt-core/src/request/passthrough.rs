@@ -3,7 +3,8 @@
 //! its passthrough by the prompt the provider reported at turn start, never by time alone and
 //! never by guessing from the recent finals.
 //!
-//! A capture is `pending` from the moment the text is typed, `bound` once a turn started with
+//! A capture is `pending` from the moment its paste is claimed, before the text is typed, so a
+//! prompt the provider reports before the delivery settles still binds (#6921); `bound` once a turn started with
 //! that prompt (or at once, `folded`, when the text was typed into a turn already running: no
 //! prompt will announce it, and that turn's final message answers it too), then `answered` with that turn's final message or `no_answer`. Neither wait is
 //! open-ended: a capture no turn started for, or whose bound turn never ended, reads and settles

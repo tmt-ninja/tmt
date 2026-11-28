@@ -402,7 +402,7 @@ fn a_delivery_that_did_not_reach_the_pane_leaves_the_question_open() {
 }
 
 #[test]
-fn a_sent_passthrough_starts_a_capture_the_history_shows_and_an_unsent_one_does_not() {
+fn a_claimed_passthrough_starts_a_capture_the_history_shows_and_an_unsent_one_withdraws_it() {
     use tmt_core::request::{
         WakeState,
         passthrough::{BIND_WINDOW_MS, CaptureState},
@@ -413,15 +413,17 @@ fn a_sent_passthrough_starts_a_capture_the_history_shows_and_an_unsent_one_does_
     mark_user(&f, &person);
     claimed_passthrough(&mut f, &agent, &person, "typed", "Use main!");
     claimed_passthrough(&mut f, &agent, &person, "refused", "Not typed");
-    // Nothing is captured before the text is in the pane.
-    assert!(
-        service(&mut f)
-            .request_detail("typed")
+    // The capture starts with the claim, before anything is typed, so a prompt the provider
+    // reports before the delivery settles still finds it (#6921).
+    for id in ["typed", "refused"] {
+        let claimed = service(&mut f)
+            .request_detail(id)
             .unwrap()
             .item
             .capture
-            .is_none()
-    );
+            .unwrap();
+        assert_eq!(claimed.state, CaptureState::Pending, "{id}");
+    }
     service(&mut f)
         .settle_request_delivery("typed", WakeState::Sent)
         .unwrap();
