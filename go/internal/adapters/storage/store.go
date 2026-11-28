@@ -26,10 +26,11 @@ const (
 
 // Storage owns one SQLite connection at a time for one tmt-go invocation.
 type Storage struct {
-	db        *sql.DB
-	path      string
-	closeOnce sync.Once
-	closeErr  error
+	db             *sql.DB
+	path           string
+	skipCheckpoint bool
+	closeOnce      sync.Once
+	closeErr       error
 }
 
 func Open(ctx context.Context, root home.Root) (*Storage, error) {
@@ -142,7 +143,10 @@ func isBusy(err error) bool {
 
 func (s *Storage) Close() error {
 	s.closeOnce.Do(func() {
-		s.closeErr = errors.Join(s.checkpoint(), s.db.Close())
+		if !s.skipCheckpoint {
+			s.closeErr = s.checkpoint()
+		}
+		s.closeErr = errors.Join(s.closeErr, s.db.Close())
 	})
 	return s.closeErr
 }

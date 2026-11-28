@@ -15,12 +15,12 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
-func testStorage(t *testing.T) *Storage {
+func testStorage(t testing.TB) *Storage {
 	t.Helper()
 	return testStorageAt(t, testRoot(t))
 }
 
-func testStorageAt(t *testing.T, root home.Root) *Storage {
+func testStorageAt(t testing.TB, root home.Root) *Storage {
 	t.Helper()
 	image, err := migratedFixtureImage()
 	if err != nil {

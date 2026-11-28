@@ -23,7 +23,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO1-03: Registered external host target grammars.
 - [ ] GO1-04: Remote request routes and response reads.
 - [ ] GO1-05: Native Digest, flow and capture retention with incremental page reclaim.
-- [ ] GO1-06: Atomic SQLite symlink refusal when opening the hook queue.
+- [ ] GO1-06: Atomic SQLite symlink refusal when opening the hook queue or existing capture store.
 - [ ] GO1-07: SQLite no-checkpoint-on-close connection option.
 - [x] GO1-08: Digest holds and provider activity in the request delivery view.
 - [x] GO1-09: Read footprint page counts and discovery ownership from an unindexed WAL.
@@ -35,6 +35,16 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     pins refusal on file drift.
 - [ ] GO1-10: Enumerate the full native Colab backup set in footprint.
 - [ ] GO1-11: Reply callbacks, provider capture and flow accounting.
+  - Native `storage/capture_batches/tests.rs::rejected_turn_ends_distinguish_missing_starts_from_duplicates_interrupts_and_clock_rollback`
+    and the continuation assertions in `binding/session/activity.rs` map to
+    `TestPrepareHookCaptureFencesExactLaunchAndCommitsFinal` for duplicate,
+    missing, interrupted and strictly later continuation outcomes.
+    The same Go fixture pins prepare under a Core writer and exact receipt replay.
+    `TestOpenExistingCaptureRequiresCurrentRegularDatabase` pins a silent missing
+    database and unchanged incompatible files. `BenchmarkPrepareAndCommitHookCapture`
+    uses a populated private fixture with 513 identities and 1,024 historical
+    batches for comparison against native prepare and ingest. Stop composition
+    and the remaining capture/accounting producers are in progress.
 - [ ] GO1-12: Partial usage totals for unmeasured wake turns.
 - [ ] GO1-13: End Digest continuations on a verified prompt or binding detach.
   - Native `storage/consumption_history/passthrough_tests.rs::a_stop_blocked_continuation_stays_open_until_its_own_stop_or_a_prompt`

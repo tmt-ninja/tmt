@@ -13,7 +13,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
 
-func testRoot(t *testing.T) home.Root {
+func testRoot(t testing.TB) home.Root {
 	t.Helper()
 	parent := t.TempDir()
 	root, err := home.Resolve(func(key string) (string, bool) {

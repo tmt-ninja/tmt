@@ -149,12 +149,17 @@ func currentCapture(r records, c *core.HookPendingCapture, batch *string) (bool,
 		s.Runtime.StartIdentity != c.Start || s.ProviderSessionID == nil || *s.ProviderSessionID != c.Session {
 		return false, nil
 	}
+	fingerprint, err := captureBindingFingerprint(r, c.Identity)
+	return fingerprint == c.BindingFingerprint, err
+}
+
+func captureBindingFingerprint(r records, identity core.IdentityID) (string, error) {
 	var encoded string
-	if err := r.one("SELECT json_array("+nativeCaptureBindingColumns+") FROM bindings b WHERE b.identity_id=?", c.Identity).Scan(&encoded); err != nil {
-		return false, err
+	if err := r.one("SELECT json_array("+nativeCaptureBindingColumns+") FROM bindings b WHERE b.identity_id=?", identity).Scan(&encoded); err != nil {
+		return "", err
 	}
 	digest := sha256.Sum256([]byte(encoded))
-	return hex.EncodeToString(digest[:]) == c.BindingFingerprint, nil
+	return hex.EncodeToString(digest[:]), nil
 }
 
 func equalOptionalText(a, b *string) bool {

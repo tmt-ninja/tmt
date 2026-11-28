@@ -20,18 +20,44 @@ func resumeStateModel(session *core.ResumeSession) *string {
 	default:
 		return nil
 	}
-	state := session.State
+	document := readDriverState(session.State)
+	if document == nil || document.model == nil {
+		return nil
+	}
+	if session.Driver == "pi" {
+		switch strings.ToLower(*document.model) {
+		case "unknown", "auto", "default":
+			return nil
+		}
+	}
+	return document.model
+}
+
+type decodedDriverState struct {
+	model    *string
+	activity *launchActivity
+}
+
+func readDriverState(state *core.ResumeDriverState) *decodedDriverState {
+	if state == nil {
+		return nil
+	}
 	var document struct {
-		Model         *string        `json:"model"`
+		Model         jsontext.Value `json:"model"`
 		Usage         jsontext.Value `json:"usage"`
 		Activity      jsontext.Value `json:"activity"`
 		Consumption   jsontext.Value `json:"consumption"`
 		Observed      jsontext.Value `json:"observed"`
 		NoStartupIdle jsontext.Value `json:"noStartupIdle"`
 	}
-	if json.Unmarshal([]byte(state.JSON), &document, json.RejectUnknownMembers(true)) != nil ||
-		document.Model == nil || !validResumeModel(document.Model) {
+	if json.Unmarshal([]byte(state.JSON), &document, json.RejectUnknownMembers(true)) != nil {
 		return nil
+	}
+	var result decodedDriverState
+	if document.Model != nil {
+		if json.Unmarshal(document.Model, &result.model) != nil || result.model == nil || !validResumeModel(result.model) {
+			return nil
+		}
 	}
 	usage := document.Usage != nil
 	activity := document.Activity != nil
@@ -43,7 +69,7 @@ func resumeStateModel(session *core.ResumeSession) *string {
 	}
 	switch state.Version {
 	case 1:
-		if usage || activity || consumption {
+		if result.model == nil || usage || activity || consumption {
 			return nil
 		}
 	case 2:
@@ -69,20 +95,17 @@ func resumeStateModel(session *core.ResumeSession) *string {
 	default:
 		return nil
 	}
+	if activity {
+		result.activity = readDriverActivity(document.Activity)
+	}
 	if usage && !validResumeUsage(document.Usage) ||
-		activity && !validResumeActivity(document.Activity) ||
+		activity && result.activity == nil ||
 		consumption && !validResumeConsumption(document.Consumption) ||
 		observed && !validResumeObserved(document.Observed) ||
 		suppressed && !validResumeStartupSuppression(document.NoStartupIdle) {
 		return nil
 	}
-	if session.Driver == "pi" {
-		switch strings.ToLower(*document.Model) {
-		case "unknown", "auto", "default":
-			return nil
-		}
-	}
-	return document.Model
+	return &result
 }
 
 func validResumeUsage(data jsontext.Value) bool {
@@ -99,17 +122,20 @@ func validResumeUsage(data jsontext.Value) bool {
 	return usage.WindowTokens == nil || json.Unmarshal(usage.WindowTokens, &window) == nil && safeTime(window)
 }
 
-func validResumeActivity(data jsontext.Value) bool {
+func readDriverActivity(data jsontext.Value) *launchActivity {
 	var activity launchActivity
 	var fields map[string]jsontext.Value
 	if json.Unmarshal(data, &fields) != nil || len(fields) != 7 ||
 		json.Unmarshal(data, &activity, json.RejectUnknownMembers(true)) != nil {
-		return false
+		return nil
 	}
-	return validStart(activity.Session) && safeTime(activity.PID) && validStart(activity.Start) &&
+	if validStart(activity.Session) && safeTime(activity.PID) && validStart(activity.Start) &&
 		(activity.State == "working" || activity.State == "waiting" || activity.State == "idle") &&
 		(activity.Turn == nil || validStart(*activity.Turn)) &&
-		activity.SinceMs > 0 && activity.SinceMs <= activity.LastActivityMs && safeTime(activity.LastActivityMs)
+		activity.SinceMs > 0 && activity.SinceMs <= activity.LastActivityMs && safeTime(activity.LastActivityMs) {
+		return &activity
+	}
+	return nil
 }
 
 func validResumeObserved(data jsontext.Value) bool {

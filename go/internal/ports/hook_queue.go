@@ -26,5 +26,21 @@ type HookQueueClaim interface {
 }
 
 type CaptureStore interface {
+	PrepareHookCapture(context.Context, HookCapturePreparation) (*core.HookCaptureEvent, error)
 	CommitCapture(context.Context, core.HookCaptureEvent) (core.HookCaptureReceipt, error)
+}
+
+// HookCapturePreparation holds callback and process evidence verified outside SQLite.
+type HookCapturePreparation struct {
+	Expected        core.Binding
+	Owner           core.ProcessIncarnation
+	Runtime         core.ProcessIncarnation
+	Driver          core.DriverName
+	ProviderSession string
+	Turn, Model     *string
+	Continuation    bool
+	Interrupted     bool
+	Final           *core.HookFinalText
+	FollowUp        core.HookCaptureFollowUp
+	ObservedAtMs    uint64
 }
