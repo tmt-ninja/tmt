@@ -51,9 +51,7 @@ pub(crate) fn plan_from_approved(prefix: &Path, approved: &Plan) -> Plan {
         {
             return Ok(version.to_owned());
         }
-        Err(io::Error::other(
-            "Installation changed after approval; run tmt upgrade again.",
-        ))
+        Err(io::Error::other("Installation changed after approval."))
     })
 }
 
