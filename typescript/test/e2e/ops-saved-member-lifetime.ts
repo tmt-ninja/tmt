@@ -190,9 +190,17 @@ IFS= read -r release < ${word(gate)}
             fixture.tmux(['send-keys', '-t', launcher.pane!, 'C-d']);
           }
           await fixture.waitFor(
-            () => gone(collect()),
+            () => gone(collect().filter((pid) => pid !== panePid)),
             TEARDOWN_MS,
             'saved-member launcher and provider exit'
+          );
+          if (pane && panePid && !gone([panePid])) {
+            fixture.tmux(['kill-pane', '-t', pane[1]!]);
+          }
+          await fixture.waitFor(
+            () => gone(collect()),
+            TEARDOWN_MS,
+            'saved-member pane shell exit'
           );
         } catch (error) {
           const before = table(collect());
