@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/tmt-ninja/tmt/go/internal/output"
@@ -278,9 +279,10 @@ func validateOperands(parsed invocation) string {
 		if !parsed.has("request") && len(parsed.operands) == 0 {
 			return "Usage: name who is waiting (tmt-go answer <from> <text>) or choose --request <id>."
 		}
-		inline := len(parsed.operands) == 2 ||
-			len(parsed.operands) == 1 && parsed.has("request") && !parsed.has("file") && !parsed.has("stdin")
-		return validateContent(parsed, inline)
+		return validateContent(parsed, answerOperands(parsed).inline)
+	case "inbox":
+		_, failure := optionalDecimal(parsed, "limit", 1, 200)
+		return failure
 	}
 	return ""
 }
@@ -296,4 +298,18 @@ func validateContent(parsed invocation, inline bool) string {
 		return "Usage: select exactly one inline content, --file, or supported --stdin source."
 	}
 	return ""
+}
+
+// optionalDecimal matches the native decimal-only option grammar. An omitted
+// option returns zero so the service can apply its own default.
+func optionalDecimal(inv invocation, name string, minimum, maximum uint64) (uint64, string) {
+	if !inv.has(name) {
+		return 0, ""
+	}
+	value := inv.options[name]
+	number, err := strconv.ParseUint(value, 10, 64)
+	if err != nil || number < minimum || number > maximum {
+		return 0, fmt.Sprintf("--%s must be a decimal integer between %d and %d.", name, minimum, maximum)
+	}
+	return number, ""
 }

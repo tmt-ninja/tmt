@@ -26,6 +26,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 type application struct {
 	stdin    *os.File
 	requests ports.RequestService
+	store    ports.Store
 }
 
 func (app application) run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -63,6 +64,10 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		switch invocation.path[0] {
 		case "reply", "result":
 			return output.Publish(stdout, stderr, app.response(ctx, invocation), invocation.json)
+		case "inbox", "answer":
+			if app.store != nil {
+				return output.Publish(stdout, stderr, app.incoming(ctx, invocation), invocation.json)
+			}
 		}
 	}
 	// NOT PORTED (#6938): open the real request store after its adapter lands,
