@@ -10,32 +10,26 @@ use std::{
 };
 
 fn insert(store: &Store) -> Result<(), Error> {
-    store.update(
-        |d| {
-            model::apply(
-                d,
-                &create(ITEM, InventoryExpectation::Absent, None),
-                None,
-                &stamp(),
-            )
-            .map(|outcome| ((), outcome.event))
-        },
-        || Ok(()),
-    )
+    store.update(|d| {
+        model::apply(
+            d,
+            &create(ITEM, InventoryExpectation::Absent, None),
+            None,
+            &stamp(),
+        )
+        .map(|outcome| ((), outcome.event))
+    })
 }
 fn complete(store: &Store, item: &str, revision: u64) -> Result<(), Error> {
-    store.update(
-        |d| {
-            model::apply(
-                d,
-                &mutate(item, revision, Mutation::Complete),
-                None,
-                &stamp(),
-            )
-            .map(|outcome| ((), outcome.event))
-        },
-        || Ok(()),
-    )
+    store.update(|d| {
+        model::apply(
+            d,
+            &mutate(item, revision, Mutation::Complete),
+            None,
+            &stamp(),
+        )
+        .map(|outcome| ((), outcome.event))
+    })
 }
 fn store(f: &Fixture) -> Store {
     Store::new(&f.root, id(ROOM), None, "ops").unwrap()
@@ -232,13 +226,10 @@ fn a_refused_publication_and_an_unacknowledged_commit_keep_their_bytes_and_their
     let before = f.bytes();
     // The caller's own last check refuses: nothing is saved.
     let error = store
-        .update(
-            |d| {
-                model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp())
-                    .map(|outcome| ((), outcome.event))
-            },
-            || Err(Error::new(Code::Forbidden, "privilege changed")),
-        )
+        .update(|d| {
+            model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp())?;
+            Err::<((), _), _>(Error::new(Code::Forbidden, "privilege changed"))
+        })
         .unwrap_err();
     assert_eq!(error.code, Code::Forbidden);
     assert_eq!(f.bytes(), before);
@@ -289,13 +280,10 @@ fn a_refused_publication_and_an_unacknowledged_commit_keep_their_bytes_and_their
     );
     // A new operation succeeds afterwards.
     store
-        .update(
-            |d| {
-                model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None, &stamp())
-                    .map(|outcome| ((), outcome.event))
-            },
-            || Ok(()),
-        )
+        .update(|d| {
+            model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None, &stamp())
+                .map(|outcome| ((), outcome.event))
+        })
         .unwrap();
 }
 
@@ -305,34 +293,27 @@ fn competing_writes_queue_and_use_the_current_document() {
     let store = store(&f);
     insert(&store).unwrap();
     store
-        .update(
-            |d| {
-                model::apply(
-                    d,
-                    &create(OTHER, InventoryExpectation::Revision(1), None),
-                    None,
-                    &stamp(),
-                )
-                .map(|outcome| ((), outcome.event))
-            },
-            || Ok(()),
-        )
+        .update(|d| {
+            model::apply(
+                d,
+                &create(OTHER, InventoryExpectation::Revision(1), None),
+                None,
+                &stamp(),
+            )
+            .map(|outcome| ((), outcome.event))
+        })
         .unwrap();
     let (locked_tx, locked_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel();
     let root = f.root.clone();
     let writer = std::thread::spawn(move || {
         let store = Store::new(&root, id(ROOM), None, "ops").unwrap();
-        store.update(
-            |d| {
-                let outcome =
-                    model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp())?;
-                locked_tx.send(()).unwrap();
-                release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
-                Ok(((), outcome.event))
-            },
-            || Ok(()),
-        )
+        store.update(|d| {
+            let outcome = model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp())?;
+            locked_tx.send(()).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            Ok(((), outcome.event))
+        })
     });
     locked_rx.recv_timeout(Duration::from_secs(10)).unwrap();
     let before = f.bytes();
@@ -341,13 +322,10 @@ fn competing_writes_queue_and_use_the_current_document() {
     let competitor = std::thread::spawn(move || {
         let store = Store::new(&root, id(ROOM), None, "ops").unwrap();
         done_tx
-            .send(store.update(
-                |d| {
-                    model::apply(d, &mutate(ITEM, 1, Mutation::Archive), None, &stamp())
-                        .map(|outcome| ((), outcome.event))
-                },
-                || Ok(()),
-            ))
+            .send(store.update(|d| {
+                model::apply(d, &mutate(ITEM, 1, Mutation::Archive), None, &stamp())
+                    .map(|outcome| ((), outcome.event))
+            }))
             .unwrap();
     });
     // The second writer waits for the first; an immediate refusal would complete the channel.
@@ -393,18 +371,15 @@ fn eight_parallel_edits_to_different_items_all_land() {
     for n in 1..=8u64 {
         let id_text = item(n);
         store
-            .update(
-                |d| {
-                    let inventory = if n == 1 {
-                        InventoryExpectation::Absent
-                    } else {
-                        InventoryExpectation::Revision(n - 1)
-                    };
-                    model::apply(d, &create(&id_text, inventory, None), None, &stamp())
-                        .map(|outcome| ((), outcome.event))
-                },
-                || Ok(()),
-            )
+            .update(|d| {
+                let inventory = if n == 1 {
+                    InventoryExpectation::Absent
+                } else {
+                    InventoryExpectation::Revision(n - 1)
+                };
+                model::apply(d, &create(&id_text, inventory, None), None, &stamp())
+                    .map(|outcome| ((), outcome.event))
+            })
             .unwrap();
     }
     let barrier = Arc::new(Barrier::new(8));
@@ -459,13 +434,10 @@ fn the_first_use_after_an_upgrade_imports_items_json_and_keeps_the_old_file_rena
     assert_eq!(fs::read(&archive[0]).unwrap(), seeded);
     // The import carried the document's revisions: the next edit continues from them.
     store
-        .update(
-            |d| {
-                model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None, &stamp())
-                    .map(|outcome| ((), outcome.event))
-            },
-            || Ok(()),
-        )
+        .update(|d| {
+            model::apply(d, &mutate(ITEM, 2, Mutation::Archive), None, &stamp())
+                .map(|outcome| ((), outcome.event))
+        })
         .unwrap();
     assert_eq!(archived(&f), archive);
 }
@@ -489,13 +461,10 @@ fn a_version_1_document_is_read_as_stored_and_the_first_write_stores_version_2()
     assert_eq!(f.bytes(), seeded);
     // The first write is the migration: version 2, the old item unknown until it changes.
     store
-        .update(
-            |d| {
-                model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp())
-                    .map(|outcome| ((), outcome.event))
-            },
-            || Ok(()),
-        )
+        .update(|d| {
+            model::apply(d, &mutate(ITEM, 1, Mutation::Complete), None, &stamp())
+                .map(|outcome| ((), outcome.event))
+        })
         .unwrap();
     let stored: serde_json::Value = serde_json::from_slice(&f.bytes()).unwrap();
     assert_eq!(stored["version"], 2);
@@ -519,14 +488,11 @@ fn a_corrupt_or_foreign_legacy_document_refuses_and_stays_where_it_is() {
         let other = Fixture::new();
         let store = Store::new(&other.root, id(OTHER), None, "ops").unwrap();
         store
-            .update(
-                |d| {
-                    let mut request = create(ITEM, InventoryExpectation::Absent, None);
-                    request.room_id = id(OTHER);
-                    model::apply(d, &request, None, &stamp()).map(|outcome| ((), outcome.event))
-                },
-                || Ok(()),
-            )
+            .update(|d| {
+                let mut request = create(ITEM, InventoryExpectation::Absent, None);
+                request.room_id = id(OTHER);
+                model::apply(d, &request, None, &stamp()).map(|outcome| ((), outcome.event))
+            })
             .unwrap();
         other
             .database()

@@ -123,12 +123,11 @@ impl Store {
             .map_err(refused)
     }
     /// `change` also returns what it did as an [`AppliedChange`]; the log row commits with the document.
-    /// `before_publish` runs after the candidate is staged and before it commits; its
-    /// refusal discards the candidate, as does any failure of `change`.
+    /// The service prepares and authorizes its candidate in `change`; any error rolls back
+    /// the transaction. Only an authorized candidate reaches document and event staging.
     pub(super) fn update<T>(
         &self,
         change: impl FnOnce(&mut Option<Document>) -> Result<(T, Option<AppliedChange>), Error>,
-        before_publish: impl FnOnce() -> Result<(), Error>,
     ) -> Result<T, Error> {
         let slot = self.slot();
         let mut database = Database::open(&self.extension_root).map_err(refused)?;
@@ -166,7 +165,6 @@ impl Store {
                 |(_, logged), transaction| {
                     #[cfg(test)]
                     test_stage(Stage::BeforePublish).map_err(Error::storage)?;
-                    before_publish()?;
                     if let Some(logged) = logged {
                         events::append(
                             transaction,
@@ -230,6 +228,8 @@ fn failed(failure: StateFailure<Error>) -> Error {
 #[cfg(test)]
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum Stage {
+    /// After CAS has prepared the candidate, immediately before late authorization.
+    BeforeAuthorization,
     /// Inside the transaction, after the candidate is written and before it commits.
     BeforePublish,
     /// After the commit succeeded, standing in for an acknowledgement that never arrived.
@@ -240,7 +240,7 @@ type Fault = Box<dyn FnMut(Stage) -> std::io::Result<()>>;
 #[cfg(test)]
 thread_local! { static FAULT: std::cell::RefCell<Option<Fault>> = const { std::cell::RefCell::new(None) }; }
 #[cfg(test)]
-fn test_stage(stage: Stage) -> std::io::Result<()> {
+pub(super) fn test_stage(stage: Stage) -> std::io::Result<()> {
     FAULT.with_borrow_mut(|fault| match fault {
         Some(fault) => fault(stage),
         None => Ok(()),

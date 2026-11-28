@@ -536,65 +536,57 @@ impl Service {
         // Refuse unauthorized operations before creating any storage infrastructure.
         let _migration =
             crate::migration::config_write_guard(&self.config_path).map_err(Error::storage)?;
-        self.admit(true, request.action.manager(), request.action.assignment())?;
-        self.store.update(
-            |document| {
-                let (admission, assignee) =
-                    self.admit(true, request.action.manager(), request.action.assignment())?;
-                let before = document.clone();
-                let stamp = model::Stamp {
-                    by: self.actor_id.clone(),
-                    at_ms: crate::status::now_ms(),
-                };
-                let mutation = model::apply(document, request, assignee, &stamp);
-                // The list a create just made belongs to this conversation; an existing one
-                // was decoded as exactly this conversation's.
-                if let (Some(created), Some(member)) = (document.as_mut(), self.store.member_id()) {
-                    created.member_id = Some(member.clone());
+        let (_, provisional_assignee) =
+            self.admit(true, request.action.manager(), request.action.assignment())?;
+        self.store.update(|document| {
+            let before = document.clone();
+            let stamp = model::Stamp {
+                by: self.actor_id.clone(),
+                at_ms: crate::status::now_ms(),
+            };
+            let mutation = model::apply(document, request, provisional_assignee, &stamp);
+            // A newly created list belongs to this conversation.
+            if let (Some(created), Some(member)) = (document.as_mut(), self.store.member_id()) {
+                created.member_id = Some(member.clone());
+            }
+
+            // Recheck once under the writer, after CAS has prepared the candidate.
+            // A refusal rolls it back; only this decision supplies the final label and projection.
+            #[cfg(test)]
+            store::test_stage(store::Stage::BeforeAuthorization).map_err(Error::storage)?;
+            let (admission, assignee) =
+                self.admit(true, request.action.manager(), request.action.assignment())?;
+            let outcome = mutation.map_err(|mut error| {
+                if matches!(error.code, Code::Conflict | Code::Deleted) {
+                    error.current = Some(Box::new(project(
+                        &admission,
+                        before.as_ref(),
+                        request.action.item_id(),
+                    )));
                 }
-                let outcome = match mutation {
-                    Ok(outcome) => outcome,
-                    Err(mut error) => {
-                        if matches!(error.code, Code::Conflict | Code::Deleted) {
-                            error.current = Some(Box::new(project(
-                                &admission,
-                                before.as_ref(),
-                                request.action.item_id(),
-                            )));
-                        }
-                        return Err(error);
-                    }
-                };
-                // These checks are repeated after the candidate is complete, immediately
-                // before store staging/publication. Core and files are not one transaction.
-                let (admission, assignee) =
-                    self.admit(true, request.action.manager(), request.action.assignment())?;
-                if let Some(assignee) = assignee.filter(|_| outcome.changed) {
-                    let item = document
-                        .as_mut()
-                        .and_then(|d| {
-                            d.items
-                                .iter_mut()
-                                .find(|i| Some(&i.id) == request.action.item_id())
-                        })
-                        .expect("admitted assignment has a live target");
-                    item.assignee = Some(assignee);
-                }
-                Ok((
-                    Applied {
-                        current: project(&admission, document.as_ref(), request.action.item_id()),
-                        item_id: request.action.item_id().cloned(),
-                        item_revision: outcome.item_revision,
-                        changed: outcome.changed,
-                    },
-                    outcome.event,
-                ))
-            },
-            || {
-                self.admit(true, request.action.manager(), request.action.assignment())
-                    .map(|_| ())
-            },
-        )
+                error
+            })?;
+            if let Some(assignee) = assignee.filter(|_| outcome.changed) {
+                let item = document
+                    .as_mut()
+                    .and_then(|d| {
+                        d.items
+                            .iter_mut()
+                            .find(|i| Some(&i.id) == request.action.item_id())
+                    })
+                    .expect("admitted assignment has a live target");
+                item.assignee = Some(assignee);
+            }
+            Ok((
+                Applied {
+                    current: project(&admission, document.as_ref(), request.action.item_id()),
+                    item_id: request.action.item_id().cloned(),
+                    item_revision: outcome.item_revision,
+                    changed: outcome.changed,
+                },
+                outcome.event,
+            ))
+        })
     }
 }
 

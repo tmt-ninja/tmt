@@ -11,16 +11,13 @@ fn store(f: &Fixture) -> Store {
 }
 /// One change by LEAD at `at_ms`, logged the way the service logs it.
 fn change(store: &Store, request: &Request, at_ms: u64) -> Result<(), Error> {
-    store.update(
-        |document| {
-            let stamp = Stamp {
-                by: id(LEAD),
-                at_ms,
-            };
-            model::apply(document, request, None, &stamp).map(|outcome| ((), outcome.event))
-        },
-        || Ok(()),
-    )
+    store.update(|document| {
+        let stamp = Stamp {
+            by: id(LEAD),
+            at_ms,
+        };
+        model::apply(document, request, None, &stamp).map(|outcome| ((), outcome.event))
+    })
 }
 fn item(n: u8) -> String {
     format!("66666666-6666-4666-8666-66666666666{n}")
@@ -145,7 +142,7 @@ fn an_event_commits_with_its_document_or_not_at_all() {
     let refused = with_fault(
         Box::new(|stage| match stage {
             Stage::BeforePublish => Err(std::io::Error::other("refused")),
-            Stage::AfterCommit => Ok(()),
+            Stage::BeforeAuthorization | Stage::AfterCommit => Ok(()),
         }),
         make,
     );
@@ -157,7 +154,7 @@ fn an_event_commits_with_its_document_or_not_at_all() {
     let unknown = with_fault(
         Box::new(|stage| match stage {
             Stage::AfterCommit => Err(std::io::Error::other("lost")),
-            Stage::BeforePublish => Ok(()),
+            Stage::BeforeAuthorization | Stage::BeforePublish => Ok(()),
         }),
         make,
     );
@@ -215,23 +212,20 @@ fn a_conversation_list_logs_under_its_own_key_with_its_member() {
     )
     .unwrap();
     member
-        .update(
-            |document| {
-                let stamp = Stamp {
-                    by: id(WORKER),
-                    at_ms: 2_000,
-                };
-                let outcome = model::apply(
-                    document,
-                    &create(&item(2), InventoryExpectation::Absent, None),
-                    None,
-                    &stamp,
-                )?;
-                document.as_mut().unwrap().member_id = Some(id(WORKER));
-                Ok(((), outcome.event))
-            },
-            || Ok(()),
-        )
+        .update(|document| {
+            let stamp = Stamp {
+                by: id(WORKER),
+                at_ms: 2_000,
+            };
+            let outcome = model::apply(
+                document,
+                &create(&item(2), InventoryExpectation::Absent, None),
+                None,
+                &stamp,
+            )?;
+            document.as_mut().unwrap().member_id = Some(id(WORKER));
+            Ok(((), outcome.event))
+        })
         .unwrap();
     let own = member.events(0, 100).unwrap();
     assert_eq!(own.events.len(), 1);
