@@ -34,6 +34,7 @@ type StoreTx interface {
 	Requests() RequestRepo
 	Responses() ResponseRepo
 	Profiles() ProfileRepo
+	Rooms() RoomRepo
 }
 
 // ---------- process (go-2) ----------

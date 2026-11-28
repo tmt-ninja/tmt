@@ -138,6 +138,21 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     for canonical final metadata, unchanged cursor, no final text, and exact
     parent, room and recipient acknowledgement evidence.
 
+- [x] GO1-28: Create, read, replace and retire Room rosters in the caller's transaction.
+  - Native `storage/room/tests.rs::explicit_rosters_round_trip_offline_members_and_enforce_cas`
+    and `effective_membership_fences_retirement_even_when_definition_revision_did_not_change`
+    map to `TestRoomOfflineRosterRoundTripsWithCASAndEffectiveMembership`.
+  - Native `membership_edits_are_idempotent_and_independent_across_rooms` and
+    `late_membership_failure_rolls_back_the_existing_roster_and_revision` map to
+    `TestRoomMembershipEditsAreIdempotentAndRollBackOnLateFailure`.
+    Native `simultaneous_joins_preserve_both_members_and_existing_roster` maps to
+    `TestConcurrentRoomJoinsPreserveExistingRoster`.
+  - Native `room_retirement_preserves_rosters_and_history_but_fences_new_work_and_recreation`
+    roster assertions, `failed_retirement_does_not_change_revision_or_membership`
+    and `final_room_revision_can_retire_once_and_replay_without_overflow` map to
+    `TestRoomRetirementPreservesHistoricalRosterAndReplaysAtMaxRevision`.
+    CLI selectors and durable dispatch composition are separate.
+
 ## go-2 (sys, process, tmux, host, drivers, channel)
 
 - [x] GO2-01: Native selected-process start reads on Darwin and Linux before the bounded ps fallback. Rust `process/process_info.rs::stopped_and_exited_owned_children_keep_batch_parity` → `TestNativeProcessStartsForLiveStoppedAndGone` and `TestNativeStartTokenMatchesTheBoundedPSFallback`; Linux stat parsing → `TestNativeLinuxStatKeepsTheStartFieldAfterComplexCommand`. Under concurrent test suites, repeated batched ps reads exhausted the swap budget, including the fresh post-swap check. Native reads preserve the persisted token and remove those subprocesses. Each focus ancestry proof also checks both required links from one snapshot (`TestProcessTreeProvesBothSegmentsFromOneSnapshot`), with fresh rechecks and deadlines intact.
