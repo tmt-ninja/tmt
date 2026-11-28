@@ -141,7 +141,7 @@ func (app application) listenXPage(ctx context.Context, identity *core.Identity,
 		}
 		selector := " --identity " + core.CommandWord(string(identity.CanonicalName))
 		report.Items = append(report.Items, listenItem{
-			RequestID: item.RequestID, RoomID: item.RoomID, Revision: item.Revision, Kind: item.Kind, Direction: core.XIncoming,
+			RequestID: item.RequestID, RoomID: item.RoomID, Revision: item.Revision, Kind: item.Kind, Direction: "incoming",
 			Sender: listenParticipant(item.Sender, identities), Recipient: listenParticipant(item.Recipient, identities),
 			PreparedAtMs: item.PreparedAtMs, Delivery: item.Delivery, MessageState: deliveryJSON(item.MessageState),
 			FinalStatus: item.Final.Status, Acknowledged: item.Acknowledged, Settled: item.Settled,
@@ -176,7 +176,7 @@ type listenItem struct {
 	RoomID               *core.RoomID       `json:"roomId,omitempty"`
 	Revision             uint64             `json:"revision"`
 	Kind                 core.XKind         `json:"kind"`
-	Direction            core.XDirection    `json:"direction"`
+	Direction            string             `json:"direction"`
 	Sender               *listenParty       `json:"sender"`
 	Recipient            *listenParty       `json:"recipient"`
 	PreparedAtMs         uint64             `json:"preparedAtMs"`

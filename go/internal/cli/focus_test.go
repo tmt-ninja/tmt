@@ -39,9 +39,9 @@ type focusResult struct {
 }
 
 type focusWorld struct {
-	t                               *testing.T
-	server                          *tmuxtest.Server
-	world, tmux, script, executable string
+	t                                      *testing.T
+	server                                 *tmuxtest.Server
+	world, state, tmux, script, executable string
 }
 
 func newFocusWorld(t *testing.T) focusWorld {
@@ -62,8 +62,8 @@ func newFocusWorld(t *testing.T) focusWorld {
 	}
 	world := t.TempDir()
 	// The timed work starts with the real add, after schema preparation.
-	storagetest.Seed(t, filepath.Join(world, "state"))
-	return focusWorld{t, server, world, tmux, script, executable}
+	root := storagetest.Seed(t, filepath.Join(world, "state"))
+	return focusWorld{t, server, world, root.Dir, tmux, script, executable}
 }
 
 func (w focusWorld) tmuxText(args ...string) string {
@@ -132,7 +132,7 @@ func (w focusWorld) worker(pane string) focusWorker {
 		w.t.Fatal(err)
 	}
 	args := []string{
-		"/usr/bin/env", "PATH=" + bin + ":/usr/bin:/bin", "HOME=" + w.world, home.EnvHome + "=" + filepath.Join(w.world, "state"),
+		"/usr/bin/env", "PATH=" + bin + ":/usr/bin:/bin", "HOME=" + w.world, home.EnvHome + "=" + w.state,
 		focusWorkerEnv + "=" + dir, w.executable, "-test.run=^TestFocusWorker$",
 	}
 	for i, arg := range args {
@@ -444,7 +444,7 @@ func TestFocusRefusesForeignServerAsNative(t *testing.T) {
 	target := owner.newSession("crew")
 	owner.add(owner.worker(owner.initialPane()), target, "member")
 	foreign := newFocusWorld(t)
-	foreign.world = owner.world
+	foreign.world, foreign.state = owner.world, owner.state
 	caller := foreign.worker(foreign.initialPane())
 	foreign.attach("t")
 	before := foreign.views()

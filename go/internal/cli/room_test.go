@@ -193,7 +193,7 @@ func TestRoomDispatchRetainsReceiptAndRoomScope(t *testing.T) {
 			t.Fatalf("retired room still has two incoming items: %s, %v", raw, err)
 		}
 		for _, item := range result.Items {
-			if item.RoomID == nil || *item.RoomID != created.Room.ID || item.Acknowledged ||
+			if item.RoomID == nil || *item.RoomID != created.Room.ID || item.Direction != "incoming" || item.Acknowledged ||
 				item.Sender == nil || item.Sender.Name != "Bob" || item.Recipient == nil || item.Recipient.Name != "Alice" {
 				t.Fatalf("unexpected incoming item: %+v", item)
 			}
