@@ -48,7 +48,7 @@ func TestCallerSelectionWithPrivateTmuxEvidence(t *testing.T) {
 	caller := systemCaller()
 	pane := ports.PaneRef{Server: server.Socket, PaneID: strings.TrimSpace(server.Run("display-message", "-p", "#{pane_id}"))}
 	const serverID = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-	server.Run("set-option", "-s", "@tmt.server-id", serverID)
+	server.Run("set-option", "-s", "@tmt-go.server-id", serverID)
 	observed, err := caller.probe(ctx, pane)
 	if err != nil || observed.State != core.EndpointProbeLive || len(observed.Panes) != 1 || observed.Panes[0].Incarnation == nil {
 		t.Fatalf("private binding probe = %+v, error = %v", observed, err)
@@ -65,7 +65,7 @@ func TestCallerSelectionWithPrivateTmuxEvidence(t *testing.T) {
 		t.Helper()
 		marker := fmt.Sprintf(`{"version":1,"globalIdentity":{"name":%q,"canonicalName":%q,"identityId":%q,"bindingId":%q,"serverId":%q,"panePid":%d}}`,
 			identity.Name, identity.CanonicalName, identity.ID, bindingID, serverID, binding.PanePID)
-		server.Run("set-option", "-p", "-t", pane.PaneID, "@tmt.agent", marker)
+		server.Run("set-option", "-p", "-t", pane.PaneID, "@tmt-go.agent", marker)
 	}
 	setMarker(binding.ID)
 

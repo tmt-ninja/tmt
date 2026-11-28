@@ -18,7 +18,16 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
-var bindingFormat = fields("socket_path", "@tmt.server-id", "pid", "start_time", "pane_id", "pane_pid", "@tmt.agent")
+const (
+	// OptionNamespace isolates Go's metadata on servers shared with native tmt.
+	OptionNamespace = "@tmt-go."
+	ServerIDOption  = OptionNamespace + "server-id"
+	AgentOption     = OptionNamespace + "agent"
+)
+
+const bindingOptionLimit = 32 * 1024
+
+var bindingFormat = fields("socket_path", ServerIDOption, "pid", "start_time", "pane_id", "pane_pid", AgentOption)
 
 // ProbeBinding observes only the exact pane on the explicit socket. It never
 // initializes missing host metadata or treats an unavailable probe as loss.
@@ -29,7 +38,7 @@ func (c Client) ProbeBinding(ctx context.Context, pane ports.PaneRef) (core.Endp
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	read := func() (string, error) {
-		return c.run(ctx, pane.Server, 32*1024, nil, "display-message", "-p", "-t", pane.PaneID, bindingFormat)
+		return c.run(ctx, pane.Server, bindingOptionLimit, nil, "display-message", "-p", "-t", pane.PaneID, bindingFormat)
 	}
 	text, err := read()
 	if err != nil {

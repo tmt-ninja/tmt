@@ -4,7 +4,6 @@ package tmux
 
 import (
 	"context"
-	"fmt"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -18,7 +17,7 @@ import (
 
 const testServerID = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 
-func TestProbeBindingReadsExactPrivatePane(t *testing.T) {
+func TestPublishBindingKeepsNativeMetadataOnPrivateServer(t *testing.T) {
 	server := tmuxtest.Start(t)
 	path, err := exec.LookPath("tmux")
 	if err != nil {
@@ -26,32 +25,59 @@ func TestProbeBindingReadsExactPrivatePane(t *testing.T) {
 	}
 	client := Client{Path: path, Process: process.Runner{}}
 	pane := ports.PaneRef{Server: server.Socket, PaneID: strings.TrimSpace(server.Run("display-message", "-p", "#{pane_id}"))}
+	const nativeServer = "@tmt.server-id"
+	const nativePane = "@tmt.agent"
+	const nativeMarker = `{"version":1,"native":"preset sentinel"}`
+	server.Run("set-option", "-s", nativeServer, testServerID)
+	server.Run("set-option", "-p", "-t", pane.PaneID, nativePane, nativeMarker)
+
 	got, err := client.ProbeBinding(t.Context(), pane)
 	if err != nil || got.State != core.EndpointProbeUnknown {
-		t.Fatalf("probe of unmarked server = %+v, %v", got, err)
+		t.Fatalf("native-only server probe = %+v, %v", got, err)
 	}
-	server.Run("set-option", "-s", "@tmt.server-id", testServerID)
+	goID, err := client.EnsureServerID(t.Context(), pane.Server)
+	if err != nil || !serverID(goID) || goID == testServerID {
+		t.Fatalf("Go server ID = %q, %v", goID, err)
+	}
+	if again, err := client.EnsureServerID(t.Context(), pane.Server); err != nil || again != goID {
+		t.Fatalf("repeat Go server ID = %q, %v", again, err)
+	}
 	got, err = client.ProbeBinding(t.Context(), pane)
 	if err != nil || got.State != core.EndpointProbeLive || got.Server.Socket != pane.Server ||
-		got.Server.ID != testServerID || got.Server.PID == 0 || got.Server.StartTime == "" ||
+		got.Server.ID != goID || got.Server.PID == 0 || got.Server.StartTime == "" ||
 		len(got.Panes) != 1 || got.Panes[0].ID != pane.PaneID || got.Panes[0].Incarnation == nil || got.Panes[0].Marker != nil {
-		t.Fatalf("unmarked pane probe = %+v, %v", got, err)
+		t.Fatalf("unbound pane probe = %+v, %v", got, err)
 	}
 
 	observed := got.Panes[0]
-	marker := fmt.Sprintf(`{"version":1,"globalIdentity":{"name":"member","canonicalName":"member","identityId":"identity","bindingId":"binding","serverId":%q,"panePid":%d}}`, testServerID, observed.PID)
-	server.Run("set-option", "-p", "-t", pane.PaneID, "@tmt.agent", marker)
 	t.Setenv("TMUX", "/invalid/ambient/socket,1,0")
 	t.Setenv("TMUX_PANE", "%9999")
+	identity := core.Identity{ID: "identity", Name: "member", CanonicalName: "member"}
+	binding := core.Binding{ID: "binding", IdentityID: identity.ID, Server: got.Server,
+		PaneID: pane.PaneID, PanePID: observed.PID, PaneIncarnation: observed.Incarnation}
+	for range 2 {
+		if published, err := client.PublishBinding(t.Context(), binding, identity); err != nil || !published {
+			t.Fatalf("PublishBinding = %v, %v", published, err)
+		}
+	}
+
+	foreign := binding
+	foreign.ID = "foreign-binding"
+	if published, err := client.PublishBinding(t.Context(), foreign, identity); err != nil || published {
+		t.Fatalf("foreign PublishBinding = %v, %v", published, err)
+	}
 	got, err = client.ProbeBinding(t.Context(), pane)
 	if err != nil || len(got.Panes) != 1 {
 		t.Fatalf("marked pane probe = %+v, %v", got, err)
 	}
-	identity := core.Identity{ID: "identity", Name: "member", CanonicalName: "member"}
-	binding := core.Binding{ID: "binding", IdentityID: identity.ID, Server: got.Server,
-		PaneID: pane.PaneID, PanePID: observed.PID, PaneIncarnation: observed.Incarnation}
 	if state, _ := core.EvaluateBinding(identity, &binding, got); state != core.BindingActive {
 		t.Fatalf("EvaluateBinding = %v, probe = %+v", state, got)
+	}
+	if native := server.Run("show-options", "-p", "-t", pane.PaneID, "-v", nativePane); native != nativeMarker+"\n" {
+		t.Fatalf("native pane marker changed: %q", native)
+	}
+	if native := server.Run("show-options", "-s", "-v", nativeServer); native != testServerID+"\n" {
+		t.Fatalf("native server ID changed: %q", native)
 	}
 	wrong, _ := client.ProbeBinding(t.Context(), ports.PaneRef{Server: pane.Server, PaneID: "%9999"})
 	if wrong.State != core.EndpointProbeUnknown {
