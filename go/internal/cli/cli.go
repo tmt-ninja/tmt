@@ -94,6 +94,8 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return publish(stdout, stderr, runOrch(ctx, root, invocation), invocation.json)
 	case "storage":
 		return publish(stdout, stderr, runStorage(ctx, root), invocation.json)
+	case "room":
+		return publish(stdout, stderr, app.runRoom(ctx, root, invocation), invocation.json)
 	case "extension":
 		if len(invocation.path) == 2 && invocation.path[1] == "ls" {
 			return publish(stdout, stderr, listExtensions(invocation, os.Getenv("PATH")), invocation.json)

@@ -128,8 +128,7 @@ func (app application) runResumeForget(ctx context.Context, root home.Root, inv 
 	preset := inv.has("forget-launch")
 	return withIdentityStoreError(ctx, root, app.store, func(err error) *output.Failure {
 		if !preset && errors.Is(err, os.ErrPermission) {
-			return bindingFailure("STORAGE_NOT_WRITABLE", fmt.Sprintf(
-				"TMT cannot write its data directory %s. An agent sandbox may be blocking it: allow that directory or use the provider's escalation for the next authorized command. No remembered session was changed.", root.Dir), 1)
+			return identityStorageNotWritable(root, "No remembered session was changed.")
 		}
 		return resumeStoreFailure()
 	}, func(store ports.Store) output.Report {

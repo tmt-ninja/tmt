@@ -314,12 +314,13 @@ func commandConstraints(parsed invocation) (required []string, conflicts, requir
 
 func validateOperands(parsed invocation) string {
 	switch parsed.path[0] {
-	case "extension", "driver", "host":
+	case "extension", "driver", "host", "room":
 		if len(parsed.path) == 1 {
 			subcommands := map[string]string{
 				"extension": "hooks, install, upgrade, rm, uninstall, ls, list",
 				"driver":    "install, ls, list, rm",
 				"host":      "templates",
+				"room":      "create, ls, list, rm, retire, show, join, leave, send, broadcast",
 			}
 			name := parsed.path[0]
 			return fmt.Sprintf("error: '"+flavor.Binary+" %s' requires a subcommand but one was not provided\n  [subcommands: %s]\n\nUsage: "+flavor.Binary+" %s [OPTIONS] <COMMAND>\n", name, subcommands[name], name)

@@ -39,6 +39,11 @@ func withIdentityStoreError(ctx context.Context, root home.Root, store ports.Sto
 	return run(opened)
 }
 
+func identityStorageNotWritable(root home.Root, effect string) *output.Failure {
+	return bindingFailure("STORAGE_NOT_WRITABLE", fmt.Sprintf(
+		"TMT cannot write its data directory %s. An agent sandbox may be blocking it: allow that directory or use the provider's escalation for the next authorized command. %s", root.Dir, effect), 1)
+}
+
 func identityOperationFailure() *output.Failure {
 	return bindingFailure("IDENTITY_ERROR", "Could not complete the identity operation.", 1)
 }

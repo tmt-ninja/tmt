@@ -213,11 +213,9 @@ func (b bindingCLI) listHere(ctx context.Context) (*tmux.PaneSnapshot, *output.F
 }
 
 func (b bindingCLI) list(ctx context.Context, inv invocation) output.Report {
-	for _, option := range []string{"room", "detected"} {
-		if inv.has(option) {
-			// NOT PORTED (CLI-11, CLI-12): Room-scoped lists and detected-agent projection.
-			return bindingUnavailable("--" + option)
-		}
+	if inv.has("detected") {
+		// NOT PORTED (CLI-12): Detected-agent projection.
+		return bindingUnavailable("--detected")
 	}
 	if inv.has("host") && inv.options["host"] != "tmux" {
 		// NOT PORTED (CLI-12): Discovery on non-tmux hosts.
@@ -228,6 +226,14 @@ func (b bindingCLI) list(ctx context.Context, inv invocation) output.Report {
 	}
 	var entries []bindingEntry
 	err := b.store.Read(ctx, func(tx ports.StoreTx) error {
+		var room *core.MeetingRoom
+		if inv.has("room") {
+			var err error
+			room, err = resolveRoom(tx.Rooms(), inv.options["room"], false)
+			if err != nil {
+				return roomFailure(err)
+			}
+		}
 		identities, err := tx.Identities().List()
 		if err != nil {
 			return err
@@ -241,6 +247,9 @@ func (b bindingCLI) list(ctx context.Context, inv invocation) output.Report {
 			byIdentity[binding.IdentityID] = &binding
 		}
 		for _, identity := range identities {
+			if room != nil && !slices.Contains(room.MemberIDs, identity.ID) {
+				continue
+			}
 			if (inv.has("saved") && identity.Lifetime != core.LifetimeSaved) ||
 				(inv.has("temp") && identity.Lifetime != core.LifetimeTemporary) {
 				continue

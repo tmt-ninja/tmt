@@ -195,7 +195,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-08` Implement caller discovery from tmux process ancestry when environment claims are unavailable.
 - [ ] `CLI-09` Reconcile orphaned and legacy pane metadata during binding.
 - [ ] `CLI-10` Project remembered sessions and provider activity in `ls` and reconcile binding presence.
-- [ ] `CLI-11` Implement `ls --room` membership filtering.
+- [x] `CLI-11` Scope `ls --room` to the active roster, including offline members.
 - [ ] `CLI-12` Implement `ls --detected` with host and socket selection.
 - [ ] `CLI-13` Implement bounded `whoami --context` output.
 - [ ] `CLI-14` Port direct-pane talk on non-tmux hosts. Verified bound tmux panes keep the Inbox route. Unbound tmux panes retain the request against the exact endpoint and require a fresh paste fence. Private Go tests map durable receipt, detach/result, and byte preservation from `durable-talk.e2e.test.ts`, `smoke.e2e.test.ts` and `response-integrity.e2e.test.ts`.
@@ -217,7 +217,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-29` Complete lifecycle callback activity, provider context and Digest continuation.
 - [ ] `CLI-30` Compose `api` over its stdio server and typed operations.
 - [ ] `CLI-31` Compose `mcp` with a pinned saved identity and canonical exchange and dispatch owners.
-- [ ] `CLI-32` Compose `room` administration, membership and delivery commands.
+- [ ] `CLI-32` Compose durable `room send` and `room broadcast`. Room creation, listing, historical show, retirement and membership are ported.
 - [ ] `CLI-33` Compose `orch` jobs, plans, previews, lead and route mutations, retained talks and focus with go-4.
 - [ ] `CLI-34` Compose `workspace` save, inspect, listing, restore and removal with go-4.
 - [ ] `CLI-35` Compose `tick` runs, status and timer controls.
@@ -239,6 +239,8 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [x] `CLI-50` Fix intermittent parallel private-tmux deadlines via GO2-01 (8d7b740d72). `TestPrivateDiscoveryAndMarkedPaneWithoutMetadata` expired its 1 s process read in the old pane's exact Discover after re-marking. `TestDiscoverAndMarkedOnPrivateTmux` returned an empty, truncated initial inventory under load. `TestPrivateFocusAndSwapExactInvokingClient` reached the 12 s fixture limit in its last focus action. A separate adapter trace pinned the 4 s swap deadline in a post-swap batched `ps` read with 368 ms left, following reads up to 944 ms. `TestFocusSwapGeometryMatchesNative` reported generic reconciliation in left and right without identifying a stage. Native start observations and one ancestry snapshot per proof replace the repeated subprocess work. All original deadlines and exact pre/post checks remain, and all four fixtures passed uncached with package parallelism in both flavors.
 
 ### Native test mappings from merged main
+
+- `typescript/test/native/room.test.ts` membership, listing, ambiguity and malformed command cases run unchanged in the parity manifest. The retired UUID, idempotent retirement and still-retained membership assertions → `TestRoomRetainsRetiredUUIDWithoutResolvingItsName`. Rust `parser/tests/room.rs` dispatch argv and malformed commands → `TestRoomGrammarMatchesNative`. The Rust renderer oracle `room_command.rs::rooms_list_in_state_sections_by_name_with_short_ids` → `TestRoomListMatchesNativeStateSections`.
 
 - `typescript/test/native/binding.test.ts` lifetime filtering, outside-tmux `ls --here` refusal and Unicode list alignment run unchanged in the parity manifest. `TestListHerePinsCallerSessionAndServerBeforeOpeningStorage` verifies the exact caller session and refuses a conflicting server claim before opening storage.
 
