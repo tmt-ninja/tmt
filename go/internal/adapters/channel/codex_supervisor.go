@@ -9,7 +9,6 @@ import (
 	"errors"
 	"io"
 	"net"
-	"net/netip"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -180,21 +179,11 @@ func codexLauncherLease(ctx context.Context, req codexEnrollment, record codexRe
 	if processState(ctx, observer, endpoint) != runtime.Alive || processState(ctx, observer, record.LaunchOwner) != runtime.Alive {
 		return nil, ErrEnrollment
 	}
-	generation, err := openPrivateChannelChild(dir.root, record.Generation, false)
+	transport, err := readCodexEndpoint(dir, filepath.Join(ClaudeDirectory(req.root), codexDirectory), record.Generation, port)
 	if err != nil {
 		return nil, err
 	}
-	defer generation.close()
-	token, err := generation.readPrivate(codexCapabilityFile, 64)
-	if err != nil || !validCodexToken(string(token)) {
-		return nil, ErrEnrollment
-	}
-	addr := netip.AddrPortFrom(netip.AddrFrom4([4]byte{127, 0, 0, 1}), port)
-	transport, err := newCodexEndpoint(addr, string(token))
-	if err != nil {
-		return nil, err
-	}
-	command, err := req.plan.remoteForeground(addr, string(token))
+	command, err := req.plan.remoteForeground(transport.address, transport.token)
 	if err != nil {
 		return nil, err
 	}

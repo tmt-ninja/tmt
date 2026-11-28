@@ -46,6 +46,7 @@ const (
 	SendUnsupported
 	SendUncertain
 	SendUnacknowledged
+	SendQueued
 )
 
 func classifyReply(line []byte) SendOutcome {

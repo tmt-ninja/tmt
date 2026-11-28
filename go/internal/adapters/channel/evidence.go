@@ -34,7 +34,7 @@ func (p PaneAddress) record() paneRecord {
 	}
 }
 
-// PaneEvidence describes the Claude enrollment check at the paste boundary.
+// PaneEvidence describes the channel enrollment check at the paste boundary.
 // Paste requires a nil error and Enrolled false.
 type PaneEvidence struct {
 	Enrolled bool

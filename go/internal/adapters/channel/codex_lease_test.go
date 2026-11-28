@@ -133,6 +133,36 @@ func TestCodexFreshLeasePinsOriginalChildAndThreadAfterAdmission(t *testing.T) {
 				record.Foreground.Process == nil || *record.Foreground.Process != storedProcess(foreground) {
 				t.Fatalf("ready = %+v, %v", record, err)
 			}
+			send := CodexDelivery{Root: in.Root, Binding: in.Binding, Identity: in.Identity, Probe: in.Probe, Content: "exact fixture content", Build: "fixture"}
+			send.Binding.Session.ProviderSessionID = new("60000000-0000-4000-8000-000000000002")
+			if got := SendCodex(ctx, runner, send); got != denied(ChannelMismatch) {
+				t.Fatalf("wrong-thread delivery = %+v", got)
+			}
+			send.Binding.Session.ProviderSessionID = &thread
+			queries := 0
+			changed := false
+			replacing := codexDeliveryProcessFunc(func(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
+				queries++
+				if queries == 4 {
+					// The second proof runs after app-server initialization.
+					replacement := *record
+					replacement.Generation = launchGeneration()
+					if err := dir.writeCodex(replacement); err != nil {
+						t.Fatal(err)
+					}
+					changed = true
+				}
+				return runner.Run(ctx, spec)
+			})
+			if got := SendCodex(ctx, replacing, send); !changed || got != denied(ChannelMismatch) {
+				t.Fatalf("replacement during preparation: changed=%t, delivery=%+v", changed, got)
+			}
+			if err := dir.writeCodex(*record); err != nil {
+				t.Fatal(err)
+			}
+			if got := SendCodex(ctx, runner, send); got != (SendResult{Outcome: SendQueued}) {
+				t.Fatalf("exact queue delivery = %+v", got)
+			}
 			_ = child.Process.Kill()
 			_ = child.Wait()
 			reaped = true
@@ -147,6 +177,12 @@ func TestCodexFreshLeasePinsOriginalChildAndThreadAfterAdmission(t *testing.T) {
 			}
 		})
 	}
+}
+
+type codexDeliveryProcessFunc func(context.Context, ports.ProcessSpec) (ports.Bounded, error)
+
+func (f codexDeliveryProcessFunc) Run(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
+	return f(ctx, spec)
 }
 
 func TestCodexStaleLeaseCannotMutateReplacement(t *testing.T) {
@@ -260,6 +296,18 @@ func TestOwnedCodexFixtureProcess(t *testing.T) {
 					return
 				}
 				result = map[string]any{"thread": map[string]any{"id": fixtureCodexThread, "cwd": cwd, "ephemeral": false}}
+			case "thread/queue/add":
+				if codexString(request.Params["threadId"]) != fixtureCodexThread {
+					return
+				}
+				var input []map[string]string
+				if json.Unmarshal(request.Params["input"], &input) != nil || len(input) != 1 ||
+					input[0]["type"] != "text" || input[0]["text"] != "exact fixture content" {
+					return
+				}
+				result = map[string]any{"queuedSubmission": map[string]any{
+					"id": "fixture-queued", "clientUserMessageId": codexString(request.Params["clientUserMessageId"]), "input": input,
+				}}
 			case "thread/resume":
 				if codexString(request.Params["threadId"]) != fixtureCodexThread {
 					return

@@ -52,7 +52,7 @@ func GuardedPaste(ctx context.Context, host PasteHost, runner ports.Process, roo
 		// Direct paste must not bypass a newly attached binding's channel.
 		return ports.DeliveryNotStarted, nil, errors.New("the pane has a binding and must use bound delivery")
 	}
-	evidence, err := channel.ClaudePaneEvidence(ctx, runner, root, channel.PaneAddress{
+	evidence, err := channel.CheckPaneEvidence(ctx, runner, root, channel.PaneAddress{
 		Server: probe.Server, PaneID: pane.ID, PanePID: pane.PID,
 	}, bindingID)
 	if err != nil {
