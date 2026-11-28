@@ -49,7 +49,11 @@ export function ColabSettings({
     },
   ];
   return (
-    <section className="home colab-settings" aria-label={t.title}>
+    <section
+      className="home colab-settings"
+      data-shell-content-column="padded"
+      aria-label={t.title}
+    >
       <header className="colab-settings-hero">
         <p>{t.subtitle}</p>
       </header>

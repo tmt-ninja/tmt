@@ -161,9 +161,9 @@ Search, common controls and responsive header ordering. Root bindings remain hos
   the native/React model are defined in the [shared rail contract](browser-ui/README.md#shared-rail).
   Home sums needs-you counts only when every module reports one.
 - **Wide rail:** expanded, the 232 px rail shows the selected module and its nested pages.
-  Collapsed, the shared rail presents its module icons in the available left gutter or puts
-  the expansion button at the start of the top bar. See the [shell rules](browser-ui/README.md#shared-rail)
-  for gutter fit, motion and placement.
+  Collapsed, the shared rail presents its module icons in the left gutter and reserves an 80 px
+  lane where the gutter is too small. Below the wide breakpoint the top bar opens the drawer.
+  See the [shell rules](browser-ui/README.md#shared-rail) for motion and placement.
 - **Module menu:** the active module's host-supplied child list nests under its module
   row on desktop and inside the phone drawer. The same tree and styles serve both.
 - **Header:** one continuous sticky row. Route-owned titles and actions use the

@@ -64,7 +64,11 @@ export function TemplatesPage() {
     setCreating({ template: tpl?.id ?? tpl?.name });
   };
   return (
-    <section className="home templates-page" aria-label={t.title}>
+    <section
+      className="home templates-page"
+      data-shell-content-column="padded"
+      aria-label={t.title}
+    >
       <header className="templates-head">
         <p className="templates-intro">{t.intro}</p>
         {management && (

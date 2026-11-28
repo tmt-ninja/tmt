@@ -5,7 +5,14 @@ import { expect, test, type Locator } from '@playwright/test';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import { recordBlocksResults } from './harness/blocks-results.js';
 import { captureResponsive } from './harness/captures.js';
-import { freePort, openChat, pairedMachine, revokeMachine, run } from './harness/ask.js';
+import {
+  createPage,
+  freePort,
+  openChat,
+  pairedMachine,
+  revokeMachine,
+  run,
+} from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { until } from './harness/process.js';
 import { text } from '../src/strings.js';
@@ -139,11 +146,64 @@ test('the mounted page bar uses the shell padding and the collapsed outline show
     await expect(list).toBeHidden();
 
     await page.setViewportSize({ width: 1000, height: 900 });
-    await expect(bar.getByRole('button', { name: 'Expand side menu' })).toBeVisible();
-    await expect(rail).toBeHidden();
+    await expect(rail.getByRole('button', { name: 'Expand side menu' })).toBeVisible();
+    await expect(bar.getByRole('button', { name: 'Expand side menu' })).toBeHidden();
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(bar.getByRole('button', { name: 'Open navigation' })).toBeVisible();
     await expect(rings).toHaveCount(0);
+  });
+});
+
+test('the collapsed pill clears Colab columns on wide routes and keeps the phone drawer', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const owner = await pairBrowser(world, 'collapsed-route-owner');
+    const html = createPage(world, 'HTML reading column', '<h1>Column marker</h1>');
+    const page = await owner.context.newPage();
+    await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const shell = page.locator('.tmt-ui-shell[data-rail]');
+    const rail = shell.locator('nav.tmt-ui-rail');
+    const open = shell.locator('.tmt-ui-shell-open');
+    const main = shell.locator('.tmt-ui-shell-main');
+    for (const [route, column, lane] of [
+      [html.path, '.html-shell-column', 80],
+      ['/colab/work', '.work-home-body', 0],
+      ['/colab/work/list', 'section[data-page-list]', 80],
+      ['/colab/templates', '.templates-page', 80],
+      ['/colab/settings', '.colab-settings', 80],
+      ['/design/', '.design-workspace', 80],
+    ] as const) {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto(new URL(route, door.origin).href);
+      const boundary = main.locator(column);
+      await expect(boundary).toHaveAttribute('data-shell-content-column');
+      await expect(shell).toHaveAttribute('data-rail-pill', '');
+      await expect(open).toBeHidden();
+      await expect(rail.getByRole('button', { name: 'Expand side menu' })).toBeVisible();
+      await expect.poll(async () => (await main.boundingBox())?.x).toBe(lane);
+      const contentStart = await boundary.evaluate(
+        (element) =>
+          element.getBoundingClientRect().left +
+          (element.getAttribute('data-shell-content-column') === 'padded'
+            ? Number.parseFloat(getComputedStyle(element).paddingLeft)
+            : 0),
+      );
+      const pill = (await rail.boundingBox())!;
+      expect(contentStart).toBeGreaterThanOrEqual(pill.x + pill.width + 16);
+      if (route === html.path) {
+        const heading = page
+          .frameLocator('.frame-host iframe')
+          .getByRole('heading', { name: 'Column marker' });
+        await expect(heading).toBeVisible();
+        expect((await heading.boundingBox())!.width).toBe(1280);
+      }
+      await page.setViewportSize({ width: 390, height: 844 });
+      await expect(shell).not.toHaveAttribute('data-rail-pill');
+      await expect(open).toHaveAccessibleName('Open navigation');
+      await expect(open).toBeVisible();
+      await expect(rail).toBeHidden();
+    }
   });
 });
 

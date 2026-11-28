@@ -645,38 +645,63 @@ export function mountShell(
   const pillWidth = () =>
     Number.parseFloat(win.getComputedStyle(root).getPropertyValue('--tmt-ui-rail-pill-width'));
   const pill = () => root.hasAttribute('data-rail-pill');
-  const activeToggle = () => (wideRail() && !pill() ? open : collapse);
-  // A host can identify its content column. Without a measured gutter the bar keeps its opener.
-  // Compare positions relative to main so the animated column shift cannot change the fit.
+  const activeToggle = () => (wide.matches && (!wideRail() || pill()) ? collapse : open);
+  const laneProperty = '--tmt-ui-rail-lane';
   let main: HTMLElement | null = null;
   let column: HTMLElement | null = null;
   const syncPill = () => {
     const focused = document.activeElement;
     const wasPill = pill();
-    const gutter =
-      main && column?.getClientRects().length
-        ? column.getBoundingClientRect().left - main.getBoundingClientRect().left
-        : 0;
     const width = pillWidth();
-    const need = width + 32;
-    const show = wideRail() && gutter >= need;
+    const show = wideRail() && Number.isFinite(width);
     root.toggleAttribute('data-rail-pill', show);
-    rail.inert = wideRail() && !show && Number.isFinite(width);
+    const currentLane = root.style.getPropertyValue(laneProperty);
+    if (show) {
+      let gutter = 0;
+      if (main && column?.getClientRects().length) {
+        // Measure at the natural width without changing the reserved lane or its position.
+        const targetProperty = '--tmt-ui-rail-target';
+        if (currentLane) main.style.setProperty(targetProperty, '0px');
+        gutter = column.getBoundingClientRect().left - main.getBoundingClientRect().left;
+        if (column.dataset.shellContentColumn === 'padded')
+          gutter += Number.parseFloat(win.getComputedStyle(column).paddingLeft);
+        if (currentLane) main.style.removeProperty(targetProperty);
+      }
+      const need = width + 32;
+      const nextLane = gutter < need ? `${need}px` : '';
+      if (nextLane !== currentLane) {
+        if (nextLane) root.style.setProperty(laneProperty, nextLane);
+        else root.style.removeProperty(laneProperty);
+      }
+    } else if (currentLane && !root.hasAttribute('data-rail-from-pill')) {
+      root.style.removeProperty(laneProperty);
+    }
     if (show !== wasPill && (focused === open || rail.contains(focused))) {
       activeToggle().focus({ preventScroll: true });
     }
   };
-  const geometry = new ResizeObserver(syncPill);
+  let geometryFrame: number | undefined;
+  const geometry = new ResizeObserver(() => {
+    // The lane changes the observed main and column. Write it outside resize delivery.
+    geometryFrame ??= win.requestAnimationFrame(() => {
+      geometryFrame = undefined;
+      syncPill();
+    });
+  });
   geometry.observe(root);
   const findColumn = () => {
     const shown = shellContent.querySelector<HTMLElement>(':scope > .tmt-ui-shell-main');
-    if (main !== shown) {
+    const routeChanged = main !== shown;
+    if (routeChanged) {
       if (main) geometry.unobserve(main);
       main = shown;
       if (main) geometry.observe(main);
     }
-    const next = main?.querySelector<HTMLElement>('[data-shell-content-column]') ?? null;
-    if (column === next) return;
+    const next =
+      [...(main?.querySelectorAll<HTMLElement>('[data-shell-content-column]') ?? [])].find(
+        (element) => element.getClientRects().length > 0,
+      ) ?? null;
+    if (!routeChanged && column === next) return;
     if (column) geometry.unobserve(column);
     column = next;
     if (column) geometry.observe(column);
@@ -686,7 +711,7 @@ export function mountShell(
   content.observe(shellContent, {
     childList: true,
     subtree: true,
-    attributeFilter: ['data-shell-content-column'],
+    attributeFilter: ['data-shell-content-column', 'hidden'],
   });
   findColumn();
 
@@ -703,6 +728,7 @@ export function mountShell(
     root.removeAttribute('data-rail-motion');
     root.removeAttribute('data-rail-from-pill');
     root.style.removeProperty('--tmt-ui-rail-pill-height');
+    if (!wideRail()) root.style.removeProperty(laneProperty);
   };
   const onWidth = () => {
     stopMotion();
@@ -1442,8 +1468,10 @@ export function mountShell(
       edge.remove();
       content.disconnect();
       geometry.disconnect();
+      if (geometryFrame !== undefined) win.cancelAnimationFrame(geometryFrame);
       stopMotion();
       root.removeAttribute('data-rail-pill');
+      root.style.removeProperty(laneProperty);
       delete root.dataset.rail;
       hideTip();
       open.remove();

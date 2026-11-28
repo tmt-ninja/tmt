@@ -410,7 +410,12 @@ export function DesignLibrary({
           </>
         }
       />
-      <section ref={workspace} className="design-workspace" aria-label="Design system library">
+      <section
+        ref={workspace}
+        className="design-workspace"
+        data-shell-content-column
+        aria-label="Design system library"
+      >
         {error && (
           <p className="design-feedback" role="alert">
             {error}{' '}

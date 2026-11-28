@@ -722,6 +722,16 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   margin: 0;
   color: var(--tmt-ui-color-secondary);
 }
+/* The shell measures the trusted parent geometry, outside the author frame. */
+.html-shell-column {
+  position: absolute;
+  inset: 0 0 auto;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.canvas[data-layout='column'] > .html-shell-column {
+  padding-inline-start: max(16px, (100% - var(--colab-lane) - 1280px) / 2);
+}
 .frame-host {
   min-height: calc(
     100dvh - var(--page-bar-size) - var(--tmt-ui-shell-lead, 0px) - var(--colab-work-band-size, 0px)

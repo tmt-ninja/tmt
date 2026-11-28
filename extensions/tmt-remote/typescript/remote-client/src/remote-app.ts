@@ -101,6 +101,7 @@ export async function remoteApp(
   frame.id = 'remote-context';
   frame.className = `tmt-page remote-context ${c.tabs}`;
   frame.dataset.variant = 'flat';
+  frame.dataset.shellContentColumn = 'padded';
   const needsYou = document.createElement('p');
   needsYou.id = 'remote-needs-you';
   needsYou.hidden = true;
@@ -187,6 +188,7 @@ export async function remoteApp(
   const locked = document.createElement('section');
   locked.id = 'remote-locked';
   locked.className = 'tmt-page';
+  locked.dataset.shellContentColumn = '';
   const lockTitle = document.createElement('h2');
   lockTitle.textContent = 'Locked';
   const lockReason = document.createElement('p');

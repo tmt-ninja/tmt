@@ -1339,10 +1339,16 @@ for (const width of [1440, 390])
     await expect(strip).toBeFocused();
   });
 
-test('with the side menu collapsed an HTML page keeps its strip over the right gutter', async ({
+test('a collapsed HTML page uses the outline strip when the right gutter fits', async ({
   page,
 }) => {
-  await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+  await page.addInitScript(() => {
+    localStorage.setItem('tmt-shell-rail', 'collapsed');
+    window.addEventListener('error', (event) => {
+      if (event.message.startsWith('ResizeObserver loop'))
+        document.documentElement.dataset.fixtureResizeObserverLoop = event.message;
+    });
+  });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('/');
   // As above: the pointer over the page, never resting on the rail's edge zone.
@@ -1351,24 +1357,32 @@ test('with the side menu collapsed an HTML page keeps its strip over the right g
   await run(page, 'setLayout', { layout: 'column' });
   await run(page, 'authored', '<h2>First</h2><h3>Second</h3><h2>Third</h2>');
   const outline = page.getByRole('navigation', { name: 'Page outline' });
+  const first = page
+    .frameLocator('#ask-page-fixture iframe')
+    .getByRole('heading', { name: 'First', exact: true });
+  // At 1440px the shell lane leaves less than 40px beside the intact HTML reading column.
+  await expect(outline.locator('.page-outline-toggle')).toBeVisible();
+  await expect(outline.locator('.page-outline-toggle')).toHaveAttribute('aria-expanded', 'false');
+  await expect(outline).not.toHaveAttribute('data-strip');
+  await expect.poll(async () => (await first.boundingBox())?.width).toBe(1280);
+
+  // With enough natural gutter for the pill, the HTML frame can use the right-side strip.
+  await page.setViewportSize({ width: 1520, height: 900 });
+  await expect(outline).toHaveAttribute('data-strip', '');
   const strip = outline.getByRole('button', { name: 'Outline', exact: true });
   await expect(strip).toBeVisible();
-  const rings = strip.locator('.page-outline-ring[data-state="plain"]');
-  await expect(rings).toHaveCount(3);
-  await expect(rings.locator('.page-outline-ring-dot')).toHaveCount(3);
+  await expect.poll(async () => (await first.boundingBox())?.width).toBe(1280);
   const stripBox = (await strip.boundingBox())!;
   const frame = (await page.locator('#ask-page-fixture iframe').boundingBox())!;
   // It sits in the gutter, before the frame's 28px comment marker lane.
   expect(stripBox.x + stripBox.width).toBeLessThanOrEqual(frame.x + frame.width - 28);
   // The page's column (its first heading spans it) ends before the strip begins.
-  const first = page
-    .frameLocator('#ask-page-fixture iframe')
-    .getByRole('heading', { name: 'First', exact: true });
   const content = (await first.boundingBox())!;
   expect(content.x + content.width).toBeLessThan(stripBox.x);
   await strip.hover();
   await outline.getByRole('button', { name: 'Third', exact: true }).click();
   await expect(outline.locator('.page-outline-float')).toBeHidden();
+  await expect(page.locator('html')).not.toHaveAttribute('data-fixture-resize-observer-loop');
 });
 
 test('HTML outline uses a wide column gutter and keeps full pages at their original frame width', async ({
