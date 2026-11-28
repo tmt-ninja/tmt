@@ -55,8 +55,8 @@ func endDigestContinuation(r records, id core.IdentityID, nowMs uint64) error {
 	return err
 }
 
-// ObserveDigestPrompt confirms a continuation only after exact main-session
-// prompt evidence. Stop follows the separate capture path.
+// ObserveDigestPrompt records a verified main-session Claude turn start and
+// confirms any open Digest continuation in the same writer.
 func (r bindingRows) ObserveDigestPrompt(p ports.DigestPromptObservation) (bool, error) {
 	if !safeTime(p.ObservedAtMs) || !safeTime(p.Owner.PID) || !validStart(p.Owner.StartIdentity) ||
 		!safeTime(p.Runtime.PID) || !validStart(p.Runtime.StartIdentity) || !validStart(p.ProviderSession) {
@@ -73,11 +73,36 @@ func (r bindingRows) ObserveDigestPrompt(p ports.DigestPromptObservation) (bool,
 		session.ProviderSessionID == nil || *session.ProviderSessionID != p.ProviderSession {
 		return false, nil
 	}
-	var remembered bool
-	err = r.one(`SELECT EXISTS(SELECT 1 FROM identity_session_preferences
-		WHERE identity_id=? AND remembered_harness IS NOT NULL AND provider_session_id=?)`,
-		current.IdentityID, p.ProviderSession).Scan(&remembered)
-	if err != nil || !remembered {
+	var old *string
+	var version *uint16
+	err = r.one(`SELECT driver_state,driver_state_version FROM identity_session_preferences
+		WHERE identity_id=? AND remembered_harness=? AND provider_session_id=?`,
+		current.IdentityID, core.DriverClaude, p.ProviderSession).Scan(&old, &version)
+	if isNoRows(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	document, previous, valid := loadActivityDocument(old, version)
+	if !valid || previous != nil && previous.Session == p.ProviderSession &&
+		previous.PID == p.Runtime.PID && previous.Start == p.Runtime.StartIdentity &&
+		p.ObservedAtMs < previous.LastActivityMs {
+		return false, nil
+	}
+	// Claude supplies no turn ID. Native Activity::observe treats each
+	// verified prompt as a new Working turn, including when Stop was missed.
+	encoded, next, err := activityDocument(document, launchActivity{
+		Session: p.ProviderSession, PID: p.Runtime.PID, Start: p.Runtime.StartIdentity, State: "working",
+		SinceMs: p.ObservedAtMs, LastActivityMs: p.ObservedAtMs,
+	})
+	if err != nil {
+		return false, err
+	}
+	changed, err := affectedOne(r.exec(`UPDATE identity_session_preferences SET driver_state=?,driver_state_version=?
+		WHERE identity_id=? AND remembered_harness=? AND provider_session_id=?`,
+		encoded, next, current.IdentityID, core.DriverClaude, p.ProviderSession))
+	if err != nil || !changed {
 		return false, err
 	}
 	err = endDigestContinuation(r.records, current.IdentityID, p.ObservedAtMs)

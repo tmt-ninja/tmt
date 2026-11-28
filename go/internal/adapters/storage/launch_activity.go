@@ -23,8 +23,13 @@ func (r bindingRows) ObserveLaunchActivity(observation ports.LaunchActivityObser
 	case "running":
 		session := current.Session
 		if session.Runtime == nil || *session.Runtime != observation.Runtime ||
-			session.LaunchOwner == nil || *session.LaunchOwner != observation.Owner ||
-			session.ProviderSessionID == nil || *session.ProviderSessionID != observation.ProviderSession {
+			session.LaunchOwner == nil || *session.LaunchOwner != observation.Owner || session.PlainProgram != nil {
+			return false, nil
+		}
+		if session.ProviderSessionID == nil {
+			return r.adoptLateLaunchSession(observation)
+		}
+		if *session.ProviderSessionID != observation.ProviderSession {
 			return false, nil
 		}
 		return r.observeAdmitted(observation)
@@ -55,15 +60,9 @@ func (r bindingRows) stageLaunchActivity(observation ports.LaunchActivityObserva
 	if err != nil {
 		return false, err
 	}
-	digest, err := launchPreferencesFingerprint(r.records, binding)
-	if err != nil {
+	matches, err := r.launchObservationMatchesPreferences(observation, storedDigest)
+	if err != nil || !matches {
 		return false, err
-	}
-	if digest != storedDigest {
-		matches, err := r.matchingResumeObservation(observation, storedDigest)
-		if err != nil || !matches {
-			return false, err
-		}
 	}
 	encoded, version, err := initialActivityDocument(make(map[string]json.RawMessage), observation)
 	if err != nil {
@@ -76,6 +75,56 @@ func (r bindingRows) stageLaunchActivity(observation ports.LaunchActivityObserva
 			AND preferences_fingerprint = ?12 AND created_at_ms <= ?4 AND expires_at_ms > ?4`,
 		observation.Runtime.PID, observation.Runtime.StartIdentity, observation.ProviderSession, now,
 		observation.Transition, encoded, version, binding, owner.PID, owner.StartIdentity, core.DriverClaude, storedDigest))
+}
+
+func (r bindingRows) launchObservationMatchesPreferences(observation ports.LaunchActivityObservation, storedDigest string) (bool, error) {
+	digest, err := launchPreferencesFingerprint(r.records, observation.Expected.ID)
+	if err != nil || digest == storedDigest {
+		return err == nil, err
+	}
+	return r.matchingResumeObservation(observation, storedDigest)
+}
+
+// Like native continue_awaiting_session, adoption is restricted to the
+// exact launch-owned process and the same preferences under the writer.
+func (r bindingRows) adoptLateLaunchSession(observation ports.LaunchActivityObservation) (bool, error) {
+	binding, owner, now := observation.Expected, observation.Owner, observation.ObservedAtMs
+	stored, err := r.findLaunchIntent(ports.LaunchIntent{Expected: binding, Owner: owner})
+	if err != nil || stored == nil || stored.driver != core.DriverClaude || stored.status != "admitted" ||
+		now < stored.starts || now >= stored.expires {
+		return false, err
+	}
+	matches, err := r.launchObservationMatchesPreferences(observation, stored.digest)
+	if err != nil || !matches {
+		return false, err
+	}
+
+	// Native remember carries state forward within the same driver.
+	var old *string
+	var version *uint16
+	err = r.one(`SELECT driver_state, driver_state_version FROM identity_session_preferences
+		WHERE identity_id=? AND remembered_harness=?`, binding.IdentityID, core.DriverClaude).Scan(&old, &version)
+	if err != nil && !isNoRows(err) {
+		return false, err
+	}
+	document, previous, valid := loadActivityDocument(old, version)
+	if !valid || previous != nil && previous.LastActivityMs > now {
+		return false, nil
+	}
+	encoded, next, err := initialActivityDocument(document, observation)
+	if err != nil {
+		return false, err
+	}
+	changed, err := affectedOne(r.exec(`UPDATE bindings SET observed_provider_session_id=?1, last_transition=?2
+		WHERE id=?3 AND identity_id=?4 AND observed_provider_session_id IS NULL`,
+		observation.ProviderSession, observation.Transition, binding.ID, binding.IdentityID))
+	if err != nil || !changed {
+		return false, err
+	}
+	mode := "default"
+	stored.mode, stored.session, stored.driverState, stored.version = &mode, &observation.ProviderSession, &encoded, &next
+	err = r.rememberLaunch(binding.IdentityID, core.DriverClaude, *stored)
+	return err == nil, err
 }
 
 // The fingerprint matches the native ordered JSON arrays of stored preference
@@ -144,29 +193,31 @@ type launchActivity struct {
 
 func initialActivityDocument(document map[string]json.RawMessage, observation ports.LaunchActivityObservation) (string, uint16, error) {
 	runtime, session := observation.Runtime, observation.ProviderSession
-	var version uint16
-	var field string
-	var data any
 	if observation.InitialIdle {
-		field, version = "activity", 3
-		data = launchActivity{
+		return activityDocument(document, launchActivity{
 			Session: session, PID: runtime.PID, Start: runtime.StartIdentity, State: "idle",
 			SinceMs: observation.ObservedAtMs, LastActivityMs: observation.ObservedAtMs,
-		}
-		delete(document, "noStartupIdle")
-		if document["observed"] != nil {
-			version = 5
-		} else if document["consumption"] != nil {
-			version = 4
-		}
-	} else {
-		field, version = "noStartupIdle", 6
-		data = struct {
-			Session string `json:"session"`
-			PID     uint64 `json:"pid"`
-			Start   string `json:"start"`
-		}{session, runtime.PID, runtime.StartIdentity}
+		})
 	}
+	return storeLaunchActivity(document, "noStartupIdle", 6, struct {
+		Session string `json:"session"`
+		PID     uint64 `json:"pid"`
+		Start   string `json:"start"`
+	}{session, runtime.PID, runtime.StartIdentity})
+}
+
+func activityDocument(document map[string]json.RawMessage, activity launchActivity) (string, uint16, error) {
+	delete(document, "noStartupIdle")
+	version := uint16(3)
+	if document["observed"] != nil {
+		version = 5
+	} else if document["consumption"] != nil {
+		version = 4
+	}
+	return storeLaunchActivity(document, "activity", version, activity)
+}
+
+func storeLaunchActivity(document map[string]json.RawMessage, field string, version uint16, data any) (string, uint16, error) {
 	encoded, err := json.Marshal(data)
 	if err != nil {
 		return "", 0, err
@@ -182,6 +233,26 @@ func initialActivityDocument(document map[string]json.RawMessage, observation po
 	return string(encoded), version, nil
 }
 
+func loadActivityDocument(raw *string, version *uint16) (map[string]json.RawMessage, *launchActivity, bool) {
+	document := make(map[string]json.RawMessage)
+	if raw == nil {
+		return document, nil, true
+	}
+	if version == nil || *version < 1 || *version > 6 ||
+		json.Unmarshal([]byte(*raw), &document) != nil || document == nil {
+		return nil, nil, false
+	}
+	activity := document["activity"]
+	if activity == nil {
+		return document, nil, true
+	}
+	var previous launchActivity
+	if json.Unmarshal(activity, &previous) != nil {
+		return nil, nil, false
+	}
+	return document, &previous, true
+}
+
 func (r bindingRows) observeAdmitted(observation ports.LaunchActivityObservation) (bool, error) {
 	var old *string
 	var version *uint16
@@ -194,23 +265,14 @@ func (r bindingRows) observeAdmitted(observation ports.LaunchActivityObservation
 	if err != nil || !observation.InitialIdle {
 		return err == nil, err
 	}
-	document := make(map[string]json.RawMessage)
-	if old != nil {
-		if version == nil || *version < 1 || *version > 6 ||
-			json.Unmarshal([]byte(*old), &document) != nil || document == nil {
-			return false, nil
-		}
-		if raw := document["activity"]; raw != nil {
-			var previous launchActivity
-			if err := json.Unmarshal(raw, &previous); err != nil {
-				return false, nil
-			}
-			if (previous.PID == observation.Runtime.PID && previous.Start == observation.Runtime.StartIdentity) ||
-				previous.LastActivityMs >= observation.ObservedAtMs {
-				// Existing matching activity outranks a replay of startup.
-				return true, nil
-			}
-		}
+	document, previous, valid := loadActivityDocument(old, version)
+	if !valid {
+		return false, nil
+	}
+	if previous != nil && ((previous.PID == observation.Runtime.PID && previous.Start == observation.Runtime.StartIdentity) ||
+		previous.LastActivityMs >= observation.ObservedAtMs) {
+		// Existing matching activity outranks a replay of startup.
+		return true, nil
 	}
 	encoded, next, err := initialActivityDocument(document, observation)
 	if err != nil {

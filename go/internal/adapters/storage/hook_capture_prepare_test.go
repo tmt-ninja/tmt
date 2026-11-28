@@ -203,3 +203,51 @@ func BenchmarkPrepareAndCommitHookCapture(b *testing.B) {
 		}
 	}
 }
+
+func TestClaudePromptAdmitsOrdinaryStopAndKeepsNewerActivity(t *testing.T) {
+	parallelStorageFixture(t)
+	store, stop := capturePreparationFixture(t)
+	ctx := t.Context()
+	stop.Turn = nil
+	editResumeFixture(t, store, "UPDATE identity_session_preferences SET driver_state=?, driver_state_version=6 WHERE identity_id=?",
+		`{"model":"starting-model","noStartupIdle":{"session":"saved-session","pid":120,"start":"runtime-start"}}`, bindingOwnerID)
+	prompt := ports.DigestPromptObservation{Expected: stop.Expected, Owner: stop.Owner, Runtime: stop.Runtime,
+		ProviderSession: stop.ProviderSession, ObservedAtMs: stop.ObservedAtMs - 3}
+	event, err := store.PrepareHookCapture(ctx, stop)
+	if err != nil || event == nil || event.Capture.Admitted != core.HookCaptureNoAdmittedStart {
+		t.Fatalf("Stop before prompt = %+v, %v", event, err)
+	}
+	observe := func(p ports.DigestPromptObservation, want bool) {
+		t.Helper()
+		writeBindingTest(t, store, func(tx ports.StoreTx) error {
+			ok, err := tx.Bindings().ObserveDigestPrompt(p)
+			requireBindingChange(t, ok, err, want)
+			return nil
+		})
+	}
+	observe(prompt, true)
+	prompt.ObservedAtMs++
+	observe(prompt, true)
+	older := prompt
+	older.ObservedAtMs--
+	observe(older, false)
+	var model, phase string
+	var turn, suppression *string
+	var since, last uint64
+	if err := store.db.QueryRowContext(ctx, `SELECT json_extract(driver_state,'$.model'),json_extract(driver_state,'$.activity.state'),
+		json_extract(driver_state,'$.activity.turn'),json_extract(driver_state,'$.noStartupIdle'),
+		json_extract(driver_state,'$.activity.sinceMs'),json_extract(driver_state,'$.activity.lastActivityMs')
+		FROM identity_session_preferences WHERE identity_id=?`, bindingOwnerID).
+		Scan(&model, &phase, &turn, &suppression, &since, &last); err != nil || model != "starting-model" ||
+		phase != "working" || turn != nil || suppression != nil || since != prompt.ObservedAtMs || last != prompt.ObservedAtMs {
+		t.Fatalf("prompt state = %q %q %v %v %d %d, %v", model, phase, turn, suppression, since, last, err)
+	}
+	event, err = store.PrepareHookCapture(ctx, stop)
+	if err != nil || event == nil || event.Capture.Admitted != core.HookCaptureCommitted {
+		t.Fatalf("ordinary Stop after prompt = %+v, %v", event, err)
+	}
+	receipt, err := store.CommitCapture(ctx, *event)
+	if err != nil || receipt.Outcome != core.HookCaptureCommitted {
+		t.Fatalf("ordinary Stop receipt = %+v, %v", receipt, err)
+	}
+}

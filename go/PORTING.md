@@ -55,8 +55,18 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
   - Native `storage/bindings/session.rs::a_stop_continuation_ends_with_the_provider_run_that_started_it`
     maps to Go `TestDigestIdleBindingRequiresExactIdleAndNoOpenContinuation` for
     verified runtime exit and `TestDigestContinuationEndsWithBindingReplacementOrDetach`
-    for active binding replacement and detach. Late session disclosure and same-process
-    session clear still need the lifecycle callback path.
+    for active binding replacement and detach.
+  - Native `binding/session/activity.rs::synchronous_events_do_not_inherit_other_sessions_or_processes`
+    maps to `TestClaudePromptAdmitsOrdinaryStopAndKeepsNewerActivity`: a second
+    uncorrelated Claude prompt starts a fresh Working turn even when Stop was
+    missed, an older prompt changes nothing, and ordinary Stop needs the
+    recorded start.
+  - Native `binding/session.rs::the_same_process_continues_a_binding_awaiting_its_next_session`
+    pins same-incarnation adoption and refusal for an occupied session or
+    replaced process. Go `TestLateClaudeStartupAdoptsOnlyExactAdmittedSession`
+    checks those invariants for a sessionless admitted launch, plus the
+    persisted lease, preference and saved-session fences. Same-process
+    clear and session switching remain open.
 - [ ] GO1-14: Exact resume for Claude and Codex, including the read-only preset projection.
 - [ ] GO1-15: Resume forget, move, new, retry, driver switching and stale/pending settlement.
   - Go `TestForgetResumeLaunchAndSessionKeepIndependentEvidence` maps the
