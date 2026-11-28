@@ -352,11 +352,11 @@ fn agents_legend(app: &App) -> Option<Hints> {
             tail: Vec::new(),
         });
     }
-    if let Some(moving) = app.moving.as_ref().filter(|moving| !moving.applying) {
+    if let Some(moving) = app.moving.as_ref().filter(|moving| moving.lifted()) {
         if moving.order().is_some() {
             return Some(Hints {
                 keys: vec![
-                    ("↑↓".into(), "reorder".into()),
+                    ("↑↓".into(), "move".into()),
                     ("→".into(), "nest".into()),
                     ("←".into(), "out".into()),
                     ("⏎".into(), "drop".into()),

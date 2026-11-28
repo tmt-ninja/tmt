@@ -23,6 +23,7 @@ struct Entry {
     parent: Option<String>,
 }
 
+#[derive(Clone, Copy)]
 pub(super) enum Shift {
     Earlier,
     Later,
@@ -33,10 +34,10 @@ pub(super) enum Shift {
 impl MemberOrder {
     /// Admit only roster members. Broken parent links and cyclic components render
     /// as roots. An iterative walk keeps even very deep placement off the call stack.
-    pub(super) fn walk<'a>(
+    pub(super) fn walk<'a, 'b>(
         &'a self,
-        members: &'a [&'a str],
-    ) -> impl Iterator<Item = (&'a str, usize)> + use<'a> {
+        members: &'b [&'a str],
+    ) -> impl Iterator<Item = (&'a str, usize)> + use<'a, 'b> {
         let live: HashSet<_> = members.iter().copied().collect();
         let mut seen = HashSet::new();
         let mut children: HashMap<Option<&str>, Vec<&str>> = HashMap::new();
@@ -168,7 +169,41 @@ impl MemberOrder {
         }
     }
 
-    fn remove(&mut self, member: &str) {
+    /// A nested sibling boundary still belongs to the current group's tree.
+    pub(super) fn at_group_edge(&self, member: &str, direction: Shift) -> bool {
+        let mut roots = self.0.iter().filter(|entry| entry.parent.is_none());
+        match direction {
+            Shift::Earlier => roots.next(),
+            Shift::Later => roots.next_back(),
+            _ => None,
+        }
+        .is_some_and(|entry| entry.member == member)
+    }
+
+    pub(super) fn land(&mut self, member: &str, direction: Shift) {
+        // Reposition an existing destination appearance without changing its children.
+        self.0.retain(|entry| entry.member != member);
+        let entry = Entry {
+            member: member.to_owned(),
+            parent: None,
+        };
+        if matches!(direction, Shift::Later) {
+            self.0.insert(0, entry);
+        } else {
+            self.0.push(entry);
+        }
+    }
+
+    pub(super) fn ordered_members(&self) -> impl Iterator<Item = (&str, usize)> {
+        let members = self
+            .0
+            .iter()
+            .map(|entry| entry.member.as_str())
+            .collect::<Vec<_>>();
+        self.walk(&members).collect::<Vec<_>>().into_iter()
+    }
+
+    pub(super) fn remove(&mut self, member: &str) {
         let Some(index) = self.0.iter().position(|entry| entry.member == member) else {
             return;
         };
@@ -323,10 +358,17 @@ impl Placements {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum SaveNotice {
+    Prune,
+    Reordered(String),
+    Landed(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Save {
     pub(super) expected: Placements,
     pub(super) next: Placements,
-    pub(super) notice: Option<String>,
+    pub(super) notice: SaveNotice,
     pub(super) reveal: Option<OpsTarget>,
 }
 
@@ -386,11 +428,24 @@ impl Save {
                 app.invalidate_frame_geometry();
                 app.workspace_reconcile();
                 app.workspace.placement_prune_failed = false;
-                self.notice
+                match self.notice {
+                    SaveNotice::Prune => None,
+                    SaveNotice::Reordered(name) => {
+                        Some(format!("Moved {name} in the Agents list."))
+                    }
+                    SaveNotice::Landed(name) => {
+                        Some(format!("Moved {name} and saved the landing position."))
+                    }
+                }
             }
             Err(error) => {
-                app.workspace.placement_prune_failed |= self.notice.is_none();
-                Some(error)
+                app.workspace.placement_prune_failed |= matches!(self.notice, SaveNotice::Prune);
+                Some(match self.notice {
+                    SaveNotice::Landed(name) => {
+                        format!("Moved {name}. Placement not saved: {error}")
+                    }
+                    _ => error,
+                })
             }
         };
         if let Some(notice) = notice {

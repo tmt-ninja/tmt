@@ -102,7 +102,7 @@ fn move_to_squad_then_up_moves_a_squad_membership_to_the_squad_above() {
             move_member: true,
         })
     );
-    assert!(app.moving.as_ref().unwrap().applying);
+    assert_eq!(app.moving.as_ref().unwrap().phase, Phase::Applying);
 }
 
 #[test]
@@ -271,6 +271,127 @@ fn finish_save(app: &mut App, effect: Effect, root: &std::path::Path) {
     save.finish(app, Ok(written));
 }
 
+fn cross_squad_board() -> App {
+    let mut app = nesting_board();
+    let roster = &mut app
+        .view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .roster;
+    for squad in &mut roster.squads {
+        if squad.room_id == INFRA {
+            squad.members.retain(|id| id == MEMBER);
+        } else if squad.room_id == ROOM {
+            squad.members.retain(|id| id == SPARE);
+        }
+    }
+    app.workspace.selected = Some(OpsTarget::Member {
+        room_id: Some(INFRA.into()),
+        identity_id: MEMBER.into(),
+    });
+    app.workspace_reconcile();
+    app
+}
+
+#[test]
+fn crossing_down_lands_first_and_saves_only_after_confirmed_membership() {
+    for accepted in [false, true] {
+        let mut app = cross_squad_board();
+        let before = app.workspace.placements.clone();
+        assert_eq!(press(&mut app, KeyCode::Char('m')), Effect::None);
+        assert_eq!(press(&mut app, KeyCode::Down), Effect::None);
+        let moving = app.moving.as_ref().unwrap();
+        assert_eq!(moving.target.as_deref(), Some(ROOM));
+        let (_, draft) = moving.order().unwrap();
+        assert_eq!(
+            draft.ordered_members().collect::<Vec<_>>(),
+            [(MEMBER, 0), (SPARE, 0)]
+        );
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            applied(Operation::Assign {
+                source: Some(room(INFRA, "infra", 4)),
+                destination: room(ROOM, "product", 2),
+                member: MEMBER.into(),
+                move_member: true,
+            })
+        );
+        assert_eq!(app.prune_member_placement(), Effect::None);
+        let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(
+            app.moving_key(tab),
+            None,
+            "applying leaves normal keys to the board"
+        );
+        if !accepted {
+            app.finished_workspace(Err(crate::core::SquadError::new(
+                "ROOM_REVISION_CONFLICT",
+                "Roster changed",
+            )));
+            assert!(app.moving.is_none());
+            assert_eq!(app.prune_member_placement(), Effect::None);
+            assert_eq!(app.workspace.placements, before);
+            continue;
+        }
+        app.finished_workspace(Ok(crate::membership::Outcome {
+            document: json!({}),
+            complete: true,
+        }));
+        assert_eq!(app.workspace.placements, before);
+        assert!(!app.workspace.saving_placement);
+        assert_eq!(
+            app.moving_key(tab),
+            None,
+            "awaiting leaves normal keys to the board"
+        );
+        assert_eq!(app.prune_member_placement(), Effect::None);
+        assert_eq!(app.moving.as_ref().unwrap().phase, Phase::AwaitingRoster);
+        assert_eq!(
+            app.workspace.placements, before,
+            "the pre-move roster does not consume the landing"
+        );
+        let roster = &mut app
+            .view
+            .as_mut()
+            .unwrap()
+            .home
+            .as_mut()
+            .unwrap()
+            .workspace
+            .roster;
+        for squad in &mut roster.squads {
+            if squad.room_id == INFRA {
+                squad.members.retain(|id| id != MEMBER);
+            } else if squad.room_id == ROOM {
+                squad.members.push(MEMBER.into());
+            }
+        }
+        let Effect::Act(Request::MemberPlacement(save)) = app.prune_member_placement() else {
+            panic!("the confirmed roster should admit the landing save");
+        };
+        assert_eq!(save.expected, before);
+        assert_eq!(
+            save.next
+                .group(Some(ROOM))
+                .unwrap()
+                .ordered_members()
+                .collect::<Vec<_>>(),
+            [(MEMBER, 0), (SPARE, 0)]
+        );
+        assert_eq!(save.next.group(Some(INFRA)), before.group(Some(INFRA)));
+        save.finish(&mut app, Err("CAS conflict".into()));
+        assert_eq!(app.workspace.placements, before);
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("Moved worker. Placement not saved: CAS conflict")
+        );
+    }
+}
+
 #[test]
 fn drop_nests_under_the_previous_member_and_outdent_returns_to_root() {
     let mut app = nesting_board();
@@ -296,7 +417,7 @@ fn drop_nests_under_the_previous_member_and_outdent_returns_to_root() {
         shown
             .last()
             .unwrap()
-            .contains("↑↓ reorder  → nest  ← out  ⏎ drop  Esc cancel")
+            .contains("↑↓ move  → nest  ← out  ⏎ drop  Esc cancel")
     );
     press(&mut app, KeyCode::Right);
     press(&mut app, KeyCode::Esc);
@@ -390,6 +511,15 @@ fn drop_nests_under_the_previous_member_and_outdent_returns_to_root() {
 }
 
 pub(in crate::board) fn nesting_scene(scene: &str, look: crate::look::Look) -> App {
+    if scene == "agents-moving-across-squads" {
+        let mut app = cross_squad_board();
+        let view = app.view.as_mut().unwrap();
+        view.look = look;
+        view.home.as_mut().unwrap().workspace.squad_looks.clear();
+        press(&mut app, KeyCode::Char('m'));
+        press(&mut app, KeyCode::Down);
+        return app;
+    }
     let mut app = nesting_board();
     let view = app.view.as_mut().unwrap();
     view.look = look;

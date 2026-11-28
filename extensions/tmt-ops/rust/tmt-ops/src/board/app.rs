@@ -5173,8 +5173,8 @@ impl App {
             self.move_pointer(event);
             return Effect::None;
         }
-        // A lifted membership takes only ↑↓, Enter and Esc.
-        if self.moving.as_ref().is_some_and(|moving| !moving.applying) {
+        // Only the visible lift owns the pointer.
+        if self.moving.as_ref().is_some_and(|moving| moving.lifted()) {
             return Effect::None;
         }
         if let Some(effect) = self.frame_mouse(event) {

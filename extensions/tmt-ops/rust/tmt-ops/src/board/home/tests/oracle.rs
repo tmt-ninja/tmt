@@ -413,6 +413,7 @@ fn member_nesting_frames(styles: &mut Styles) -> Vec<Value> {
             "agents-nesting-expanded",
             "agents-nesting-folded",
             "agents-nesting-lifted",
+            "agents-moving-across-squads",
         ],
         |_| grid(&[160, 100, 60], &[36]),
         |scene, look, _, _| crate::board::workspace::moving::tests::nesting_scene(scene, look),
@@ -1946,7 +1947,7 @@ macro_rules! oracle_groups {
         $group!(7, 48, member_terminals_frames($styles));
         $group!(7, 40, standalone_command_frames($styles));
         $group!(7, 24, fence_copy_frames($styles));
-        $group!(7, 36, member_nesting_frames($styles));
+        $group!(7, 48, member_nesting_frames($styles));
         $group!(8, 36, offline_resume_frames($styles));
         $group!(8, 16, settings_keys_frames($styles));
         $group!(7, 52, label_frames($styles));

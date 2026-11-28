@@ -1817,9 +1817,7 @@ impl App {
         &mut self,
         outcome: Result<crate::membership::Outcome, crate::core::SquadError>,
     ) {
-        if let Some(moving) = self.moving.take_if(|moving| moving.applying) {
-            let message = self.finished_move(moving, &outcome);
-            self.set_notice(Some(message), false);
+        if self.finish_membership_move(&outcome) {
             return;
         }
         if let Ok(outcome) = &outcome {

@@ -392,7 +392,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
         },
         snapshot.labels_present,
     );
-    let totals = if let Some(moving) = app.moving.as_ref().filter(|moving| !moving.applying) {
+    let totals = if let Some(moving) = app.moving.as_ref().filter(|moving| moving.lifted()) {
         // Tree placement keys are shown in the main footer. Only the
         // separate membership action chooses a squad.
         let hint = if moving.order().is_some() {
@@ -493,6 +493,9 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
     let work_bindings = app.work.bindings(&snapshot.roster);
     // Only a lifted membership (`m`) adds a line; otherwise every row is its own line.
     let placement = super::moving::placement(app, &rows);
+    let existing_landing = placement
+        .as_ref()
+        .and_then(|_| super::moving::existing_landing(app, &rows));
     let line = |index: usize| {
         placement
             .as_ref()
@@ -501,7 +504,11 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
     let lines = rows.len() + usize::from(placement.as_ref().is_some_and(|p| p.after.is_some()));
     *app.row_starts.borrow_mut() = (0..rows.len()).map(line).collect();
     if let Some(placement) = &placement {
-        let lifted = placement.after.map_or(placement.source, |after| after + 1);
+        let lifted = placement
+            .after
+            .map_or(existing_landing.unwrap_or(placement.source), |after| {
+                after + 1
+            });
         app.scrolls
             .reveal_table_range(Pane::Rows, lifted..lifted + 1, body);
     } else if app.follow
@@ -526,11 +533,15 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                 _ => at,
             };
             let row = &rows[index];
+            if existing_landing == Some(index) {
+                super::moving::paint_lifted(frame.buffer_mut(), stripe, app, &rows, row.depth);
+                continue;
+            }
             if let Some(placement) = placement
                 .as_ref()
                 .filter(|placement| placement.source == index)
             {
-                if placement.after.is_some() {
+                if placement.after.is_some() || existing_landing.is_some() {
                     super::moving::paint_placeholder(frame.buffer_mut(), stripe, app, row.depth);
                 } else {
                     super::moving::paint_lifted(frame.buffer_mut(), stripe, app, &rows, row.depth);
