@@ -117,6 +117,35 @@ func TestLegacyPublishAndResumeAndPasteAndDimensions(t *testing.T) {
 	if _, err := NewSize(1, 1001); err == nil {
 		t.Errorf("Size(1,1001) accepted")
 	}
+	if _, err := ReadClientMessage(0x03, []byte{0x03, 0xe9, 0, 1}); err == nil {
+		t.Errorf("client resize 1001 cols accepted")
+	}
+	if _, err := ReadServerMessage(0x86, []byte{0, 1, 0x03, 0xe9}); err == nil {
+		t.Errorf("server resized 1001 rows accepted")
+	}
+
+	// Malformed controls never become input.
+	for _, tc := range []struct {
+		kind byte
+		data []byte
+	}{
+		{0x20, []byte{1}},
+		{0x21, nil},
+		{0x22, nil},
+		{0x23, []byte{1}},
+		{0x24, make([]byte, MaxPayload+1)},
+		{0x25, []byte{1}},
+	} {
+		if _, err := ReadClientMessage(tc.kind, tc.data); err == nil {
+			t.Errorf("malformed control kind=%#02x accepted", tc.kind)
+		}
+	}
+	if _, err := ReadServerMessage(0xa1, []byte{2}); err == nil {
+		t.Errorf("Applied(2) accepted")
+	}
+	if _, err := ReadServerMessage(0xa0, make([]byte, 16)); err == nil {
+		t.Errorf("State with zero pids accepted")
+	}
 }
 
 func TestStateBackwardCompatibilityAndCapabilityFlags(t *testing.T) {
@@ -209,7 +238,23 @@ func TestRelaunchCloseTerminalDetailAndTerminalRunStrictness(t *testing.T) {
 		return p
 	}
 
-	// Released Terminal reply refuses trailing detail names.
+	// Released Terminal reply exact bytes, strict fields, and refusal of trailing detail names.
+	termReply := ControlReply{Tag: ReplyTerminal, Owner: "x", CreatedMs: 7, Busy: true}
+	var gotTermPayload []byte
+	termReply.WritePayload(&gotTermPayload)
+	wantTermPayload := []byte{0, 1, 'x', 0, 0, 0, 0, 0, 0, 0, 7, 1}
+	if !bytes.Equal(gotTermPayload, wantTermPayload) {
+		t.Errorf("ReplyTerminal payload = %x, want %x", gotTermPayload, wantTermPayload)
+	}
+	for _, bad := range [][]byte{
+		{0, 0, 0, 0, 0, 0, 0, 0, 0, 7, 0},      // empty owner
+		{0, 1, 'x', 0, 0, 0, 0, 0, 0, 0, 7, 2}, // invalid flag byte
+		{0, 1, 'x', 0, 0, 0, 0, 0, 0, 0, 7},    // missing flag byte
+	} {
+		if _, err := ReadServerMessage(0xa6, bad); err == nil {
+			t.Errorf("0xa6 accepted malformed terminal payload %x", bad)
+		}
+	}
 	if _, err := ReadServerMessage(0xa6, detailPayload(1, []byte("zsh"), []byte("cargo"))); err == nil {
 		t.Errorf("0xa6 accepted trailing detail names")
 	}
@@ -232,6 +277,21 @@ func TestRelaunchCloseTerminalDetailAndTerminalRunStrictness(t *testing.T) {
 		t.Errorf("DisplayName(vim) = (%q, %v)", got, ok)
 	}
 
+	dirty := ControlReply{
+		Tag:         ReplyTerminalDetail,
+		Owner:       "x",
+		CreatedMs:   7,
+		Busy:        false,
+		ShellName:   strPtr("\x1b" + long),
+		ProgramName: strPtr("sleep"),
+	}
+	var dirtyPayload []byte
+	dirty.WritePayload(&dirtyPayload)
+	mDirty, err := ReadServerMessage(0xa7, dirtyPayload)
+	if err != nil || mDirty.Control.ShellName == nil || *mDirty.Control.ShellName != cut || mDirty.Control.ProgramName != nil {
+		t.Errorf("write-side clean+bound+drop-program mismatch: %+v err=%v", mDirty.Control, err)
+	}
+
 	m2, err := ReadServerMessage(0xa7, detailPayload(0, nil, []byte("sleep")))
 	if err != nil || m2.Control.ShellName != nil || m2.Control.ProgramName != nil {
 		t.Errorf("not-busy detail should drop program: %+v err=%v", m2.Control, err)
@@ -241,6 +301,13 @@ func TestRelaunchCloseTerminalDetailAndTerminalRunStrictness(t *testing.T) {
 	}
 	if _, err := ReadServerMessage(0xa7, detailPayload(1, []byte{0xff}, nil)); err == nil {
 		t.Errorf("non-UTF8 detail name accepted")
+	}
+	validDetail := detailPayload(1, []byte("zsh"), []byte("cargo"))
+	if _, err := ReadServerMessage(0xa7, append(bytes.Clone(validDetail), 0)); err == nil {
+		t.Errorf("0xa7 accepted trailing byte")
+	}
+	if _, err := ReadServerMessage(0xa7, validDetail[:len(validDetail)-2]); err == nil {
+		t.Errorf("0xa7 accepted truncated short name")
 	}
 
 	// TerminalRun validation.

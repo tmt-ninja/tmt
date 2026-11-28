@@ -282,7 +282,11 @@ func TestDecodeSnapshotAndBoundsAndCallerServerTarget(t *testing.T) {
 		}
 	}
 
-	// Noisy driver error message rejected.
+	// Valid driver error is returned as DriverError; noisy control chars are rejected.
+	validErr, decErr := DecodeDone(OpInput, mustJSON(t, map[string]any{"error": map[string]any{"code": "unsupported", "message": "no input"}}))
+	if decErr != nil || validErr == nil || validErr.Code != ErrorUnsupported || validErr.Message != "no input" {
+		t.Errorf("valid driver error mismatch: drv=%+v dec=%v", validErr, decErr)
+	}
 	noisy := mustJSON(t, map[string]any{"error": map[string]any{"code": "failed", "message": "\x1b]52;c;x\x07"}})
 	if _, _, derr := Decode[*Grammar, ClearResponse](g, noisy); derr == nil {
 		t.Errorf("control chars in error message accepted")

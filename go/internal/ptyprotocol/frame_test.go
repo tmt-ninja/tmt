@@ -1,3 +1,31 @@
+// Rust-to-Go test mapping (23 Rust #[test] functions in rust/crates/tmt-pty-protocol/src/):
+//
+//	lib.rs:
+//	  every_frame_round_trips                                                    -> TestEveryFrameRoundTrips
+//	  frames_arrive_in_pieces_and_in_batches                                     -> TestFramesArriveInPiecesAndBatches
+//	  an_invalid_frame_is_an_error_not_a_guess                                   -> TestInvalidFramesAndBoundsAndClosedSets
+//	  the_length_is_bounded_before_anything_is_buffered_for_it                   -> TestInvalidFramesAndBoundsAndClosedSets
+//	  exit_and_reason_bytes_are_closed_sets                                      -> TestInvalidFramesAndBoundsAndClosedSets
+//	  a_snapshot_frame_is_strict                                                 -> TestInvalidFramesAndBoundsAndClosedSets
+//	control_tests.rs:
+//	  core_controls_round_trip_separately_from_attach_frames                     -> TestCoreControlsRoundTripSeparatelyFromAttachFrames
+//	  malformed_controls_never_become_input                                      -> TestLegacyPublishAndResumeAndPasteAndDimensions
+//	  screen_dimensions_are_bounded_before_allocating_a_screen                   -> TestLegacyPublishAndResumeAndPasteAndDimensions
+//	  a_core_paste_is_one_bounded_frame_even_above_the_keystroke_chunk_size      -> TestLegacyPublishAndResumeAndPasteAndDimensions
+//	  legacy_publish_keeps_its_original_frame_bytes                              -> TestLegacyPublishAndResumeAndPasteAndDimensions
+//	  resume_is_an_empty_control_frame                                           -> TestLegacyPublishAndResumeAndPasteAndDimensions
+//	  a_state_without_the_paused_byte_decodes_as_not_paused                      -> TestStateBackwardCompatibilityAndCapabilityFlags
+//	  capability_flags_ignore_unknown_bits_and_need_exactly_one_byte             -> TestStateBackwardCompatibilityAndCapabilityFlags
+//	  a_state_without_the_ended_group_decodes_as_running                         -> TestStateBackwardCompatibilityAndCapabilityFlags
+//	  relaunch_and_close_frames_are_bounded_and_strict                           -> TestRelaunchCloseTerminalDetailAndTerminalRunStrictness
+//	  a_terminal_reply_needs_an_owner_a_time_and_one_flag_byte                   -> TestRelaunchCloseTerminalDetailAndTerminalRunStrictness
+//	  the_terminal_reply_keeps_its_released_bytes_and_refuses_trailing_names     -> TestRelaunchCloseTerminalDetailAndTerminalRunStrictness
+//	  terminal_names_are_display_text_cleaned_on_write_and_on_read               -> TestRelaunchCloseTerminalDetailAndTerminalRunStrictness
+//	  a_terminal_detail_reply_is_strict_and_bounded                              -> TestRelaunchCloseTerminalDetailAndTerminalRunStrictness
+//	  terminal_run_refuses_hidden_multiline_empty_and_oversized_commands         -> TestRelaunchCloseTerminalDetailAndTerminalRunStrictness
+//	output_sanitizer.rs:
+//	  raw_c1_and_escape_intermediates_cannot_leak_their_contents                 -> TestRawC1AndEscapeIntermediatesCannotLeakContents
+//	  every_byte_boundary_keeps_escape_payloads_out_and_complete_glyphs_in       -> TestEveryByteBoundaryKeepsEscapePayloadsOutAndCompleteGlyphsIn
 package ptyprotocol
 
 import (

@@ -1,3 +1,52 @@
+// Rust-to-Go test mapping (40 Rust #[test] functions in rust/crates/tmt-driver-protocol/src/):
+//
+//	lib.rs:
+//	  op_names_round_trip_and_are_unique                                      -> TestOpNamesRoundTripAndAreUnique
+//	  hook_path_ops_are_short_and_small                                       -> TestOpBoundsAndRuntimeMarking
+//	  runtime_ops_are_short_small_and_marked                                  -> TestOpBoundsAndRuntimeMarking
+//	wire.rs:
+//	  the_envelope_and_probe_states_have_their_documented_shape               -> TestWireEnvelopeAndProbeStates
+//	  unknown_members_are_ignored_both_ways                                   -> TestWireUnknownMembersIgnoredAndConditionalPublishAndAgentName
+//	  conditional_publication_is_opt_in_and_old_requests_stay_unchanged       -> TestWireUnknownMembersIgnoredAndConditionalPublishAndAgentName
+//	  a_pane_without_an_agent_name_reads_as_none                              -> TestWireUnknownMembersIgnoredAndConditionalPublishAndAgentName
+//	grammar.rs:
+//	  unsafe_declarations_are_refused                                         -> TestGrammarValidationAndLaunchTemplate
+//	  a_launch_template_is_optional_and_validated_with_the_declaration        -> TestGrammarValidationAndLaunchTemplate
+//	  the_declared_syntax_is_the_host_grammar                                 -> TestGrammarValidationAndLaunchTemplate
+//	  text_rules                                                              -> TestGrammarValidationAndLaunchTemplate
+//	runtime.rs:
+//	  claims_can_be_disabled_without_changing_declared_operations             -> TestRuntimeDeclarationValidationClaimsAndHooks
+//	  a_minimal_declaration_needs_only_locations_and_an_executable            -> TestRuntimeDeclarationValidationClaimsAndHooks
+//	  unsafe_or_incoherent_declarations_are_refused                           -> TestRuntimeDeclarationValidationClaimsAndHooks
+//	  claims_match_the_last_path_component_exactly                            -> TestRuntimeDeclarationValidationClaimsAndHooks
+//	  hooks_decode_by_the_declared_pointers_and_values                        -> TestRuntimeDeclarationValidationClaimsAndHooks
+//	  a_payload_core_cannot_read_changes_nothing                              -> TestRuntimeDeclarationValidationClaimsAndHooks
+//	  pointers_follow_rfc_6901_escapes                                        -> TestRuntimeDeclarationValidationClaimsAndHooks
+//	  paths_are_absolute_without_dot_components                               -> TestRuntimeDeclarationValidationClaimsAndHooks
+//	decode.rs:
+//	  a_focus_answer_may_name_the_previous_pane_and_an_empty_one_is_unknown   -> TestDecodeFocusAnswer
+//	  agent_and_conditional_publish_answers_are_scoped_to_their_operations    -> TestAgentAndConditionalPublishErrorCodeScoping
+//	  capabilities_decode_with_their_grammar                                  -> TestDecodeCapabilitiesAndRuntimeCapabilities
+//	  runtime_capabilities_decode_with_their_declaration_and_kinds_stay_apart -> TestDecodeCapabilitiesAndRuntimeCapabilities
+//	  runtime_answers_are_checked_against_the_declaration                     -> TestDecodeRuntimeAnswers
+//	  a_snapshot_is_checked_pane_by_pane                                      -> TestDecodeSnapshotAndBoundsAndCallerServerTarget
+//	  output_over_the_bound_or_not_one_envelope_fails                         -> TestDecodeSnapshotAndBoundsAndCallerServerTarget
+//	  a_driver_error_is_its_answer_when_its_message_is_text                   -> TestDecodeSnapshotAndBoundsAndCallerServerTarget
+//	  caller_server_and_target_answers_are_checked                            -> TestDecodeSnapshotAndBoundsAndCallerServerTarget
+//	serve.rs:
+//	  a_declared_operation_is_answered                                        -> TestServeDeclaredOpsAndErrorsAndOutputBound
+//	  anything_else_gets_an_error_answer                                      -> TestServeDeclaredOpsAndErrorsAndOutputBound
+//	  a_runtime_driver_answers_its_declared_ops_and_nothing_else              -> TestServeRuntimeAnswersDeclaredOpsOnly
+//	  a_host_driver_never_answers_a_runtime_op                                -> TestServeDeclaredOpsAndErrorsAndOutputBound
+//	  an_answer_over_its_bound_becomes_an_error                               -> TestServeDeclaredOpsAndErrorsAndOutputBound
+//	conformance.rs:
+//	  a_conforming_driver_has_no_findings                                     -> TestHostConformance
+//	  each_broken_rule_is_found                                               -> TestHostConformance
+//	  skills_only_driver_conforms_without_claiming_a_runtime                  -> TestRuntimeConformance
+//	  a_conforming_runtime_driver_has_no_findings                             -> TestRuntimeConformance
+//	  each_broken_runtime_rule_is_found                                       -> TestRuntimeConformance
+//	  a_host_driver_is_no_runtime_driver                                      -> TestRuntimeConformance
+//	  a_driver_without_valid_capabilities_stops_the_run                       -> TestHostConformance
 package driverprotocol
 
 import (
