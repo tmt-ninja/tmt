@@ -83,10 +83,57 @@ func TestCompanionEnvPinsTMTHomeToGoRoot(t *testing.T) {
 	if len(got["TMT_HOME"]) != 1 || got["TMT_HOME"][0] != root.Dir {
 		t.Fatalf("TMT_HOME = %v, want exactly [%s]", got["TMT_HOME"], root.Dir)
 	}
-	if len(got[EnvHome]) != 1 || got[EnvHome][0] != root.Dir {
-		t.Fatalf("%s = %v", EnvHome, got[EnvHome])
+	for _, key := range []string{EnvHome, EnvCompanionRoot} {
+		if len(got[key]) != 1 || got[key][0] != root.Dir {
+			t.Fatalf("%s = %v", key, got[key])
+		}
 	}
 	if got["PATH"][0] != "/bin" || got["HOME"][0] != "/h" {
 		t.Fatal("other variables must pass through")
+	}
+}
+
+func envFromList(list []string) Env {
+	m := map[string]string{}
+	for _, kv := range list {
+		k, v, _ := strings.Cut(kv, "=")
+		m[k] = v
+	}
+	return envOf(m)
+}
+
+func TestCompanionCallbackIsAdmitted(t *testing.T) {
+	user := t.TempDir()
+	root, err := Resolve(envOf(map[string]string{EnvHome: filepath.Join(user, "go")}), user)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child := CompanionEnv([]string{"TMT_HOME=" + filepath.Join(user, ".config", "tmt")}, root)
+	got, err := Resolve(envFromList(child), user)
+	if err != nil {
+		t.Fatalf("companion callback refused: %v", err)
+	}
+	if got.Dir != root.Dir {
+		t.Fatalf("callback root %q, want %q", got.Dir, root.Dir)
+	}
+}
+
+func TestPinnedTMTHomeNeedsTheMarker(t *testing.T) {
+	user := t.TempDir()
+	dir := filepath.Join(user, "shared")
+	// A user who points both variables at one directory without the marker is refused.
+	if _, err := Resolve(envOf(map[string]string{"TMT_HOME": dir, EnvHome: dir}), user); !errors.Is(err, ErrNativeRoot) {
+		t.Fatalf("got %v, want ErrNativeRoot", err)
+	}
+	// The marker for another directory does not exempt it either.
+	other := map[string]string{"TMT_HOME": dir, EnvHome: dir, EnvCompanionRoot: filepath.Join(user, "else")}
+	if _, err := Resolve(envOf(other), user); !errors.Is(err, ErrNativeRoot) {
+		t.Fatalf("got %v, want ErrNativeRoot", err)
+	}
+	// The default native root stays refused even with a matching marker.
+	native := filepath.Join(user, ".config", "tmt")
+	pinned := map[string]string{"TMT_HOME": native, EnvHome: native, EnvCompanionRoot: native}
+	if _, err := Resolve(envOf(pinned), user); !errors.Is(err, ErrNativeRoot) {
+		t.Fatalf("got %v, want ErrNativeRoot", err)
 	}
 }

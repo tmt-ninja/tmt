@@ -52,7 +52,8 @@ func Resolve(env Env, userHome string) (Root, error) {
 	return root, nil
 }
 
-// NativeRoots lists every directory the native binary may use as its global root.
+// NativeRoots lists every directory the native binary may use as its global
+// root; a set TMT_HOME is always the last entry.
 func NativeRoots(env Env, userHome string) []string {
 	roots := []string{filepath.Join(userHome, ".config", "tmt")}
 	if v, ok := env("XDG_CONFIG_HOME"); ok && v != "" {
@@ -64,11 +65,33 @@ func NativeRoots(env Env, userHome string) []string {
 	return roots
 }
 
+// EnvCompanionRoot marks a child environment built by CompanionEnv. Only
+// there may TMT_HOME equal the tmt-go root: the companion calls back into
+// tmt-go with the TMT_HOME that CompanionEnv pinned.
+const EnvCompanionRoot = "TMT_GO_COMPANION_ROOT"
+
+// pinnedByCompanionEnv reports a TMT_HOME that CompanionEnv set: TMT_HOME,
+// TMT_GO_HOME and the marker all name dir.
+func pinnedByCompanionEnv(env Env, dir string) bool {
+	for _, key := range []string{"TMT_HOME", EnvHome, EnvCompanionRoot} {
+		v, ok := env(key)
+		if !ok || v == "" || clean(v) != dir {
+			return false
+		}
+	}
+	return true
+}
+
 // Guard refuses a root equal to, inside, or containing a native root, and a
-// root that already holds a native database file.
+// root that already holds a native database file. A TMT_HOME pinned by
+// CompanionEnv is the tmt-go root itself, not a native root.
 func Guard(root Root, env Env, userHome string) error {
 	dir := clean(root.Dir)
-	for _, native := range NativeRoots(env, userHome) {
+	natives := NativeRoots(env, userHome)
+	if pinnedByCompanionEnv(env, dir) {
+		natives = natives[:len(natives)-1] // the pinned TMT_HOME entry, always last
+	}
+	for _, native := range natives {
 		n := clean(native)
 		if dir == n || within(dir, n) || within(n, dir) {
 			return fmt.Errorf("%w: %s overlaps %s", ErrNativeRoot, root.Dir, native)
@@ -104,10 +127,10 @@ func within(child, parent string) bool {
 func CompanionEnv(env []string, root Root) []string {
 	out := make([]string, 0, len(env)+2)
 	for _, kv := range env {
-		if strings.HasPrefix(kv, "TMT_HOME=") || strings.HasPrefix(kv, EnvHome+"=") {
+		if strings.HasPrefix(kv, "TMT_HOME=") || strings.HasPrefix(kv, EnvHome+"=") || strings.HasPrefix(kv, EnvCompanionRoot+"=") {
 			continue
 		}
 		out = append(out, kv)
 	}
-	return append(out, "TMT_HOME="+root.Dir, EnvHome+"="+root.Dir)
+	return append(out, "TMT_HOME="+root.Dir, EnvHome+"="+root.Dir, EnvCompanionRoot+"="+root.Dir)
 }
