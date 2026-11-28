@@ -2,8 +2,9 @@
 //! not show, then the Core reads through a fake `tmt`.
 
 use super::{
-    Since, Table, collect, csv, execute,
+    Since, Span, Table, collect, csv, execute,
     model::{self, Label, Report, Usage, line_of},
+    parse_instant,
 };
 use serde_json::{Value, json};
 use std::{
@@ -70,9 +71,12 @@ fn report(case: &Value) -> Report {
     Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: case["asOfMs"].as_u64().unwrap(),
-        since: Since::parse(case["since"].as_str().unwrap())
-            .unwrap()
-            .text(),
+        since: Some(
+            Since::parse(case["since"].as_str().unwrap())
+                .unwrap()
+                .text(),
+        ),
+        spend: None,
         usage: model::usage(&case["totals"], &case["series"], &ids(case), &labels).unwrap(),
         exchange: Some(model::exchange(&case["flow"], &labels).unwrap()),
         warnings: vec![],
@@ -291,7 +295,8 @@ fn limits_from(rate_limits: Value) -> Value {
     let report = Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
-        since: "24h",
+        since: Some("24h"),
+        spend: None,
         usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
         exchange: None,
         warnings: vec![],
@@ -306,7 +311,8 @@ fn report_with_available(available: Value) -> Result<Value, crate::core::Error> 
     let report = Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
-        since: "24h",
+        since: Some("24h"),
+        spend: None,
         usage: model::usage(&totals, &series, &ids, &labels)?,
         exchange: None,
         warnings: vec![],
@@ -339,7 +345,8 @@ fn credited(fields: Value) -> Result<Value, crate::core::Error> {
     let report = Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
-        since: "24h",
+        since: Some("24h"),
+        spend: None,
         usage: model::usage(&totals, &series, &ids, &labels)?,
         exchange: None,
         warnings: vec![],
@@ -419,7 +426,8 @@ fn a_no_evidence_identity_carries_core_s_cause_and_unknown_causes_pass_through()
         let report = Report {
             pricing: crate::pricing::Resolved::built_in(),
             as_of_ms: AS_OF,
-            since: "24h",
+            since: Some("24h"),
+            spend: None,
             usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
             exchange: None,
             warnings: vec![],
@@ -465,7 +473,8 @@ fn a_no_evidence_identity_carries_core_s_cause_and_unknown_causes_pass_through()
     let report = Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
-        since: "24h",
+        since: Some("24h"),
+        spend: None,
         usage,
         exchange: None,
         warnings: vec![],
@@ -540,7 +549,8 @@ fn an_old_claude_cache_in_the_closed_seed_reports_its_source_not_the_seats_model
     let report = Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
-        since: "24h",
+        since: Some("24h"),
+        spend: None,
         usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
         exchange: None,
         warnings: vec![],
@@ -570,7 +580,8 @@ fn the_closed_seed_does_not_resurrect_a_reset_cache_window_from_an_older_bucket(
     let report = Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
-        since: "24h",
+        since: Some("24h"),
+        spend: None,
         usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
         exchange: None,
         warnings: vec![],
@@ -615,7 +626,8 @@ fn windows_of_different_providers_are_never_merged_even_when_length_and_reset_ma
     let report = Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
-        since: "24h",
+        since: Some("24h"),
+        spend: None,
         usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
         exchange: None,
         warnings: vec![],
@@ -652,7 +664,8 @@ fn missing_evidence_is_unavailable_never_a_zero_seat() {
     let document = model::document(&Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
-        since: "24h",
+        since: Some("24h"),
+        spend: None,
         usage,
         exchange: None,
         warnings: vec![],
@@ -672,7 +685,8 @@ fn unreadable_batches_are_unavailable_with_their_labels() {
     let document = model::document(&Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
-        since: "24h",
+        since: Some("24h"),
+        spend: None,
         usage,
         exchange: None,
         warnings: vec![],
@@ -845,7 +859,7 @@ fn core_is_read_in_the_documented_shape() {
         ("totals.json", json!({"identities": seat_rows(&[A, F, B])})),
         ("series.json", json!({"identities": seat_rows(&[A, F, B])})),
     ]);
-    let document = execute(&fake.core(), Since::Day, AS_OF).unwrap();
+    let document = execute(&fake.core(), Span::Since(Since::Day), AS_OF).unwrap();
     // Seats are ordered by name; the retired flow participant is read too.
     let names: Vec<_> = document["usage"]["seats"]
         .as_array()
@@ -903,7 +917,7 @@ fn a_failed_flow_degrades_the_exchange_and_nothing_else() {
         ("totals.json", json!({"identities": seat_rows(&[A])})),
         ("series.json", json!({"identities": seat_rows(&[A])})),
     ]);
-    let document = execute(&fake.core(), Since::Day, AS_OF).unwrap();
+    let document = execute(&fake.core(), Span::Since(Since::Day), AS_OF).unwrap();
     assert_eq!(document["exchange"], Value::Null);
     assert_eq!(document["warnings"][0]["section"], "exchange");
     assert_eq!(document["warnings"][0]["code"], "X_ERROR");
@@ -920,7 +934,7 @@ fn a_failed_flow_degrades_the_exchange_and_nothing_else() {
 #[test]
 fn only_the_roster_is_fatal() {
     let fake = FakeCore::new(&[]);
-    assert!(collect(&fake.core(), Since::Day, AS_OF).is_err());
+    assert!(collect(&fake.core(), Span::Since(Since::Day), AS_OF).is_err());
 }
 
 #[test]
@@ -936,7 +950,7 @@ fn failed_history_batches_leave_every_seat_unavailable() {
         ),
         ("history.fail", error("CORE_FAILED")),
     ]);
-    let document = execute(&fake.core(), Since::Day, AS_OF).unwrap();
+    let document = execute(&fake.core(), Span::Since(Since::Day), AS_OF).unwrap();
     assert_eq!(document["usage"]["seats"], json!([]));
     let unavailable = document["usage"]["unavailable"].as_array().unwrap();
     assert_eq!(unavailable.len(), 17);
@@ -986,7 +1000,8 @@ fn attributed_as(rows: Value) -> Value {
     let report = Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
-        since: "24h",
+        since: Some("24h"),
+        spend: None,
         usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
         exchange: None,
         warnings: vec![],
@@ -1075,7 +1090,8 @@ fn sessions_outside_every_seat_are_one_unavailable_row_and_the_totals_are_the_se
         let document = model::document(&Report {
             pricing: crate::pricing::Resolved::built_in(),
             as_of_ms: AS_OF,
-            since: Since::parse("24h").unwrap().text(),
+            since: Some(Since::parse("24h").unwrap().text()),
+            spend: None,
             usage,
             exchange: None,
             warnings: vec![],
@@ -1219,7 +1235,8 @@ fn with_accounts(answer: Option<Value>) -> Value {
     model::document(&Report {
         pricing: crate::pricing::Resolved::built_in(),
         as_of_ms: AS_OF,
-        since: "24h",
+        since: Some("24h"),
+        spend: None,
         usage,
         exchange: None,
         warnings: vec![],
@@ -1312,7 +1329,8 @@ fn a_seat_reports_why_its_newest_reading_was_incomplete() {
         let report = Report {
             pricing: crate::pricing::Resolved::built_in(),
             as_of_ms: AS_OF,
-            since: "24h",
+            since: Some("24h"),
+            spend: None,
             usage: model::usage(&totals, &series, &ids, &labels).unwrap(),
             exchange: None,
             warnings: vec![],
@@ -1380,4 +1398,90 @@ fn a_seat_total_sums_its_rows_with_tokens_and_an_empty_unpriced_row_does_not_blo
     let seat = &document["usage"]["seats"][0];
     assert_eq!(seat["cost"], Value::Null);
     assert_eq!(seat["costUnavailable"], json!(["no_price"]));
+}
+
+#[test]
+fn a_from_start_is_an_rfc3339_instant_with_an_offset() {
+    let midnight = crate::pricing::day_start_ms("2026-12-01").unwrap();
+    for (text, at) in [
+        ("2026-12-01T00:00:00Z", Some(midnight)),
+        ("2026-12-01t00:00:00z", Some(midnight)),
+        ("2026-12-01T08:00:00+08:00", Some(midnight)),
+        ("2026-11-30T18:30:00-05:30", Some(midnight)),
+        ("2026-12-01T00:00:00.1234Z", Some(midnight + 123)),
+        ("2026-12-01T00:00:00", None),
+        ("2026-12-01 00:00:00Z", None),
+        ("2026-13-01T00:00:00Z", None),
+        ("2027-02-29T00:00:00Z", None),
+        ("2026-12-01T24:00:00Z", None),
+        ("2026-12-01T00:00:00.Z", None),
+        ("2026-12-01T00:00:00+8:00", None),
+    ] {
+        assert_eq!(parse_instant(text), at, "{text}");
+    }
+}
+
+#[test]
+fn a_from_report_pins_every_read_and_has_no_exchange() {
+    let fake = FakeCore::new(&[
+        (
+            "roster.json",
+            json!({"identities": [{"id": A, "name": "amy"}]}),
+        ),
+        ("totals.json", json!({"identities": seat_rows(&[A])})),
+        ("series.json", json!({"identities": seat_rows(&[A])})),
+    ]);
+    let start = AS_OF - 3 * DAY;
+    let document = execute(&fake.core(), Span::From(start), AS_OF).unwrap();
+    assert_eq!(document["since"], Value::Null);
+    assert!(!fake.args().iter().any(|args| args.starts_with("x ")));
+    let through = AS_OF - AS_OF % 5_000;
+    let history: Vec<Value> = fake
+        .calls()
+        .into_iter()
+        .filter(|call| call["operation"] == "consumption.history")
+        .collect();
+    assert!(history.len() > 2);
+    assert!(
+        history
+            .iter()
+            .all(|call| call["input"]["throughMs"] == through)
+    );
+    let warnings: Vec<&Value> = document["warnings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|warning| &warning["code"])
+        .collect();
+    assert!(warnings.contains(&&json!("DIGEST_WINDOW_UNSUPPORTED")));
+    // This fake answers every spend window with the one-day seat, so the spend read is
+    // refused and every value says so rather than reporting zero.
+    let spend = &document["spend"];
+    assert_eq!(spend["requestedFromMs"], json!(start));
+    assert_eq!(spend["toMs"], json!(through - through % 300_000));
+    for row in spend["providers"].as_array().unwrap() {
+        assert_eq!(row["total"]["reasons"], json!(["usage_unreadable"]));
+    }
+}
+
+#[test]
+fn the_frozen_spend_vector_reads_its_windows_and_prices_them_by_hand() {
+    let case = vector_at(3);
+    let plan = model::spend::Plan::new(
+        case["requestedFromMs"].as_u64().unwrap(),
+        case["toMs"].as_u64().unwrap(),
+        crate::pricing::built_in(),
+    );
+    let requests: Vec<Value> = plan
+        .requests()
+        .into_iter()
+        .map(|(windows, max)| json!({"windowsMs": windows, "maxBuckets": max}))
+        .collect();
+    assert_eq!(json!(requests), case["requests"]);
+    let seats =
+        model::spend::read(&plan, case["answers"].as_array().unwrap(), &ids(&case)).unwrap();
+    assert_eq!(
+        model::spend::section(&plan, &seats, false, crate::pricing::built_in()),
+        case["expected"]
+    );
 }

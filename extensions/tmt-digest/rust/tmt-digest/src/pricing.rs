@@ -75,6 +75,22 @@ const UNBILLED: &[&str] = &["codex-auto-review"];
 /// Where the unbilled rule is recorded, as the `source` of its zero rows.
 const UNBILLED_SOURCE: &str = "https://github.com/tmt-ninja/tmt/blob/main/extensions/tmt-digest/contracts/digest-v1.md#unbilled-models";
 
+/// The billing vendors a model id belongs to, by prefix, ascending by vendor. A key is billed
+/// by its vendor whichever driver spent it, so this is the spend report's `provider`.
+pub const PROVIDERS: [(&str, &[&str]); 3] = [
+    ("anthropic", &["claude-"]),
+    ("google", &["gemini-"]),
+    ("openai", &["gpt-", "codex-auto-review"]),
+];
+
+/// The billing vendor of `model`, or None for an id no prefix names.
+pub fn provider_of(model: &str) -> Option<&'static str> {
+    PROVIDERS
+        .iter()
+        .find(|(_, prefixes)| prefixes.iter().any(|prefix| model.starts_with(prefix)))
+        .map(|(provider, _)| *provider)
+}
+
 /// The tokens one quote prices, as Core counts them: `input` includes the cached input and
 /// the cache writes. `cache_write` is None when the source reported no cache-write count.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -245,6 +261,17 @@ impl Table {
         })
     }
 
+    /// Every UTC midnight on which a model's row takes effect, ascending: the instants at
+    /// which a dated quote can change.
+    pub fn rate_starts(&self) -> Vec<u64> {
+        let starts: std::collections::BTreeSet<u64> = self
+            .models
+            .iter()
+            .filter_map(|rate| rate.effective_from.as_deref().and_then(day_start_ms))
+            .collect();
+        starts.into_iter().collect()
+    }
+
     pub(crate) fn document(&self) -> Value {
         let rows = self.models.iter().map(|rate| {
             json!({"modelId": rate.model_id, "effectiveFrom": rate.effective_from,
@@ -306,6 +333,24 @@ fn utc_day(ms: u64) -> String {
     };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
     format!("{year:04}-{month:02}-{day:02}")
+}
+
+/// The UTC midnight starting a real `YYYY-MM-DD` date, in Unix milliseconds: the inverse
+/// of `utc_day`.
+pub(crate) fn day_start_ms(text: &str) -> Option<u64> {
+    if !date(text) {
+        return None;
+    }
+    let part = |range: std::ops::Range<usize>| text[range].parse::<i64>().ok();
+    let (year, month, day) = (part(0..4)?, part(5..7)?, part(8..10)?);
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = year.div_euclid(400);
+    let year_of_era = year.rem_euclid(400);
+    let shifted = if month > 2 { month - 3 } else { month + 9 };
+    let day_of_year = (153 * shifted + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    u64::try_from(days).ok()?.checked_mul(86_400_000)
 }
 
 /// A real `YYYY-MM-DD` date, as the file's `version` and `asOf` are.
