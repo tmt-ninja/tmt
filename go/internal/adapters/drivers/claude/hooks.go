@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/tmt-ninja/tmt/go/internal/invoke"
+	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 const settingsLimit = 1024 * 1024
@@ -23,6 +24,40 @@ type hookCommand struct {
 type hookGroup struct {
 	Matcher string        `json:"matcher,omitempty"`
 	Hooks   []hookCommand `json:"hooks"`
+}
+
+// AddLaunchHooks attaches lifecycle hooks to a prepared foreground command.
+func AddLaunchHooks(command ports.ProcessSpec, executable string) (ports.ProcessSpec, error) {
+	args, err := withHooks(command.Args, executable)
+	if err != nil {
+		return ports.ProcessSpec{}, err
+	}
+	command.Args = args
+	return command, nil
+}
+
+// StartsAtPrompt mirrors Claude's native empty-prompt launch check. Positional
+// text, unknown options and explicit end-of-options do not prove readiness.
+func StartsAtPrompt(command ports.ProcessSpec) bool {
+	for i := 0; i < len(command.Args); i++ {
+		flag, _, inline := strings.Cut(command.Args[i], "=")
+		switch flag {
+		case "--session-id", "--resume", "-r", "--model", "--effort", "--permission-mode", "--add-dir", "--agent":
+			if !inline {
+				i++
+				if i == len(command.Args) {
+					return false
+				}
+			}
+		case "--continue", "-c", "--dangerously-skip-permissions", "--allow-dangerously-skip-permissions", "--verbose":
+			if inline {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // withHooks adds the native lifecycle observations to Claude's invocation-only

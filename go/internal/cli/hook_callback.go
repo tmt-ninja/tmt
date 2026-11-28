@@ -32,8 +32,7 @@ func decodeHookCoordinates(value string) (hookCoordinates, bool) {
 	if len(value) == 0 || len(value) > 2048 || json.Unmarshal([]byte(value), &launch, json.RejectUnknownMembers(true)) != nil {
 		return hookCoordinates{}, false
 	}
-	return launch, launch.IdentityID != "" && launch.BindingID != "" && launch.Owner.PID > 0 &&
-		launch.Owner.PID <= 2147483647 && (runtime.Incarnation{PID: int(launch.Owner.PID), Start: launch.Owner.StartIdentity}).Valid()
+	return launch, launch.IdentityID != "" && launch.BindingID != "" && validHookIncarnation(launch.Owner)
 }
 
 // Provider callbacks have a silent success result so they never veto a turn.
