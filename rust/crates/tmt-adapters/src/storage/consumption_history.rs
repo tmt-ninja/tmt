@@ -24,9 +24,10 @@ use tmt_core::{
 
 pub const BUCKET_MS: u64 = 5_000;
 pub const HISTORY_MS: u64 = 2 * 60 * 60 * 1_000;
-/// The rollup keeps 5-minute sums of the 5-second buckets for 30 days (#3248).
+/// The rollup keeps 5-minute sums of the 5-second buckets for 32 days (#3248), so a
+/// window from the start of a 31-day month is still whole (#4283).
 pub const ROLLUP_BUCKET_MS: u64 = 300_000;
-pub const ROLLUP_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
+pub const ROLLUP_MS: u64 = 32 * 24 * 60 * 60 * 1_000;
 /// The longest window read from the 5-second buckets; a longer one reads the rollup.
 pub const FINE_WINDOW_MS: u64 = 3_600_000;
 pub const MAX_BUCKETS: u64 = 720;
@@ -35,7 +36,7 @@ pub const MAX_RESPONSE_BUCKETS: u64 = 23_040;
 
 /// The resolution that serves `window_ms`, or none when it is not a valid window:
 /// 5-second multiples up to an hour read the 5-second buckets, 5-minute multiples
-/// above an hour up to 30 days read the rollup.
+/// above an hour up to 32 days read the rollup.
 pub fn window_resolution_ms(window_ms: u64) -> Option<u64> {
     if (BUCKET_MS..=FINE_WINDOW_MS).contains(&window_ms) && window_ms.is_multiple_of(BUCKET_MS) {
         Some(BUCKET_MS)
@@ -639,6 +640,37 @@ impl Storage {
                 account: limits.account?,
             })
         }))
+    }
+
+    /// The retired identities with a retained rollup bucket that ends after `from_ms`
+    /// (#4283), ascending by id, at most `limit`, and whether more exist. A reader of a
+    /// window from `from_ms` finds a member retired since then here, because the roster
+    /// lists only the current ones. Expired buckets never count; nothing is renewed.
+    pub fn retired_with_rollup(
+        &mut self,
+        from_ms: u64,
+        now: u64,
+        limit: usize,
+    ) -> Result<(Vec<String>, bool), StorageError> {
+        if from_ms > now || now > MAX_JS_SAFE_INTEGER {
+            return Err(invalid());
+        }
+        let retained_from = (now / ROLLUP_BUCKET_MS * ROLLUP_BUCKET_MS).saturating_sub(ROLLUP_MS);
+        let ends_after = from_ms.saturating_sub(ROLLUP_BUCKET_MS);
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare("SELECT id FROM identities i WHERE retired_at_ms IS NOT NULL AND EXISTS (SELECT 1 FROM consumption_tier5m r WHERE r.identity_id=i.id AND r.from_ms>? AND r.from_ms>=?) ORDER BY id LIMIT ?")
+            .map_err(|e| classify(e, "Read retired consumption identities"))?;
+        let mut ids: Vec<String> = statement
+            .query_map(
+                rusqlite::params![ends_after as i64, retained_from as i64, (limit + 1) as i64],
+                |row| row.get(0),
+            )
+            .and_then(Iterator::collect)
+            .map_err(|e| classify(e, "Read retired consumption identities"))?;
+        let truncated = ids.len() > limit;
+        ids.truncate(limit);
+        Ok((ids, truncated))
     }
 
     /// One deferred read snapshot; no source access or history renewal/pruning.

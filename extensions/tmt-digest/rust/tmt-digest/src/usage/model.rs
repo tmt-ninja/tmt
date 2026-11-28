@@ -4,6 +4,7 @@
 
 mod costs;
 mod providers;
+pub mod spend;
 
 use crate::{
     core::Error,
@@ -941,7 +942,10 @@ pub fn flow_participants(flow: &Value) -> BTreeSet<String> {
 
 pub struct Report {
     pub as_of_ms: u64,
-    pub since: &'static str,
+    /// The `--since` window, or None for a `--from` report.
+    pub since: Option<&'static str>,
+    /// The `--from` report's spend section.
+    pub spend: Option<Value>,
     pub usage: Usage,
     pub exchange: Option<Value>,
     pub warnings: Vec<Value>,
@@ -1000,7 +1004,7 @@ pub fn document(report: &Report) -> Result<Value, Error> {
         providers::section(&report.usage.seats, report.pricing.table(), report.as_of_ms)?;
     usage["providers"] = json!(providers);
     usage["providerUnattributed"] = unattributed.json();
-    Ok(json!({
+    let mut document = json!({
         "version": 1, "observedAtMs": report.as_of_ms, "since": report.since,
         "window": report.usage.window
             .map(|window| json!({"fromMs": window.from_ms, "toMs": window.to_ms})),
@@ -1011,5 +1015,10 @@ pub fn document(report: &Report) -> Result<Value, Error> {
         "pricing": report.pricing.document(),
         "exchange": report.exchange,
         "warnings": report.warnings,
-    }))
+    });
+    // Only a `--from` report has the section, so a `--since` one keeps its bytes.
+    if let Some(spend) = &report.spend {
+        document["spend"] = spend.clone();
+    }
+    Ok(document)
 }

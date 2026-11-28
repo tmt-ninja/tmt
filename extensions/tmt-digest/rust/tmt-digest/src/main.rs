@@ -105,16 +105,21 @@ fn main() -> ExitCode {
                     .subcommand_matches("usage")
                     .and_then(|usage| usage.subcommand_matches("report"))
                     .expect("report matches");
-                let since = usage::Since::parse(
-                    selected.get_one::<String>("since").expect("default since"),
-                )
-                .expect("admitted since");
+                let span = match selected.get_one::<u64>("from") {
+                    Some(start) => usage::Span::From(*start),
+                    None => usage::Span::Since(
+                        usage::Since::parse(
+                            selected.get_one::<String>("since").expect("default since"),
+                        )
+                        .expect("admitted since"),
+                    ),
+                };
                 let format = selected
                     .get_one::<String>("csv")
                     .map_or(usage::Format::Json, |table| {
                         usage::Format::Csv(usage::Table::parse(table).expect("admitted table"))
                     });
-                return match usage::render(since, format) {
+                return match usage::render(span, format) {
                     Ok(text) => {
                         let mut output = tmt_cli_style::stream::stdout(true);
                         match output

@@ -114,6 +114,7 @@ const OPS: &[&str] = &[
     "user.person",
     "consumption.history",
     "consumption.changes",
+    "consumption.retired",
     "consumption.limits",
     "drivers.models",
     "extensions.uses",
@@ -332,6 +333,10 @@ pub enum Request {
         max_buckets: u64,
         include_retired: bool,
         through_ms: Option<u64>,
+    },
+    /// Read-only: retired identities with rollup evidence after `from_ms` (#4283).
+    ConsumptionRetired {
+        from_ms: u64,
     },
     /// Read-only: the identities whose usage changed since a usage cursor (#6364).
     ConsumptionChanges {
@@ -594,6 +599,7 @@ pub fn decode(body: &str) -> Result<Request, Fault> {
         "identity.remove" => identities::decode_remove(input)?,
         "consumption.history" => consumption::decode(input)?,
         "consumption.changes" => consumption::decode_changes(input)?,
+        "consumption.retired" => consumption::decode_retired(input)?,
         "extensions.uses" => extensions::decode(input)?,
         "identityHooks.pending" => identity_hooks::decode_pending(input)?,
         "skills.install" => skills::decode_install(input)?,
@@ -870,6 +876,7 @@ impl Session {
                 windows,
                 max_buckets,
             } => consumption::changes(storage, since, windows, max_buckets),
+            Request::ConsumptionRetired { from_ms } => consumption::retired(storage, from_ms),
             Request::Digest(operation) => digest::execute(
                 storage,
                 *operation,

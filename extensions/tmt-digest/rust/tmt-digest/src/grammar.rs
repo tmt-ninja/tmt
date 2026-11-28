@@ -122,6 +122,10 @@ const REPORT: CommandSpec = CommandSpec {
             command: "tmt digest usage report --since 7d --csv usage",
             note: "Export the week's token usage per member and model as CSV",
         },
+        Example {
+            command: "tmt digest usage report --from 2026-12-01T00:00:00+08:00 --json",
+            note: "Read spend per provider since the start of a billing period",
+        },
     ],
     outputs: OutputModes::Json,
     details: "Windows end at the last completed 5-minute boundary (window.toMs). Missing evidence is reported as unavailable, never as zero; Claude account limits are unavailable because Core has no source for them. CSV rows equal the JSON rows; a text cell starting with =, +, -, @, tab or carriage return gets a leading ' so a spreadsheet never reads it as a formula.",
@@ -198,6 +202,19 @@ pub fn command() -> Command {
                                 .default_value("24h")
                                 .value_parser(["24h", "7d", "30d"])
                                 .help("Window ending at the last completed 5-minute boundary"),
+                        )
+                        .arg(
+                            Arg::new("from")
+                                .long("from")
+                                .value_name("RFC3339")
+                                .value_parser(|text: &str| {
+                                    crate::usage::parse_instant(text).ok_or_else(|| {
+                                        "Use an RFC 3339 instant such as 2026-12-01T00:00:00+08:00"
+                                            .to_owned()
+                                    })
+                                })
+                                .conflicts_with_all(["since", "csv"])
+                                .help("Report from this instant (at most 32 days ago) to now, with spend per provider"),
                         )
                         .arg(
                             Arg::new("json")

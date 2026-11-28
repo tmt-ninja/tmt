@@ -3285,6 +3285,517 @@
           }
         ]
       }
+    },
+    {
+      "name": "spend from a period start",
+      "note": "A --from report's spend section, hand-computed. amy spends gemini-4-argon 1M input at $2/M on 11-30 and 1M at $4/M on 12-01 (the rate start splits the segment), and Claude Opus 1M input plus 0.1M output without a cache-write count (a $6 floor). bob's unpriced claude-x, unattributed tokens and a coverage gap fall before the 24 hour pace start, so only the totals carry them; the unattributed tokens and the gap reach every vendor. The cut is pinned and every window ends at toMs.",
+      "asOfMs": 1796119260000,
+      "requestedFromMs": 1795910400001,
+      "toMs": 1796119200000,
+      "ids": [
+        "10000000-0000-4000-8000-000000000001",
+        "10000000-0000-4000-8000-000000000002"
+      ],
+      "requests": [
+        {
+          "windowsMs": [
+            208500000,
+            86400000,
+            36000000
+          ],
+          "maxBuckets": 1
+        },
+        {
+          "windowsMs": [
+            21600000,
+            10800000
+          ],
+          "maxBuckets": 1
+        }
+      ],
+      "answers": [
+        {
+          "identities": [
+            {
+              "id": "10000000-0000-4000-8000-000000000001",
+              "found": true,
+              "windows": [
+                {
+                  "windowMs": 208500000,
+                  "fromMs": 1795910700000,
+                  "toMs": 1796119200000,
+                  "bucketMs": 208500000,
+                  "resolutionMs": 300000,
+                  "availableFromMs": 1793491200000,
+                  "retainedFromMs": 1793491200000,
+                  "buckets": [
+                    {
+                      "fromMs": 1795910700000,
+                      "toMs": 1796119200000,
+                      "inputTokens": 3000000,
+                      "outputTokens": 100000,
+                      "cachedInputTokens": 0,
+                      "coveredMs": 208500000,
+                      "complete": true,
+                      "gap": false,
+                      "discontinuous": false,
+                      "byModel": [
+                        {
+                          "modelId": "claude-opus-5-5",
+                          "inputTokens": 1000000,
+                          "outputTokens": 100000,
+                          "cachedInputTokens": 0
+                        },
+                        {
+                          "modelId": "gemini-4-argon",
+                          "inputTokens": 2000000,
+                          "outputTokens": 0,
+                          "cachedInputTokens": 0,
+                          "cacheWriteTokens": 0
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "windowMs": 86400000,
+                  "fromMs": 1796032800000,
+                  "toMs": 1796119200000,
+                  "bucketMs": 86400000,
+                  "resolutionMs": 300000,
+                  "availableFromMs": 1793491200000,
+                  "retainedFromMs": 1793491200000,
+                  "buckets": [
+                    {
+                      "fromMs": 1796032800000,
+                      "toMs": 1796119200000,
+                      "inputTokens": 3000000,
+                      "outputTokens": 100000,
+                      "cachedInputTokens": 0,
+                      "coveredMs": 86400000,
+                      "complete": true,
+                      "gap": false,
+                      "discontinuous": false,
+                      "byModel": [
+                        {
+                          "modelId": "claude-opus-5-5",
+                          "inputTokens": 1000000,
+                          "outputTokens": 100000,
+                          "cachedInputTokens": 0
+                        },
+                        {
+                          "modelId": "gemini-4-argon",
+                          "inputTokens": 2000000,
+                          "outputTokens": 0,
+                          "cachedInputTokens": 0,
+                          "cacheWriteTokens": 0
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "windowMs": 36000000,
+                  "fromMs": 1796083200000,
+                  "toMs": 1796119200000,
+                  "bucketMs": 36000000,
+                  "resolutionMs": 300000,
+                  "availableFromMs": 1793491200000,
+                  "retainedFromMs": 1793491200000,
+                  "buckets": [
+                    {
+                      "fromMs": 1796083200000,
+                      "toMs": 1796119200000,
+                      "inputTokens": 2000000,
+                      "outputTokens": 100000,
+                      "cachedInputTokens": 0,
+                      "coveredMs": 36000000,
+                      "complete": true,
+                      "gap": false,
+                      "discontinuous": false,
+                      "byModel": [
+                        {
+                          "modelId": "claude-opus-5-5",
+                          "inputTokens": 1000000,
+                          "outputTokens": 100000,
+                          "cachedInputTokens": 0
+                        },
+                        {
+                          "modelId": "gemini-4-argon",
+                          "inputTokens": 1000000,
+                          "outputTokens": 0,
+                          "cachedInputTokens": 0,
+                          "cacheWriteTokens": 0
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "10000000-0000-4000-8000-000000000002",
+              "found": true,
+              "windows": [
+                {
+                  "windowMs": 208500000,
+                  "fromMs": 1795910700000,
+                  "toMs": 1796119200000,
+                  "bucketMs": 208500000,
+                  "resolutionMs": 300000,
+                  "availableFromMs": 1793491200000,
+                  "retainedFromMs": 1793491200000,
+                  "buckets": [
+                    {
+                      "fromMs": 1795910700000,
+                      "toMs": 1796119200000,
+                      "inputTokens": 60,
+                      "outputTokens": 0,
+                      "cachedInputTokens": 0,
+                      "coveredMs": 208200000,
+                      "complete": false,
+                      "gap": true,
+                      "discontinuous": false,
+                      "byModel": [
+                        {
+                          "modelId": "claude-x",
+                          "inputTokens": 10,
+                          "outputTokens": 0,
+                          "cachedInputTokens": 0,
+                          "cacheWriteTokens": 0
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "windowMs": 86400000,
+                  "fromMs": 1796032800000,
+                  "toMs": 1796119200000,
+                  "bucketMs": 86400000,
+                  "resolutionMs": 300000,
+                  "availableFromMs": 1793491200000,
+                  "retainedFromMs": 1793491200000,
+                  "buckets": [
+                    {
+                      "fromMs": 1796032800000,
+                      "toMs": 1796119200000,
+                      "inputTokens": 0,
+                      "outputTokens": 0,
+                      "cachedInputTokens": 0,
+                      "coveredMs": 86400000,
+                      "complete": true,
+                      "gap": false,
+                      "discontinuous": false
+                    }
+                  ]
+                },
+                {
+                  "windowMs": 36000000,
+                  "fromMs": 1796083200000,
+                  "toMs": 1796119200000,
+                  "bucketMs": 36000000,
+                  "resolutionMs": 300000,
+                  "availableFromMs": 1793491200000,
+                  "retainedFromMs": 1793491200000,
+                  "buckets": [
+                    {
+                      "fromMs": 1796083200000,
+                      "toMs": 1796119200000,
+                      "inputTokens": 0,
+                      "outputTokens": 0,
+                      "cachedInputTokens": 0,
+                      "coveredMs": 36000000,
+                      "complete": true,
+                      "gap": false,
+                      "discontinuous": false
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "identities": [
+            {
+              "id": "10000000-0000-4000-8000-000000000001",
+              "found": true,
+              "windows": [
+                {
+                  "windowMs": 21600000,
+                  "fromMs": 1796097600000,
+                  "toMs": 1796119200000,
+                  "bucketMs": 21600000,
+                  "resolutionMs": 300000,
+                  "availableFromMs": 1793491200000,
+                  "retainedFromMs": 1793491200000,
+                  "buckets": [
+                    {
+                      "fromMs": 1796097600000,
+                      "toMs": 1796119200000,
+                      "inputTokens": 2000000,
+                      "outputTokens": 100000,
+                      "cachedInputTokens": 0,
+                      "coveredMs": 21600000,
+                      "complete": true,
+                      "gap": false,
+                      "discontinuous": false,
+                      "byModel": [
+                        {
+                          "modelId": "claude-opus-5-5",
+                          "inputTokens": 1000000,
+                          "outputTokens": 100000,
+                          "cachedInputTokens": 0
+                        },
+                        {
+                          "modelId": "gemini-4-argon",
+                          "inputTokens": 1000000,
+                          "outputTokens": 0,
+                          "cachedInputTokens": 0,
+                          "cacheWriteTokens": 0
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "windowMs": 10800000,
+                  "fromMs": 1796108400000,
+                  "toMs": 1796119200000,
+                  "bucketMs": 10800000,
+                  "resolutionMs": 300000,
+                  "availableFromMs": 1793491200000,
+                  "retainedFromMs": 1793491200000,
+                  "buckets": [
+                    {
+                      "fromMs": 1796108400000,
+                      "toMs": 1796119200000,
+                      "inputTokens": 1000000,
+                      "outputTokens": 100000,
+                      "cachedInputTokens": 0,
+                      "coveredMs": 10800000,
+                      "complete": true,
+                      "gap": false,
+                      "discontinuous": false,
+                      "byModel": [
+                        {
+                          "modelId": "claude-opus-5-5",
+                          "inputTokens": 1000000,
+                          "outputTokens": 100000,
+                          "cachedInputTokens": 0
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "10000000-0000-4000-8000-000000000002",
+              "found": true,
+              "windows": [
+                {
+                  "windowMs": 21600000,
+                  "fromMs": 1796097600000,
+                  "toMs": 1796119200000,
+                  "bucketMs": 21600000,
+                  "resolutionMs": 300000,
+                  "availableFromMs": 1793491200000,
+                  "retainedFromMs": 1793491200000,
+                  "buckets": [
+                    {
+                      "fromMs": 1796097600000,
+                      "toMs": 1796119200000,
+                      "inputTokens": 0,
+                      "outputTokens": 0,
+                      "cachedInputTokens": 0,
+                      "coveredMs": 21600000,
+                      "complete": true,
+                      "gap": false,
+                      "discontinuous": false
+                    }
+                  ]
+                },
+                {
+                  "windowMs": 10800000,
+                  "fromMs": 1796108400000,
+                  "toMs": 1796119200000,
+                  "bucketMs": 10800000,
+                  "resolutionMs": 300000,
+                  "availableFromMs": 1793491200000,
+                  "retainedFromMs": 1793491200000,
+                  "buckets": [
+                    {
+                      "fromMs": 1796108400000,
+                      "toMs": 1796119200000,
+                      "inputTokens": 0,
+                      "outputTokens": 0,
+                      "cachedInputTokens": 0,
+                      "coveredMs": 10800000,
+                      "complete": true,
+                      "gap": false,
+                      "discontinuous": false
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "requestedFromMs": 1795910400001,
+        "fromMs": 1795910700000,
+        "toMs": 1796119200000,
+        "providers": [
+          {
+            "provider": "anthropic",
+            "fromMs": 1795910700000,
+            "toMs": 1796119200000,
+            "models": [
+              "claude-opus-5-5",
+              "claude-x"
+            ],
+            "total": {
+              "usdMicros": null,
+              "complete": false,
+              "lowerBound": false,
+              "reasons": [
+                "cache_write_unreported",
+                "coverage_partial",
+                "no_price",
+                "unattributed"
+              ]
+            },
+            "pace": [
+              {
+                "usdMicros": 6000000,
+                "complete": false,
+                "lowerBound": true,
+                "reasons": [
+                  "cache_write_unreported"
+                ],
+                "windowMs": 10800000,
+                "fromMs": 1796108400000,
+                "toMs": 1796119200000
+              },
+              {
+                "usdMicros": 6000000,
+                "complete": false,
+                "lowerBound": true,
+                "reasons": [
+                  "cache_write_unreported"
+                ],
+                "windowMs": 21600000,
+                "fromMs": 1796097600000,
+                "toMs": 1796119200000
+              },
+              {
+                "usdMicros": 6000000,
+                "complete": false,
+                "lowerBound": true,
+                "reasons": [
+                  "cache_write_unreported"
+                ],
+                "windowMs": 86400000,
+                "fromMs": 1796032800000,
+                "toMs": 1796119200000
+              }
+            ]
+          },
+          {
+            "provider": "google",
+            "fromMs": 1795910700000,
+            "toMs": 1796119200000,
+            "models": [
+              "gemini-4-argon"
+            ],
+            "total": {
+              "usdMicros": 6000000,
+              "complete": false,
+              "lowerBound": true,
+              "reasons": [
+                "coverage_partial",
+                "unattributed"
+              ]
+            },
+            "pace": [
+              {
+                "usdMicros": 0,
+                "complete": true,
+                "lowerBound": false,
+                "reasons": [],
+                "windowMs": 10800000,
+                "fromMs": 1796108400000,
+                "toMs": 1796119200000
+              },
+              {
+                "usdMicros": 4000000,
+                "complete": true,
+                "lowerBound": false,
+                "reasons": [],
+                "windowMs": 21600000,
+                "fromMs": 1796097600000,
+                "toMs": 1796119200000
+              },
+              {
+                "usdMicros": 6000000,
+                "complete": true,
+                "lowerBound": false,
+                "reasons": [],
+                "windowMs": 86400000,
+                "fromMs": 1796032800000,
+                "toMs": 1796119200000
+              }
+            ]
+          },
+          {
+            "provider": "openai",
+            "fromMs": 1795910700000,
+            "toMs": 1796119200000,
+            "models": [],
+            "total": {
+              "usdMicros": 0,
+              "complete": false,
+              "lowerBound": true,
+              "reasons": [
+                "coverage_partial",
+                "unattributed"
+              ]
+            },
+            "pace": [
+              {
+                "usdMicros": 0,
+                "complete": true,
+                "lowerBound": false,
+                "reasons": [],
+                "windowMs": 10800000,
+                "fromMs": 1796108400000,
+                "toMs": 1796119200000
+              },
+              {
+                "usdMicros": 0,
+                "complete": true,
+                "lowerBound": false,
+                "reasons": [],
+                "windowMs": 21600000,
+                "fromMs": 1796097600000,
+                "toMs": 1796119200000
+              },
+              {
+                "usdMicros": 0,
+                "complete": true,
+                "lowerBound": false,
+                "reasons": [],
+                "windowMs": 86400000,
+                "fromMs": 1796032800000,
+                "toMs": 1796119200000
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

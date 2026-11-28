@@ -61,9 +61,9 @@ model or reads provider credentials.
 `... process::interactive` cover history reduction, source admission and foreground
 tick/exit/degraded cleanup; history and API tests consume the shared vector
 `contracts/consumption-history-v1.json` (the closed counter is the live baseline even when
-`ls` is newer; its `rollup` entry fixes the 30-day tier's window). `... rollup_tests` checks
+`ls` is newer; its `rollup` entry fixes the 32-day tier's window). `... rollup_tests` checks
 that each five-minute rollup bucket equals the sum of its fine buckets and measures the tier
-with `dbstat` on 32 identities x 30 days against its size ceiling. Public history reads must
+with `dbstat` on 32 identities x 32 days against its size ceiling. Public history reads must
 not renew retention or touch provider files.
 Verify the schema named by `EXPECTED_NATIVE_SCHEMA_VERSION` in the maintained
 [independent native storage fixture](../../../../typescript/test/native/storage-fixture.ts)

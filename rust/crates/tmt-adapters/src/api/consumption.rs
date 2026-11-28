@@ -203,6 +203,40 @@ fn limits_in(
         .map_err(|_| Fault::unavailable())
 }
 
+/// The most retired identities one `consumption.retired` answer names.
+pub(super) const RETIRED_LIMIT: usize = 256;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RetiredInput {
+    from_ms: u64,
+}
+
+pub(super) fn decode_retired(input: &[u8]) -> Result<Request, Fault> {
+    let input: RetiredInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+    if input.from_ms > tmt_core::limits::MAX_JS_SAFE_INTEGER {
+        return Err(invalid());
+    }
+    Ok(Request::ConsumptionRetired {
+        from_ms: input.from_ms,
+    })
+}
+
+/// The retired identities with rollup evidence after `fromMs` (#4283).
+pub(super) fn retired(storage: &mut Storage, from_ms: u64) -> Result<Vec<u8>, Fault> {
+    let now = crate::request_runtime::wall_time_ms();
+    if from_ms > now {
+        return Err(invalid());
+    }
+    let (ids, truncated) = storage
+        .retired_with_rollup(from_ms, now, RETIRED_LIMIT)
+        .map_err(|_| Fault::unavailable())?;
+    serde_json::to_vec(&serde_json::json!({
+        "fromMs": from_ms, "identityIds": ids, "truncated": truncated,
+    }))
+    .map_err(|_| Fault::unavailable())
+}
+
 pub(super) fn history(
     storage: &mut Storage,
     identities: Vec<String>,
@@ -350,7 +384,7 @@ mod tests {
             ("maxBuckets", json!(0)),
             ("maxBuckets", json!(721)),
             ("windowsMs", json!([3_650_000])),
-            ("windowsMs", json!([DAYS_30 + 300_000])),
+            ("windowsMs", json!([DAYS_32 + 300_000])),
             ("includeRetired", json!("yes")),
             ("extra", json!(true)),
             // A cut is a non-negative integer; an explicit null is not one.
@@ -415,7 +449,25 @@ mod tests {
         }
     }
 
-    const DAYS_30: u64 = 2_592_000_000;
+    #[test]
+    fn a_retired_read_takes_only_a_start() {
+        assert!(matches!(
+            decode_retired(br#"{"fromMs":300000}"#),
+            Ok(Request::ConsumptionRetired { from_ms: 300_000 })
+        ));
+        for input in [
+            r#"{}"#,
+            r#"{"fromMs":-1}"#,
+            r#"{"fromMs":1.5}"#,
+            r#"{"fromMs":"0"}"#,
+            r#"{"fromMs":9007199254740992}"#,
+            r#"{"fromMs":0,"extra":true}"#,
+        ] {
+            assert!(decode_retired(input.as_bytes()).is_err(), "{input}");
+        }
+    }
+
+    const DAYS_32: u64 = 2_764_800_000;
 
     fn ids(count: usize) -> Vec<String> {
         (0..count)
@@ -433,8 +485,8 @@ mod tests {
                 .as_bytes(),
             )
         };
-        // Five-minute multiples above an hour, up to 30 days.
-        for window in [3_900_000u64, 86_400_000, 604_800_000, DAYS_30] {
+        // Five-minute multiples above an hour, up to 32 days.
+        for window in [3_900_000u64, 86_400_000, 604_800_000, DAYS_32] {
             assert!(ask(1, json!([window]), 120).is_ok(), "{window}");
         }
         assert!(matches!(
@@ -447,9 +499,9 @@ mod tests {
         ));
         // 32 identities x 720 buckets is exactly the response bound; one more
         // window or one more identity-bucket is refused.
-        assert!(ask(32, json!([DAYS_30]), 720).is_ok());
-        assert!(ask(32, json!([DAYS_30, 604_800_000]), 720).is_err());
-        assert!(ask(32, json!([86_400_000, 604_800_000, DAYS_30]), 720).is_err());
+        assert!(ask(32, json!([DAYS_32]), 720).is_ok());
+        assert!(ask(32, json!([DAYS_32, 604_800_000]), 720).is_err());
+        assert!(ask(32, json!([86_400_000, 604_800_000, DAYS_32]), 720).is_err());
         // Today's largest valid request still passes: 32 x 3 x 120.
         assert!(ask(32, json!([60_000, 300_000, 3_600_000]), 120).is_ok());
         // A short window has fewer slots than buckets and counts only its slots.

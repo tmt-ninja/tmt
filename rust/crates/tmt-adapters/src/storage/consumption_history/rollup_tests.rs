@@ -253,7 +253,7 @@ fn the_rollup_ages_out_by_time_for_active_and_idle_identities() {
             .unwrap()
     };
     assert_eq!(count(connection), 1);
-    // A second identity writing just inside 30 days leaves the first bucket alone;
+    // A second identity writing just inside 32 days leaves the first bucket alone;
     // one more five-minute slot past it expires the idle identity's bucket too.
     let other = "22222222-2222-4222-8222-222222222222";
     connection.execute("INSERT INTO identities(id,name,canonical_name,created_at,updated_at,lifetime) VALUES(?,'Other','other','t','t','saved')",[other]).unwrap();
@@ -261,7 +261,7 @@ fn the_rollup_ages_out_by_time_for_active_and_idle_identities() {
     connection.execute("INSERT INTO consumption_sources(identity_id,binding_id,driver,session) VALUES(?,'other-binding','claude','fixture-session')",[other]).unwrap();
     let inside = ROLLUP_MS + 6000;
     record_sample(connection, other, Some(latest(1, 1, 1, inside)), inside).unwrap();
-    assert_eq!(count(connection), 2, "still inside the 30 days");
+    assert_eq!(count(connection), 2, "still inside the 32 days");
     let past = ROLLUP_MS + ROLLUP_BUCKET_MS + 6000;
     record_sample(connection, other, Some(latest(2, 2, 2, past)), past).unwrap();
     let remaining: Vec<String> = {
@@ -377,12 +377,12 @@ fn the_window_boundaries_and_corrupt_rollup_rows_are_refused() {
 }
 
 /// The size of the rollup on a synthetic full fleet, so growth stays visible: 32
-/// identities for 30 days of 5-minute buckets, half Claude-shaped (one model, one
+/// identities for 32 days of 5-minute buckets, half Claude-shaped (one model, one
 /// driver, no limits) and half Codex-shaped (one model, one driver, both limit windows
 /// on a quarter of the buckets). The ceiling is the tier's budget, with a margin over
 /// the measured size: 281 bytes per row before `byDriver` (#3751), 392 after.
 #[test]
-fn the_rollup_fits_its_budget_on_a_full_thirty_day_fleet() {
+fn the_rollup_fits_its_budget_on_a_full_retention_fleet() {
     let directory = crate::test_support::TestDirectory::new();
     let storage = Storage::open(directory.path.join("budget.sqlite")).unwrap();
     let connection = storage.connection().unwrap();
@@ -424,7 +424,7 @@ fn the_rollup_fits_its_budget_on_a_full_thirty_day_fleet() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
-    assert_eq!(rows, 32 * 8640);
+    assert_eq!(rows, 32 * 9216);
     eprintln!(
         "rollup: {rows} rows, {bytes} bytes, {} bytes per row",
         bytes / rows
@@ -903,4 +903,53 @@ fn a_long_pair_inside_one_rollup_bucket_covers_it_and_one_across_a_boundary_does
             assert_eq!(rolled[key], fine[key], "{key} at {from}");
         }
     }
+}
+
+/// A member retired since a window's start is found by its retained rollup rows (#4283):
+/// only retired identities, only rows that end after the start and are not expired,
+/// ascending and bounded.
+#[test]
+fn retired_identities_with_rollup_after_a_start_are_listed_in_bounds() {
+    let directory = crate::test_support::TestDirectory::new();
+    let mut storage = Storage::open(directory.path.join("retired.sqlite")).unwrap();
+    let now = 40 * 24 * 60 * 60 * 1_000;
+    let start = now - 10 * 24 * 60 * 60 * 1_000;
+    {
+        let connection = storage.connection().unwrap();
+        // (id, retired, the rollup slot it wrote)
+        for (n, retired, slot) in [
+            (1, true, Some(start)),                        // inside
+            (2, true, Some(start - ROLLUP_BUCKET_MS)),     // ends exactly at the start
+            (4, false, Some(start)),                       // current member: on the roster
+            (5, true, None),                               // no evidence
+            (6, true, Some(start + ROLLUP_BUCKET_MS * 3)), // inside
+        ] {
+            let id = format!("00000000-0000-4000-8000-{n:012}");
+            connection.execute("INSERT INTO identities(id,name,canonical_name,created_at,updated_at,lifetime,retired_at_ms) VALUES(?,?,?,'t','t','saved',?)",params![id,format!("m{n}"),format!("m{n}"),retired.then_some(1_i64)]).unwrap();
+            if let Some(slot) = slot {
+                connection.execute("INSERT INTO consumption_tier5m(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous) VALUES(?,?,1,0,0,300000,1,0,0)",params![id,slot as i64]).unwrap();
+            }
+        }
+    }
+    let ids = |n: &[u64]| -> Vec<String> {
+        n.iter()
+            .map(|n| format!("00000000-0000-4000-8000-{n:012}"))
+            .collect()
+    };
+    assert_eq!(
+        storage.retired_with_rollup(start, now, 256).unwrap(),
+        (ids(&[1, 6]), false)
+    );
+    assert_eq!(
+        storage.retired_with_rollup(start, now, 1).unwrap(),
+        (ids(&[1]), true)
+    );
+    // A start older than retention still counts only retained rows.
+    assert_eq!(
+        storage
+            .retired_with_rollup(0, start + ROLLUP_MS + ROLLUP_BUCKET_MS, 256)
+            .unwrap(),
+        (ids(&[6]), false)
+    );
+    assert!(storage.retired_with_rollup(now + 1, now, 256).is_err());
 }

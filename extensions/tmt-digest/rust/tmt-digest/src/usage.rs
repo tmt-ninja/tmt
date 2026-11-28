@@ -19,6 +19,9 @@ use std::{
 };
 
 const DAY_MS: u64 = 86_400_000;
+/// The longest `--from` lookback: Core's rollup keeps 32 days.
+const MAX_FROM_MS: u64 = 32 * DAY_MS;
+const SLOT_MS: u64 = 300_000;
 // 16 seats x 30 daily buckets with attribution and limits stay far inside the
 // 1 MiB a single Core call may return.
 const BATCH: usize = 16;
@@ -63,6 +66,65 @@ impl Since {
     }
 }
 
+/// What a report covers: a `--since` window, or the time from an absolute start
+/// (Unix milliseconds) to now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Span {
+    Since(Since),
+    From(u64),
+}
+
+/// An RFC 3339 instant with a `Z` or `±HH:MM` offset, in Unix milliseconds.
+/// Fractions finer than a millisecond are truncated.
+pub fn parse_instant(text: &str) -> Option<u64> {
+    let bytes = text.as_bytes();
+    if bytes.len() < 20 || !matches!(bytes[10], b'T' | b't') {
+        return None;
+    }
+    let day = crate::pricing::day_start_ms(&text[..10])?;
+    let two = |at: usize| -> Option<u64> {
+        let part = text.get(at..at + 2)?;
+        part.bytes()
+            .all(|c| c.is_ascii_digit())
+            .then(|| part.parse().ok())?
+    };
+    if bytes[13] != b':' || bytes[16] != b':' {
+        return None;
+    }
+    let (hour, minute, second) = (two(11)?, two(14)?, two(17)?);
+    if hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    let mut rest = &text[19..];
+    let mut millis = 0;
+    if let Some(fraction) = rest.strip_prefix('.') {
+        let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
+        if digits == 0 {
+            return None;
+        }
+        let padded = format!("{:0<3}", &fraction[..digits.min(3)]);
+        millis = padded.parse::<u64>().ok()?;
+        rest = &fraction[digits..];
+    }
+    let local = day + ((hour * 60 + minute) * 60 + second) * 1_000 + millis;
+    match rest.as_bytes() {
+        [b'Z' | b'z'] => Some(local),
+        [sign @ (b'+' | b'-'), _, _, b':', _, _] => {
+            let (hours, minutes) = (two(text.len() - 5)?, two(text.len() - 2)?);
+            if hours > 23 || minutes > 59 {
+                return None;
+            }
+            let offset = (hours * 60 + minutes) * 60_000;
+            if *sign == b'+' {
+                local.checked_sub(offset)
+            } else {
+                local.checked_add(offset)
+            }
+        }
+        _ => None,
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Table {
     Usage,
@@ -87,9 +149,18 @@ pub enum Format {
 }
 
 /// The bytes to print: one JSON document or one CSV table.
-pub fn render(since: Since, format: Format) -> Result<String, Error> {
+pub fn render(span: Span, format: Format) -> Result<String, Error> {
+    let now = crate::tick::now_ms()?;
+    if let Span::From(start) = span
+        && (start > now || now - start > MAX_FROM_MS)
+    {
+        return Err(Error::new(
+            "DIGEST_INPUT_INVALID",
+            "--from must be an instant within the last 32 days",
+        ));
+    }
     let core = Core::discover()?.until(Instant::now() + Duration::from_secs(60));
-    let document = execute(&core, since, crate::tick::now_ms()?)?;
+    let document = execute(&core, span, now)?;
     match format {
         Format::Json => serde_json::to_string(&document)
             .map(|text| text + "\n")
@@ -98,8 +169,43 @@ pub fn render(since: Since, format: Format) -> Result<String, Error> {
     }
 }
 
-fn execute(core: &Core, since: Since, now: u64) -> Result<Value, Error> {
-    model::document(&collect(core, since, now)?)
+fn execute(core: &Core, span: Span, now: u64) -> Result<Value, Error> {
+    model::document(&collect(core, span, now)?)
+}
+
+/// The reads of one report. A `--from` report pins every read to one cut, Digest's
+/// clock rounded down to Core's five seconds, so its windows all end together.
+#[derive(Clone, Copy)]
+struct Reads {
+    window_ms: u64,
+    max_buckets: u64,
+    through_ms: Option<u64>,
+}
+
+impl Reads {
+    fn of(span: Span, now: u64) -> Self {
+        match span {
+            Span::Since(since) => Self {
+                window_ms: since.window_ms(),
+                max_buckets: since.buckets(),
+                through_ms: None,
+            },
+            Span::From(start) => {
+                let through = now - now % 5_000;
+                let to = through - through % SLOT_MS;
+                // At least one slot, so a start inside the newest five minutes is still a
+                // window; `window` reports the bounds Core read.
+                let window_ms = to
+                    .saturating_sub(start.div_ceil(SLOT_MS) * SLOT_MS)
+                    .max(SLOT_MS);
+                Self {
+                    window_ms,
+                    max_buckets: window_ms.div_ceil(DAY_MS),
+                    through_ms: Some(through),
+                }
+            }
+        }
+    }
 }
 
 fn warning(section: &str, error: &Error) -> Value {
@@ -108,7 +214,8 @@ fn warning(section: &str, error: &Error) -> Value {
 
 /// Only the roster is required; every other section degrades to unavailable
 /// with a warning rather than to zero.
-fn collect(core: &Core, since: Since, now: u64) -> Result<Report, Error> {
+fn collect(core: &Core, span: Span, now: u64) -> Result<Report, Error> {
+    let reads = Reads::of(span, now);
     let roster = inventory(&core.json(&["identity", "ls"])?)?;
     let mut labels: BTreeMap<String, Label> = roster
         .into_iter()
@@ -125,17 +232,30 @@ fn collect(core: &Core, since: Since, now: u64) -> Result<Report, Error> {
         .collect();
     let mut warnings = Vec::new();
 
-    let flow = match core.json(&[
-        "x",
-        "flow",
-        "--since",
-        since.text(),
-        "--bucket",
-        since.text(),
-    ]) {
-        Ok(flow) => Some(flow),
-        Err(error) => {
-            warnings.push(warning("exchange", &error));
+    let flow = match span {
+        Span::Since(since) => match core.json(&[
+            "x",
+            "flow",
+            "--since",
+            since.text(),
+            "--bucket",
+            since.text(),
+        ]) {
+            Ok(flow) => Some(flow),
+            Err(error) => {
+                warnings.push(warning("exchange", &error));
+                None
+            }
+        },
+        // Core's flow takes only its own windows (at most 30 days), never a start.
+        Span::From(_) => {
+            warnings.push(warning(
+                "exchange",
+                &Error::new(
+                    "DIGEST_WINDOW_UNSUPPORTED",
+                    "Message flow is reported only for --since windows",
+                ),
+            ));
             None
         }
     };
@@ -159,6 +279,65 @@ fn collect(core: &Core, since: Since, now: u64) -> Result<Report, Error> {
         }
     });
 
+    let pricing = || {
+        core.data_root()
+            .ok()
+            .map_or_else(crate::pricing::Resolved::built_in, |root| {
+                crate::pricing::Resolved::read_only(&root)
+            })
+    };
+    // Price rows decide a spend plan, so a `--from` report resolves the table before its
+    // reads; a `--since` one keeps its documented order and resolves it last.
+    let early = matches!(span, Span::From(_)).then(pricing);
+    let plan = match (span, reads.through_ms, &early) {
+        (Span::From(start), Some(through), Some(early)) => Some(model::spend::Plan::new(
+            start,
+            through - through % SLOT_MS,
+            early.table(),
+        )),
+        _ => None,
+    };
+    // A `--from` window has no flow to find members retired since its start, so Core
+    // lists the retired identities with rollup evidence in it; a failed or truncated
+    // list is a reason on every spend value, never a silent undercount.
+    let mut shared = Vec::new();
+    if let Some(plan) = &plan {
+        match retired(core, plan.earliest_ms()) {
+            Ok((found, truncated)) => {
+                if truncated {
+                    shared.push("retired_unread");
+                    warnings.push(json!({"section": "retired", "code": "RETIRED_TRUNCATED",
+                        "message": "Core listed only the first 256 retired identities"}));
+                }
+                let new: Vec<String> = found
+                    .into_iter()
+                    .filter(|id| !labels.contains_key(id))
+                    .collect();
+                for id in &new {
+                    labels.insert(
+                        id.clone(),
+                        Label {
+                            id: id.clone(),
+                            name: None,
+                            retired: true,
+                        },
+                    );
+                }
+                for batch in new.chunks(RESOLVE_BATCH) {
+                    match resolve(core, batch) {
+                        Ok(found) => labels
+                            .extend(found.into_iter().filter(|(_, label)| label.name.is_some())),
+                        Err(error) => warnings.push(warning("labels", &error)),
+                    }
+                }
+            }
+            Err(error) => {
+                shared.push("retired_unread");
+                warnings.push(warning("retired", &error));
+            }
+        }
+    }
+
     // Retired participants keep their retained rollup, so they are read too.
     let mut seats: Vec<&Label> = labels
         .values()
@@ -168,7 +347,7 @@ fn collect(core: &Core, since: Since, now: u64) -> Result<Report, Error> {
     let ids: Vec<String> = seats.into_iter().map(|label| label.id.clone()).collect();
     let mut usage = Usage::default();
     for batch in ids.chunks(BATCH) {
-        usage.merge(match read(core, since, batch, &labels) {
+        usage.merge(match read(core, reads, batch, &labels) {
             Ok(usage) => usage,
             Err(error) => {
                 warnings.push(warning("usage", &error));
@@ -186,15 +365,27 @@ fn collect(core: &Core, since: Since, now: u64) -> Result<Report, Error> {
             None
         }
     };
+    let pricing = early.unwrap_or_else(pricing);
+    let spend = match (&plan, reads.through_ms) {
+        (Some(plan), Some(through)) => Some(spend(
+            core,
+            plan,
+            through,
+            &ids,
+            &pricing,
+            shared,
+            &mut warnings,
+        )),
+        _ => None,
+    };
     Ok(Report {
-        pricing: core
-            .data_root()
-            .ok()
-            .map_or_else(crate::pricing::Resolved::built_in, |root| {
-                crate::pricing::Resolved::read_only(&root)
-            }),
+        pricing,
         as_of_ms: now,
-        since: since.text(),
+        since: match span {
+            Span::Since(since) => Some(since.text()),
+            Span::From(_) => None,
+        },
+        spend,
         usage,
         exchange,
         warnings,
@@ -236,20 +427,85 @@ fn resolve(core: &Core, ids: &[String]) -> Result<BTreeMap<String, Label>, Error
 /// the series. Core aggregates both, so no total here is a sum of buckets.
 fn read(
     core: &Core,
-    since: Since,
+    reads: Reads,
     ids: &[String],
     labels: &BTreeMap<String, Label>,
 ) -> Result<Usage, Error> {
     let history = |max_buckets: u64| {
-        core.api(
-            "consumption.history",
-            json!({
-                "identityIds": ids,
-                "windowsMs": [since.window_ms()],
-                "maxBuckets": max_buckets,
-                "includeRetired": true,
-            }),
+        let mut input = json!({
+            "identityIds": ids,
+            "windowsMs": [reads.window_ms],
+            "maxBuckets": max_buckets,
+            "includeRetired": true,
+        });
+        if let Some(through) = reads.through_ms {
+            input["throughMs"] = json!(through);
+        }
+        core.api("consumption.history", input)
+    };
+    model::usage(&history(1)?, &history(reads.max_buckets)?, ids, labels)
+}
+
+/// The `--from` spend section: the plan's windows for every batch at the pinned cut.
+/// A failed batch is a reason on every value, never a zero.
+fn spend(
+    core: &Core,
+    plan: &model::spend::Plan,
+    through: u64,
+    ids: &[String],
+    pricing: &crate::pricing::Resolved,
+    mut shared: Vec<&'static str>,
+    warnings: &mut Vec<Value>,
+) -> Value {
+    let mut seats = Vec::new();
+    for batch in ids.chunks(BATCH) {
+        let answers: Result<Vec<Value>, Error> = plan
+            .requests()
+            .into_iter()
+            .map(|(windows, max_buckets)| {
+                core.api(
+                    "consumption.history",
+                    json!({
+                        "identityIds": batch,
+                        "windowsMs": windows,
+                        "maxBuckets": max_buckets,
+                        "includeRetired": true,
+                        "throughMs": through,
+                    }),
+                )
+            })
+            .collect();
+        match answers.and_then(|answers| model::spend::read(plan, &answers, batch)) {
+            Ok(found) => seats.extend(found),
+            Err(error) => {
+                warnings.push(warning("spend", &error));
+                shared.push("usage_unreadable");
+            }
+        }
+    }
+    shared.sort_unstable();
+    shared.dedup();
+    model::spend::section(plan, &seats, &shared, pricing.table())
+}
+
+/// Core's retired identities with rollup evidence after `from_ms`, and whether the list
+/// was cut short. An older Core does not know the operation: that is an error too.
+fn retired(core: &Core, from_ms: u64) -> Result<(Vec<String>, bool), Error> {
+    let document = core.api("consumption.retired", json!({"fromMs": from_ms}))?;
+    let invalid = || {
+        Error::new(
+            "CORE_RESPONSE_INVALID",
+            "Core returned an invalid retired identity list",
         )
     };
-    model::usage(&history(1)?, &history(since.buckets())?, ids, labels)
+    let ids = document["identityIds"]
+        .as_array()
+        .filter(|_| document["fromMs"] == from_ms)
+        .ok_or_else(invalid)?
+        .iter()
+        .map(|id| id.as_str().map(str::to_owned))
+        .collect::<Option<Vec<String>>>()
+        .ok_or_else(invalid)?;
+    let truncated = document["truncated"].as_bool().ok_or_else(invalid)?;
+    Ok((ids, truncated))
 }

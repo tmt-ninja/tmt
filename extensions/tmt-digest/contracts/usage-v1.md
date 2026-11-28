@@ -3,6 +3,8 @@
 `tmt digest usage report [--since 24h|7d|30d] (--json | --csv usage|credits|exchange)`
 joins Core's public consumption, limit and exchange documents into one read for
 people and spreadsheets. `--since` defaults to `24h`; exactly one output is chosen.
+`tmt digest usage report --from <RFC3339> --json` reads from an absolute start instead
+and adds [spend per provider](#spend-from-a-start).
 It is read-only: Digest keeps no usage store, collector or scheduler for it, and it
 never changes settings or delivers messages. Token figures come from Core; input
 cost estimates use Digest's existing price-table owner and add no usage evidence.
@@ -21,7 +23,7 @@ with Core's usual 15 seconds and 1 MiB per call:
    name then UUID, in batches of 16, as two reads of `windowsMs:[W]` with
    `includeRetired:true`: `maxBuckets:1` for totals with attribution and
    `maxBuckets` 24 (`24h`, hourly) or 7 / 30 (`7d` / `30d`, daily) for the series.
-   Windows above an hour read Core's [30-day rollup](../../../contracts/extension-api.md#thirty-day-rollup),
+   Windows above an hour read Core's [32-day rollup](../../../contracts/extension-api.md#five-minute-rollup),
    so `window.toMs` is the last completed five-minute boundary and up to five minutes
    of the newest activity are not in it. Totals are Core's, never a sum of buckets.
 5. `storage.root` locates Digest's optional validated price cache. This read never
@@ -172,11 +174,84 @@ serviceTiers}` for a series bucket in which some seat observed a balance: the
   a null `id` is an unknown sender or recipient. Counts and bytes are content-free
   metadata. Null when the flow could not be read.
 - `warnings[]`: `{section,code,message}` for each degraded read.
+- `spend`: only in a `--from` report; see [Spend from a start](#spend-from-a-start).
 
 Only the roster is fatal. A failed flow leaves `exchange` null; unresolved names are
 null; a failed or inconsistent history batch makes its identities `read_failed`.
 Retired identities have no listing, so one appears only as a flow participant.
 Failure exits 1 and prints `{"version":1,"error":{code,message}}` on stdout with `--json`, or a one-line error on stderr with `--csv`.
+
+## Spend from a start
+
+`--from` takes an RFC 3339 instant with a `Z` or `±HH:MM` offset (fractions below a
+millisecond are dropped). It must lie within the last 32 days, the length Core's
+[rollup](../../../contracts/extension-api.md#five-minute-rollup) keeps; an older, future
+or unparseable start fails with `DIGEST_INPUT_INVALID` before any read. It conflicts with
+`--since` and `--csv`. The document is the one above with these differences:
+
+- Every `consumption.history` read passes one `throughMs`: Digest's clock rounded down to
+  five seconds ([pinned cut](../../../contracts/extension-api.md#consumption-history)), so
+  every window ends at the same instant. The cut expires after 60 seconds, as Core's pin
+  does; a batch read after that fails like any other. `storage.root` is read first,
+  because the price rows decide which windows are read.
+- `since` is null. `window` and the sections above cover the window from the start rounded
+  up to five minutes to the cut's last closed five-minute boundary (at least one slot, so
+  a start inside the newest five minutes still has a window; `window` reports the bounds
+  Core read). The series is daily.
+- `exchange` is null with a `DIGEST_WINDOW_UNSUPPORTED` warning: Core's flow takes only its
+  own windows.
+- With no flow to find members retired since the start, Digest reads Core's
+  [`consumption.retired`](../../../contracts/extension-api.md#retired-consumption) once,
+  from the earliest spend start, and reads those identities with the roster (names from
+  `references.resolve`; an unresolved one keeps a null name). A failed read, an older
+  Core without the operation, or a truncated list adds a `retired` warning and the
+  `retired_unread` reason to every spend value.
+- `spend`, below. No read touches authentication, key or account state, so spend is never
+  split by billing scope; it is a token-based list-price estimate, not a bill.
+
+`spend` is `{requestedFromMs, fromMs, toMs, providers[]}`. `fromMs` is the start rounded up
+to five minutes (never before the request, and at most `toMs`) and `toMs` the cut's last
+closed five-minute boundary. `providers[]` has one row per billing vendor, ascending:
+`anthropic` (model ids starting `claude-`), `google` (`gemini-`) and `openai` (`gpt-`, and
+the unbilled `codex-auto-review`). The vendor comes from the model id, because a key is
+billed by its vendor whichever driver spent it; Digest owns the prefix map beside its price
+table. Every vendor has a row, so a vendor nothing was recorded for is a measured zero
+with its reasons. A row is `{provider, fromMs, toMs, models, total, pace}`: `models` are
+the sorted model ids that contributed, `total` covers `fromMs` to `toMs`, and `pace` holds
+one value for each of the 3, 6 and 24 hours before `toMs`, each with `windowMs`, `fromMs`
+and `toMs`. A value is `{usdMicros, complete, lowerBound, reasons}`.
+
+**Reads.** Digest collects every start it needs, all ending at `toMs`: `fromMs`, the three
+pace starts, and each UTC midnight on which a price row takes effect between the earliest
+of them and `toMs`. A start at least 65 minutes before `toMs` is read as its own rollup
+window (`maxBuckets: 1`, at most three windows per request). A nearer start is summed from
+the five-minute buckets of one 65-minute rollup window (`maxBuckets: 13`), so every value
+reads the same tier and ends at the same instant. Batches are the report's 16 seats.
+
+**Pricing.** A segment is the time between two consecutive starts: per seat and model, the
+longer window's row minus the shorter one's. Each segment lies inside one rate period, so
+each model share is [quoted](digest-v1.md#quotes) once over all four classes at the row in
+effect at the segment's start, and a value is the sum of its segments' quotes. A dated rate
+is never applied across its start.
+
+**Reasons.** Sorted ids; `complete` is true only when there are none, and `lowerBound` is
+true when there are some and `usdMicros` is a number:
+
+- `no_price`, `class_price_missing`, `unsafe_cost`: a share of that vendor could not be
+  priced; `usdMicros` is null.
+- `cache_write_unreported`: a share's cache writes went unreported where the provider bills
+  them, so the quote is a floor.
+- `attribution_split_dropped`: a shorter window holds more of a model than a longer one
+  (Core drops a split beyond four models); that segment of the model is not counted.
+- The rest reach every vendor, because the missing tokens could be anyone's:
+  `coverage_partial` (a seat's window is not fully covered, or has no evidence),
+  `before_retention` (Core keeps nothing for a seat before a later instant), `unattributed`
+  (tokens no model row covers), `unmapped_model` (a model id no vendor prefix names),
+  `retired_unread` (Core could not list every member retired since the start) and
+  `usage_unreadable` (a batch read failed; its warning is under `spend`).
+
+A consumer does its own budget arithmetic over these values and adds no price matcher. An
+incomplete value is not an exact balance.
 
 ## CSV
 
@@ -203,3 +278,5 @@ series (so no per-bucket `coveredMs`); use `--json` for them.
 
 The frozen [usage report vector](vectors/usage-report-v1.json) pins the join: Core's
 documents in, this document and the three tables out, with arithmetic written by hand.
+Its `spend from a period start` case pins the spend reads (`requests`, in order) and the
+`spend` section for Core's `answers` to them, priced by hand.
