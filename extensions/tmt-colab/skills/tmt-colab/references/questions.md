@@ -13,4 +13,7 @@ Use the returned page ID for PAGE. Save this as `ops.json`:
 [{"op":"insert","id":"10000000-0000-4000-8000-000000000001","type":"question","text":"Which day works?","props":{"kind":"single","choices":["Monday","Friday"]}}]
 ```
 
-The batch registers each question automatically. Answers follow the registry assignee or the page creator. Use [blocks](blocks.md) for edits. Grouped questions require [legacy HTML pages](legacy-html.md) (`tmt colab skill legacy-html`).
+The batch registers each question automatically. Answers follow the registry assignee or the page creator.
+Single- and multiple-choice questions provide **Other…** with a text field by default.
+List your authored choices in `props.choices` and leave the built-in choice to Colab.
+Use [blocks](blocks.md) for edits, or open **Edit question** from the block actions in the browser. Grouped questions require [legacy HTML pages](legacy-html.md) (`tmt colab skill legacy-html`).
