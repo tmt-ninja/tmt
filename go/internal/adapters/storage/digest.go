@@ -33,7 +33,8 @@ func digestIdentity(r records, id core.IdentityID) (*core.Identity, error) {
 
 func digestIsUser(r records, id core.IdentityID) (bool, error) {
 	var user bool
-	err := r.one("SELECT EXISTS(SELECT 1 FROM identity_metadata WHERE identity_id=? AND key='user' AND value='true')", id).Scan(&user)
+	err := r.one(`SELECT EXISTS(SELECT 1 FROM identity_metadata m JOIN identities i ON i.id=m.identity_id
+		WHERE m.identity_id=? AND m.key='user' AND m.value='true' AND i.retired_at_ms IS NULL)`, id).Scan(&user)
 	return user, err
 }
 

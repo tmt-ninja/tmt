@@ -25,7 +25,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO1-05: Native Digest, flow and capture retention with incremental page reclaim.
 - [ ] GO1-06: Atomic SQLite symlink refusal when opening the hook queue.
 - [ ] GO1-07: SQLite no-checkpoint-on-close connection option.
-- [ ] GO1-08: Digest holds and provider activity in the request delivery view.
+- [x] GO1-08: Digest holds and provider activity in the request delivery view.
 - [ ] GO1-09: Read footprint page counts when a WAL exists without an index.
 - [ ] GO1-10: Enumerate the full native Colab backup set in footprint.
 - [ ] GO1-11: Reply callbacks, provider capture and flow accounting.

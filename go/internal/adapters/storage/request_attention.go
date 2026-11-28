@@ -64,8 +64,13 @@ func (s *RequestService) ListX(ctx context.Context, q core.XQuery) (core.XPage, 
 	if !ok || q.Identity == "" || limit > maxExchangeLimit || !core.ValidJSSafeInteger(q.After) {
 		return core.XPage{}, requestFailure("X_INPUT_INVALID", "Invalid exchange list limit or cursor.", 1)
 	}
+	calendar, err := s.store.loadDigestCalendar(ctx)
+	if err != nil {
+		return core.XPage{}, err
+	}
 	page := core.XPage{Items: []core.XItem{}}
-	err := s.transact(ctx, true, func(r records, now uint64) error {
+	err = s.transact(ctx, true, func(r records, now uint64) error {
+		delivery := deliveryProjector{r: r, now: now, calendar: calendar}
 		keys, err := listAttention(r, scope, q, limit+1, now, false)
 		if err != nil {
 			return err
@@ -89,7 +94,7 @@ func (s *RequestService) ListX(ctx context.Context, q core.XQuery) (core.XPage, 
 			page.NextAfter = &next
 		}
 		for _, key := range keys {
-			item, _, err := projectAttention(r, key, now)
+			item, _, err := projectAttention(&delivery, key)
 			if err != nil {
 				return err
 			}
@@ -136,7 +141,8 @@ func getAttention(r records, scope attentionScope, identity core.IdentityID, id 
 	return key, err
 }
 
-func projectAttention(r records, key attentionKey, now uint64) (core.XItem, *core.RequestAttempt, error) {
+func projectAttention(delivery *deliveryProjector, key attentionKey) (core.XItem, *core.RequestAttempt, error) {
+	r, now := delivery.r, delivery.now
 	attempt, err := (requestRows{r}).FindByID(key.id)
 	if err != nil {
 		return core.XItem{}, nil, err
@@ -152,7 +158,7 @@ func projectAttention(r records, key attentionKey, now uint64) (core.XItem, *cor
 	if err != nil {
 		return core.XItem{}, nil, err
 	}
-	view, err := requestDeliveryView(r, key.id, now)
+	view, err := delivery.project(*attempt)
 	if err != nil {
 		return core.XItem{}, nil, err
 	}
@@ -211,13 +217,18 @@ func (s *RequestService) ShowX(ctx context.Context, identity core.IdentityID, di
 	if !ok || identity == "" || id == "" {
 		return core.XDetail{}, requestFailure("X_INPUT_INVALID", "Identifiers must be non-empty.", 1)
 	}
+	calendar, err := s.store.loadDigestCalendar(ctx)
+	if err != nil {
+		return core.XDetail{}, err
+	}
 	var detail core.XDetail
-	err := s.transact(ctx, true, func(r records, now uint64) error {
+	err = s.transact(ctx, true, func(r records, now uint64) error {
 		key, err := getAttention(r, scope, identity, id, now)
 		if err != nil {
 			return err
 		}
-		item, attempt, err := projectAttention(r, key, now)
+		delivery := deliveryProjector{r: r, now: now, calendar: calendar}
+		item, attempt, err := projectAttention(&delivery, key)
 		if err != nil {
 			return err
 		}

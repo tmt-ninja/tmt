@@ -10,8 +10,12 @@ func (s *RequestService) ReleaseSendNow(ctx context.Context, ref core.RequestRef
 	if ref == "" || caller == "" {
 		return core.SendNowRelease{}, requestState()
 	}
+	calendar, err := s.store.loadDigestCalendar(ctx)
+	if err != nil {
+		return core.SendNowRelease{}, err
+	}
 	var release core.SendNowRelease
-	err := s.transact(ctx, false, func(r records, now uint64) error {
+	err = s.transact(ctx, false, func(r records, now uint64) error {
 		id, err := selectResultID(r, core.RequestID(ref), now)
 		if err != nil {
 			return err
@@ -41,17 +45,22 @@ func (s *RequestService) ReleaseSendNow(ctx context.Context, ref core.RequestRef
 			return sendNowRefusal("SEND_NOW_CLOSED", "it already has an answer, or was withdrawn or expired")
 		}
 		recipient := *attempt.Route.Recipient
-		wake, err := readRequestWake(r, id)
+		projection := deliveryProjector{r: r, now: now, calendar: calendar}
+		view, err := projection.project(*attempt)
 		if err != nil {
 			return err
 		}
-		already, err := sendNowDelivery(r, *attempt, wake.observed(now), now)
-		if err != nil {
-			return err
-		}
-		release = core.SendNowRelease{RequestID: id, RecipientID: recipient, Already: already}
-		if already != nil {
+		release = core.SendNowRelease{RequestID: id, RecipientID: recipient}
+		switch view.State {
+		case "delivered", "working":
+			already := core.SendNowAlready(view.State)
+			release.Already = &already
 			return nil
+		case "unconfirmed":
+			return sendNowUnconfirmed(id)
+		}
+		if !view.CanSendNow {
+			return sendNowRefusal("SEND_NOW_NOT_AVAILABLE", view.ReasonText)
 		}
 		if _, err := r.exec(`DELETE FROM focus_items WHERE identity_id=? AND request_id=?
 			AND source='incoming' AND checklist_id IS NULL`, recipient, id); err != nil {
@@ -62,9 +71,7 @@ func (s *RequestService) ReleaseSendNow(ctx context.Context, ref core.RequestRef
 				return err
 			}
 		}
-		if wake.state == core.WakeUnavailable {
-			_, err = r.exec("UPDATE request_attempts SET wake_state='not_attempted' WHERE request_id=? AND wake_state='unavailable'", id)
-		}
+		_, err = r.exec("UPDATE request_attempts SET wake_state='not_attempted' WHERE request_id=? AND wake_state='unavailable'", id)
 		return err
 	})
 	if err != nil {
@@ -107,136 +114,4 @@ func sendNowUnconfirmed(id core.RequestID) *core.RequestFailure {
 	failure := sendNowRefusal("SEND_NOW_UNCONFIRMED", "an earlier delivery is unconfirmed, do not resend")
 	failure.Suggestion = "Inspect with 'tmt result " + string(id) + "'."
 	return failure
-}
-
-// Only the delivery facts that authorize an early release are needed here.
-func sendNowDelivery(r records, attempt core.RequestAttempt, state core.WakeState, now uint64) (*core.SendNowAlready, error) {
-	recipient, id := *attempt.Route.Recipient, attempt.RequestID
-	person, err := digestIsUser(r, recipient)
-	if err != nil {
-		return nil, err
-	}
-	if person && (attempt.Status == core.AttemptQueued || attempt.Status == core.AttemptSent) {
-		already := core.SendNowAlreadyDelivered
-		return &already, nil
-	}
-	var heldAtLimit bool
-	if err := r.one("SELECT EXISTS(SELECT 1 FROM orchestration_talk_holds WHERE request_id=?)", id).Scan(&heldAtLimit); err != nil {
-		return nil, err
-	}
-	switch {
-	case heldAtLimit && attempt.Status == core.AttemptDefinitelyFailed:
-		return nil, sendNowRefusal("SEND_NOW_NOT_AVAILABLE", "not sent, the talk-limit hold was not resumed in time")
-	case heldAtLimit && state == core.WakeNotAttempted:
-		return nil, sendNowRefusal("SEND_NOW_NOT_AVAILABLE", "held at the talk limit, sends when a person or a lead resumes the pair")
-	}
-	hold, err := readSendNowHold(r, recipient, id)
-	if err != nil {
-		return nil, err
-	}
-	switch {
-	case state == core.WakeUncertain || hold == sendNowHoldUnconfirmed:
-		return nil, sendNowUnconfirmed(id)
-	case state == core.WakeUnavailable:
-		return nil, nil
-	case state == core.WakeSent:
-		return sentWakeDisposition(r, attempt, now)
-	case hold == sendNowHoldDelivered:
-		already := core.SendNowAlreadyDelivered
-		return &already, nil
-	case state == core.WakeClaimed || hold == sendNowHoldClaimed:
-		return nil, sendNowRefusal("SEND_NOW_NOT_AVAILABLE", "waiting for delivery")
-	}
-	evidence, err := digestRecipientEvidence(r, recipient)
-	if err != nil && !isNoRows(err) {
-		return nil, err
-	}
-	if activity := wakeActivity(evidence); activity != nil && core.DigestPhase(activity.State) == core.DigestPhaseWaiting {
-		if hold == sendNowHoldOpen {
-			return nil, sendNowRefusal("SEND_NOW_NOT_AVAILABLE", "batched to save usage, sends when the agent finishes this turn")
-		}
-		return nil, sendNowRefusal("SEND_NOW_NOT_AVAILABLE", "waiting for the agent's approval prompt to clear")
-	}
-	return nil, nil
-}
-
-type sendNowHold uint8
-
-const (
-	sendNowHoldNone sendNowHold = iota
-	sendNowHoldOpen
-	sendNowHoldClaimed
-	sendNowHoldDelivered
-	sendNowHoldUnconfirmed
-)
-
-func readSendNowHold(r records, recipient core.IdentityID, id core.RequestID) (sendNowHold, error) {
-	var state *core.DigestState
-	var opportunity *core.DigestOpportunity
-	var confirmed *uint64
-	err := r.one(`SELECT c.state, c.opportunity, c.confirmed_at_ms FROM focus_items i
-		LEFT JOIN focus_checklists c ON c.id=i.checklist_id
-		WHERE i.identity_id=? AND i.request_id=? AND i.source='incoming'`, recipient, id).
-		Scan(&state, &opportunity, &confirmed)
-	if err != nil {
-		if isNoRows(err) {
-			return sendNowHoldNone, nil
-		}
-		return sendNowHoldNone, err
-	}
-	switch {
-	case state == nil || *state == core.DigestStateDefinitelyUnsent:
-		return sendNowHoldOpen, nil
-	case *state == core.DigestStateClaimed:
-		return sendNowHoldClaimed, nil
-	case *state == core.DigestStateDelivered:
-		if opportunity != nil && *opportunity == core.DigestOpportunityIdle && confirmed == nil {
-			return sendNowHoldUnconfirmed, nil
-		}
-		return sendNowHoldDelivered, nil
-	case *state == core.DigestStateUncertain:
-		return sendNowHoldUnconfirmed, nil
-	default:
-		return sendNowHoldNone, errDigestEvidence
-	}
-}
-
-func wakeActivity(evidence digestRecipient) *launchActivity {
-	if !evidence.supportsDigestIdle() {
-		return nil
-	}
-	return evidence.activity()
-}
-
-func sentWakeDisposition(r records, attempt core.RequestAttempt, now uint64) (*core.SendNowAlready, error) {
-	const workingWindowMs = 21_600_000
-	var started, ended *uint64
-	err := r.one("SELECT started_ms,ended_ms FROM request_turns WHERE request_id=?", attempt.RequestID).Scan(&started, &ended)
-	if err != nil && !isNoRows(err) {
-		return nil, err
-	}
-	evidence, err := digestRecipientEvidence(r, *attempt.Route.Recipient)
-	if err != nil && !isNoRows(err) {
-		return nil, err
-	}
-	activity := wakeActivity(evidence)
-	idle := activity != nil && core.DigestPhase(activity.State) == core.DigestPhaseIdle
-	if ended != nil || started != nil && (idle || now > *started && now-*started > workingWindowMs) {
-		return nil, sendNowUnconfirmed(attempt.RequestID)
-	}
-	already := core.SendNowAlreadyDelivered
-	since := attempt.PreparedAtMs
-	if attempt.SettledAtMs != nil {
-		since = *attempt.SettledAtMs
-	}
-	if activity != nil && !idle && evidence.binding.Session.StartRefusal == nil && activity.SinceMs >= since {
-		start := activity.SinceMs
-		if started != nil {
-			start = *started
-		}
-		if now <= start || now-start <= workingWindowMs {
-			already = core.SendNowAlreadyWorking
-		}
-	}
-	return &already, nil
 }
