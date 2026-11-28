@@ -143,15 +143,10 @@ func answerOperands(inv invocation) answerArguments {
 	return args
 }
 
-func (app application) incoming(ctx context.Context, inv invocation) output.Report {
-
+func (app application) incoming(ctx context.Context, inv invocation, selected identitySelection, body string) output.Report {
 	if inv.path[0] == "answer" {
 		args := answerOperands(inv)
-		body, failure := responseBody(app.stdin, inv, args.text)
-		if failure != nil {
-			return failure
-		}
-		me, from, failure := app.requestIdentities(ctx, inv, args.from)
+		me, from, failure := app.requestIdentities(ctx, selected, args.from)
 		if failure != nil {
 			return failure
 		}
@@ -162,7 +157,7 @@ func (app application) incoming(ctx context.Context, inv invocation) output.Repo
 		name := inv.options["from"]
 		sender = &name
 	}
-	me, from, failure := app.requestIdentities(ctx, inv, sender)
+	me, from, failure := app.requestIdentities(ctx, selected, sender)
 	if failure != nil {
 		return failure
 	}
@@ -170,23 +165,13 @@ func (app application) incoming(ctx context.Context, inv invocation) output.Repo
 	return app.inbox(ctx, me, from, limit)
 }
 
-func (app application) requestIdentities(ctx context.Context, inv invocation, sender *string) (me, from *core.Identity, failure *output.Failure) {
-	var claim callerClaim
-	var probe core.EndpointProbe
-	if !inv.has("identity") {
-		var failure *output.Failure
-		claim, probe, failure = app.caller.observe(ctx)
-		if failure != nil {
-			return nil, nil, failure
-		}
-	}
-	selector := inv.options["identity"]
+func (app application) requestIdentities(ctx context.Context, selected identitySelection, sender *string) (me, from *core.Identity, failure *output.Failure) {
 	err := app.store.Read(ctx, func(tx ports.StoreTx) error {
 		var err error
-		if inv.has("identity") {
-			me, err = core.ResolveIdentity(tx.Identities(), selector)
+		if selected.explicit != nil {
+			me, err = core.ResolveIdentity(tx.Identities(), *selected.explicit)
 		} else {
-			me, err = verifiedCaller(tx, claim, probe)
+			me, err = verifiedCaller(tx, selected.claim, selected.probe)
 		}
 		if err != nil || me == nil || sender == nil {
 			return err
@@ -198,10 +183,10 @@ func (app application) requestIdentities(ctx context.Context, inv invocation, se
 	case err != nil:
 		return nil, nil, &output.Failure{Code: "IDENTITY_ERROR", Message: "Could not read identity storage.", Status: 1}
 	case me == nil:
-		if !inv.has("identity") {
+		if selected.explicit == nil {
 			return nil, nil, identityRequired()
 		}
-		return nil, nil, identityMissing(selector)
+		return nil, nil, identityMissing(*selected.explicit)
 	case sender != nil && from == nil:
 		return nil, nil, identityMissing(*sender)
 	}

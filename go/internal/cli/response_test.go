@@ -34,7 +34,7 @@ func TestReplyPassesExactInputAndPublishesOnlyAcknowledgment(t *testing.T) {
 	t.Setenv("TMT_GO_HOME", t.TempDir())
 	for _, body := range []string{"", "\ufeff\r\n\x00—\n"} {
 		const id = "req_12345678-0000-4000-8000-000000000000"
-		const receipt = "opaque-proof"
+		const receipt = "v2_AAAAAAAAAAAAAAAAAAAAAA"
 		service := responseFake{submit: func(input core.SubmitResponse) (core.FinalResponse, error) {
 			want := core.SubmitResponse{RequestID: id, Receipt: receipt, Body: body}
 			if input != want {
@@ -53,10 +53,10 @@ func TestReplyRejectsInvalidInputBeforeCallingService(t *testing.T) {
 	app := application{requests: responseFake{}}
 	for _, tc := range []struct{ body, code string }{
 		{body: "\xff", code: "RESPONSE_INPUT_INVALID"},
-		{body: strings.Repeat("é", maxResponseBytes/2+1), code: "RESPONSE_INPUT_TOO_LARGE"},
+		{body: strings.Repeat("é", core.MaxExchangeTextBytes/2+1), code: "RESPONSE_INPUT_TOO_LARGE"},
 	} {
 		var stdout, stderr bytes.Buffer
-		args := []string{"reply", "req", "--receipt", "opaque-proof", "--message=" + tc.body, "--json"}
+		args := []string{"reply", "req", "--receipt", "v2_AAAAAAAAAAAAAAAAAAAAAA", "--message=" + tc.body, "--json"}
 		if status := app.run(context.Background(), args, &stdout, &stderr); status != 1 || stderr.Len() != 0 || !strings.Contains(stdout.String(), tc.code) {
 			t.Fatalf("exit = %d, stdout = %q, stderr = %q", status, &stdout, &stderr)
 		}
@@ -92,7 +92,7 @@ func TestReplyReadsExactFileAndStdinBodies(t *testing.T) {
 	app := application{requests: service, stdin: reader}
 	want := map[string]any{"status": "submitted", "requestId": "req", "bodyBytes": float64(len(body)), "submittedAtMs": float64(42)}
 	for _, source := range [][]string{{"--file", path}, {"--stdin"}} {
-		args := append([]string{"reply", "req", "--receipt", "opaque-proof", "--json"}, source...)
+		args := append([]string{"reply", "req", "--receipt", "v2_AAAAAAAAAAAAAAAAAAAAAA", "--json"}, source...)
 		assertResponse(t, app, args, 0, want)
 	}
 	if _, err := reader.Stat(); err != nil {
@@ -104,7 +104,7 @@ func TestReplyRejectsFileReadErrorsBeforeCallingService(t *testing.T) {
 	t.Setenv("TMT_GO_HOME", t.TempDir())
 	app := application{requests: responseFake{}}
 	path := filepath.Join(t.TempDir(), "missing-private-file")
-	assertResponse(t, app, []string{"reply", "req", "--receipt", "opaque-proof", "--file", path, "--json"}, 1, map[string]any{
+	assertResponse(t, app, []string{"reply", "req", "--receipt", "v2_AAAAAAAAAAAAAAAAAAAAAA", "--file", path, "--json"}, 1, map[string]any{
 		"error": map[string]any{"code": "RESPONSE_FILE_ERROR", "message": "Could not read response input file."},
 	})
 }
@@ -181,7 +181,7 @@ func TestServiceRejectionsKeepNativeCodesMessagesAndStatuses(t *testing.T) {
 			}
 			args := []string{tc.command, "12345678", "--json"}
 			if tc.command == "reply" {
-				args = append(args, "--receipt", "opaque-proof", "--message", "private body")
+				args = append(args, "--receipt", "v2_AAAAAAAAAAAAAAAAAAAAAA", "--message", "private body")
 			}
 			want := map[string]any{"error": map[string]any{"code": tc.reject.Code, "message": tc.reject.Message}}
 			assertResponse(t, application{requests: service}, args, tc.reject.Status, want)

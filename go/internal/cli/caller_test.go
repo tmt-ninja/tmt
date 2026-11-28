@@ -82,7 +82,11 @@ func TestCallerSelectionWithPrivateTmuxEvidence(t *testing.T) {
 	implicit := invocation{}
 	verify := func(inv invocation, want *core.Identity, code string) {
 		t.Helper()
-		got, _, failure := app.requestIdentities(ctx, inv, nil)
+		selected, failure := app.caller.selectIdentity(ctx, inv)
+		var got *core.Identity
+		if failure == nil {
+			got, _, failure = app.requestIdentities(ctx, selected, nil)
+		}
 		if got != want || failureCode(failure) != code {
 			t.Fatalf("selected %+v with %v, want %+v and %s", got, failure, want, code)
 		}

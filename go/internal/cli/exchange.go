@@ -154,16 +154,12 @@ func (r exchangeShowReport) Human(w io.Writer) error {
 	return err
 }
 
-func (app application) exchange(ctx context.Context, inv invocation) output.Report {
+func (app application) exchange(ctx context.Context, inv invocation, selected identitySelection) output.Report {
 	action := "ls"
 	if len(inv.path) == 2 {
 		action = inv.path[1]
 	}
-	if action == "flow" || action == "listen" {
-		// NOT PORTED (#6938): content-free flow and inbox listen are outside the initial service.
-		return &output.Failure{Code: "NOT_PORTED", Message: fmt.Sprintf("Command 'x %s' is not yet ported.", action), Status: 2}
-	}
-	me, _, failure := app.requestIdentities(ctx, inv, nil)
+	me, _, failure := app.requestIdentities(ctx, selected, nil)
 	if failure != nil {
 		return failure
 	}

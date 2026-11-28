@@ -23,6 +23,7 @@ type callerSelector struct {
 	probe  func(context.Context, ports.PaneRef) (core.EndpointProbe, error)
 }
 
+// systemCaller is wired after the tmux adapter selects the isolated marker namespace.
 func systemCaller() callerSelector {
 	return callerSelector{
 		lookup: os.LookupEnv,
@@ -35,6 +36,20 @@ func systemCaller() callerSelector {
 			return client.ProbeBinding(ctx, pane)
 		},
 	}
+}
+
+type identitySelection struct {
+	explicit *string
+	claim    callerClaim
+	probe    core.EndpointProbe
+}
+
+func (s callerSelector) selectIdentity(ctx context.Context, inv invocation) (identitySelection, *output.Failure) {
+	if name, present := inv.options["identity"]; present {
+		return identitySelection{explicit: &name}, nil
+	}
+	claim, probe, failure := s.observe(ctx)
+	return identitySelection{claim: claim, probe: probe}, failure
 }
 
 type callerClaim struct {

@@ -13,8 +13,6 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/output"
 )
 
-const maxResponseBytes = 1_048_576
-
 type responseReport struct {
 	Status        string         `json:"status"`
 	RequestID     core.RequestID `json:"requestId"`
@@ -48,18 +46,7 @@ func (r responseReport) Human(w io.Writer) error {
 	}
 }
 
-func (app application) response(ctx context.Context, inv invocation) output.Report {
-	if inv.path[0] == "reply" {
-		return app.reply(ctx, inv)
-	}
-	return app.result(ctx, inv.operands[0])
-}
-
-func (app application) reply(ctx context.Context, inv invocation) output.Report {
-	body, failure := responseBody(app.stdin, inv, inv.options["message"])
-	if failure != nil {
-		return failure
-	}
+func (app application) reply(ctx context.Context, inv invocation, body string) output.Report {
 	final, err := app.requests.SubmitResponse(ctx, core.SubmitResponse{
 		RequestID: core.RequestID(inv.operands[0]),
 		Receipt:   core.Receipt(inv.options["receipt"]),
@@ -79,9 +66,9 @@ func responseBody(stdin *os.File, inv invocation, inline string) (string, *outpu
 	var err error
 	switch {
 	case inv.has("file"):
-		data, err = process.ReadInputFile(inv.options["file"], maxResponseBytes)
+		data, err = process.ReadInputFile(inv.options["file"], core.MaxExchangeTextBytes)
 	case inv.has("stdin"):
-		data, err = process.ReadInputStdin(stdin, maxResponseBytes)
+		data, err = process.ReadInputStdin(stdin, core.MaxExchangeTextBytes)
 	default:
 		data = []byte(inline)
 	}
@@ -92,7 +79,7 @@ func responseBody(stdin *os.File, inv invocation, inline string) (string, *outpu
 		return "", &output.Failure{Code: "RESPONSE_FILE_ERROR", Message: "Could not read response input file.", Status: 1}
 	case err != nil:
 		return "", &output.Failure{Code: "RESPONSE_INPUT_INVALID", Message: "Response input must be complete valid UTF-8 and cannot be a TTY.", Status: 1}
-	case len(data) > maxResponseBytes:
+	case len(data) > core.MaxExchangeTextBytes:
 		return "", &output.Failure{Code: "RESPONSE_INPUT_TOO_LARGE", Message: "Response body must not exceed 1048576 UTF-8 bytes.", Status: 1}
 	case !utf8.Valid(data):
 		message := "Response input is invalid."
