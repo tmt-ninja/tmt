@@ -53,7 +53,7 @@ func admitStartup(ctx context.Context, payload []byte, capture StartupCapture, o
 	default:
 		return false, nil
 	}
-	main, err := proveStartup(ctx, capture.Identity, binding, capture.Probe, recordedIncarnation(&capture.Owner),
+	main, err := proveManagedHook(ctx, capture.Identity, binding, capture.Probe, recordedIncarnation(&capture.Owner),
 		observer, hookPID, reportedPID, hasReportedPID)
 	if err != nil || !main.Valid() {
 		return false, err

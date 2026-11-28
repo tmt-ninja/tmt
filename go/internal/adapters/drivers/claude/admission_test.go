@@ -37,13 +37,19 @@ func (tx activityTx) Bindings() ports.BindingRepo { return tx.repo }
 
 type activityRepo struct {
 	ports.BindingRepo
-	calls []ports.LaunchActivityObservation
-	ok    bool
-	err   error
+	calls   []ports.LaunchActivityObservation
+	prompts []ports.DigestPromptObservation
+	ok      bool
+	err     error
 }
 
 func (r *activityRepo) ObserveLaunchActivity(observation ports.LaunchActivityObservation) (bool, error) {
 	r.calls = append(r.calls, observation)
+	return r.ok, r.err
+}
+
+func (r *activityRepo) ObserveDigestPrompt(observation ports.DigestPromptObservation) (bool, error) {
+	r.prompts = append(r.prompts, observation)
 	return r.ok, r.err
 }
 

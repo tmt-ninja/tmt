@@ -58,7 +58,11 @@ func (app application) runHook(ctx context.Context, root home.Root, inv invocati
 	deadline, _ := ctx.Deadline()
 	const limit = 64 * 1024
 	body, err := process.ReadInputStdinFor(app.stdin, limit, time.Until(deadline))
-	if err != nil || !claude.IsStartupHook(body) || ctx.Err() != nil {
+	if err != nil || ctx.Err() != nil {
+		return hookReport{}
+	}
+	prompt := claude.PromptSession(body) != ""
+	if !prompt && !claude.IsStartupHook(body) {
 		return hookReport{}
 	}
 	claim, probe, failure := app.caller.observe(ctx)
@@ -84,7 +88,12 @@ func (app application) runHook(ctx context.Context, root home.Root, inv invocati
 	if !ok {
 		return hookReport{}
 	}
-	_, _ = claude.AdmitStartup(ctx, body, capture, runtime.Observer{Process: process.Runner{}}, store)
+	observer := runtime.Observer{Process: process.Runner{}}
+	if prompt {
+		_, _ = claude.AdmitDigestPrompt(ctx, body, capture, observer, store)
+	} else {
+		_, _ = claude.AdmitStartup(ctx, body, capture, observer, store)
+	}
 	return hookReport{}
 }
 

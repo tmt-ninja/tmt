@@ -46,12 +46,12 @@ func checkInitialIdle(ctx context.Context, payload []byte, startupInput bool, id
 	if !expected.Valid() {
 		return false, nil
 	}
-	main, err := proveStartup(ctx, identity, binding, probe, recordedIncarnation(binding.Session.LaunchOwner),
+	main, err := proveManagedHook(ctx, identity, binding, probe, recordedIncarnation(binding.Session.LaunchOwner),
 		observer, hookPID, reportedPID, hasReportedPID)
 	return err == nil && main == expected, err
 }
 
-func proveStartup(ctx context.Context, identity core.Identity, binding core.Binding, probe core.EndpointProbe,
+func proveManagedHook(ctx context.Context, identity core.Identity, binding core.Binding, probe core.EndpointProbe,
 	owner runtime.Incarnation, observer readinessObserver, hookPID int, reportedPID string, hasReportedPID bool,
 ) (runtime.Incarnation, error) {
 	owned, pane := core.EvaluateBinding(identity, &binding, probe)

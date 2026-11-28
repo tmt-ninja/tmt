@@ -37,7 +37,7 @@ func TestHookCoordinatesRejectUnknownAndDuplicateFields(t *testing.T) {
 	}
 }
 
-func TestNonStartupHookDoesNotProbeHostOrOpenStorage(t *testing.T) {
+func TestStopHookDoesNotProbeHostOrOpenStorage(t *testing.T) {
 	const payload = `{"hook_event_name":"Stop","session_id":"fixture"}`
 	raw, err := json.Marshal(hookCoordinates{IdentityID: "identity", BindingID: "binding",
 		Owner: core.ProcessIncarnation{PID: 42, StartIdentity: hookStart}})
@@ -65,7 +65,7 @@ func TestNonStartupHookDoesNotProbeHostOrOpenStorage(t *testing.T) {
 			return string(raw), true
 		},
 		probe: func(context.Context, ports.PaneRef) (core.EndpointProbe, error) {
-			t.Fatal("non-start hook probed a host")
+			t.Fatal("Stop hook probed a host")
 			return core.EndpointProbe{}, nil
 		},
 	}, store: refusingHookStore{t: t}}
@@ -82,6 +82,6 @@ type refusingHookStore struct {
 }
 
 func (store refusingHookStore) Read(context.Context, func(ports.StoreTx) error) error {
-	store.t.Fatal("non-start hook opened storage")
+	store.t.Fatal("Stop hook opened storage")
 	return nil
 }
