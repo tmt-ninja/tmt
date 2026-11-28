@@ -34,14 +34,15 @@ func (tx fakeHookLaunchTx) Bindings() ports.BindingRepo { return tx.repo }
 
 type fakeHookLaunchRepo struct {
 	ports.BindingRepo
-	creates []ports.LaunchIntent
-	accept  bool
-	admit   func(ports.LaunchAdmission) (*core.Binding, error)
+	creates   []ports.LaunchIntent
+	accept    bool
+	createErr error
+	admit     func(ports.LaunchAdmission) (*core.Binding, error)
 }
 
 func (r *fakeHookLaunchRepo) CreateLaunchIntent(intent ports.LaunchIntent) (bool, error) {
 	r.creates = append(r.creates, intent)
-	return r.accept, nil
+	return r.accept, r.createErr
 }
 
 func (r *fakeHookLaunchRepo) AdmitLaunch(admission ports.LaunchAdmission) (*core.Binding, error) {
@@ -76,9 +77,9 @@ func TestPrepareHookLaunchScopesHooksAndRecordsIntentBeforeSpawn(t *testing.T) {
 			store := &fakeHookLaunchStore{repo: fakeHookLaunchRepo{accept: tc.accept}}
 			c := hookLaunchCoordinator{store: store, now: func() time.Time { return now }}
 			input := ports.ProcessSpec{Path: "/bin/sh", Args: tc.args, Env: []string{hookLaunchEnv + "=old", "TMT_EXECUTABLE=/old/tmt"}}
-			command, intent, err := c.prepare(t.Context(), root, binding, tc.provider, input, owner, executable, true)
+			command, intent, err := c.prepare(t.Context(), root, binding, tc.provider, input, owner, executable, true, nil)
 			if len(store.repo.creates) != 1 || store.repo.creates[0].Expected.ID != binding.ID ||
-				store.repo.creates[0].Owner != owner || store.repo.creates[0].Driver != tc.provider ||
+				store.repo.creates[0].Resume != nil || store.repo.creates[0].Owner != owner || store.repo.creates[0].Driver != tc.provider ||
 				store.repo.creates[0].CreatedAtMs != uint64(now.UnixMilli()) ||
 				store.repo.creates[0].ExpiresAtMs != uint64(now.Add(hookLaunchLifetime).UnixMilli()) {
 				t.Fatalf("launch intents = %+v", store.repo.creates)
@@ -182,7 +183,7 @@ func TestHookLaunchCoordinatorPersistsExactRuntime(t *testing.T) {
 
 			now := time.UnixMilli(2200)
 			c := hookLaunchCoordinator{store: store, now: func() time.Time { return now }}
-			_, intent, err := c.prepare(ctx, root, *binding, provider, ports.ProcessSpec{Path: "/bin/sh"}, owner, exe, true)
+			_, intent, err := c.prepare(ctx, root, *binding, provider, ports.ProcessSpec{Path: "/bin/sh"}, owner, exe, true, nil)
 			if err != nil || intent == nil {
 				t.Fatalf("prepare intent = %+v, %v", intent, err)
 			}
@@ -219,4 +220,56 @@ func TestHookLaunchCoordinatorPersistsExactRuntime(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHookLaunchResumePassesFenceAndPreservesTypedFailures(t *testing.T) {
+	root := home.Root{Dir: t.TempDir()}
+	executable := filepath.Join(root.Dir, "tmt-go")
+	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	binding := core.Binding{ID: "binding", IdentityID: "identity", PaneIncarnation: new(hookStart)}
+	owner := core.ProcessIncarnation{PID: 52, StartIdentity: hookStart}
+	expectation := &core.ResumeExpectation{ProviderSession: "exact-session"}
+	store := &fakeHookLaunchStore{repo: fakeHookLaunchRepo{accept: true}}
+	c := hookLaunchCoordinator{store: store, now: func() time.Time { return time.UnixMilli(100) }}
+	prepare := func() (*hookLaunchIntent, error) {
+		_, intent, err := c.prepare(t.Context(), root, binding, core.DriverCodex,
+			ports.ProcessSpec{Path: "/bin/sh"}, owner, executable, true, expectation)
+		return intent, err
+	}
+	intent, err := prepare()
+	if err != nil || intent == nil || intent.Resume != expectation || store.repo.creates[0].Resume != expectation {
+		t.Fatalf("intent = %+v, error = %v", intent, err)
+	}
+	rejected := &core.RequestFailure{Code: "RUNTIME_CONFLICT", Status: 5, Reason: "fixture"}
+	store.repo.createErr = rejected
+	if _, err := prepare(); err != rejected {
+		t.Fatalf("prepare error = %v", err)
+	}
+	store.repo.createErr, store.repo.accept = nil, false
+	if _, err := prepare(); !isResumeDrift(err) {
+		t.Fatalf("refused prepare error = %v", err)
+	}
+
+	main := core.ProcessIncarnation{PID: 53, StartIdentity: hookStart}
+	store.repo.admit = func(sent ports.LaunchAdmission) (*core.Binding, error) {
+		if sent.Intent.Resume != expectation {
+			t.Fatalf("admit lost expectation: %+v", sent.Intent)
+		}
+		return nil, rejected
+	}
+	if _, err := c.admit(t.Context(), intent, main); err != rejected {
+		t.Fatalf("admit error = %v", err)
+	}
+	store.repo.admit = func(ports.LaunchAdmission) (*core.Binding, error) { return nil, nil }
+	if _, err := c.admit(t.Context(), intent, main); !isResumeDrift(err) ||
+		!strings.Contains(err.Error(), "Inspect the pane") {
+		t.Fatalf("refused admission error = %v", err)
+	}
+}
+
+func isResumeDrift(err error) bool {
+	var failure *core.RequestFailure
+	return errors.As(err, &failure) && failure.Code == "RUNTIME_CONFLICT" && failure.Status == 5 && failure.Reason == "resume_drift"
 }

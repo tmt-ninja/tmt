@@ -33,6 +33,12 @@ type hookLaunchCoordinator struct {
 func (app application) prepareHookLaunch(ctx context.Context, root home.Root, binding core.Binding, provider string,
 	command ports.ProcessSpec, startupInput bool,
 ) (ports.ProcessSpec, *hookLaunchIntent, error) {
+	return app.prepareHookLaunchWithResume(ctx, root, binding, provider, command, startupInput, nil)
+}
+
+func (app application) prepareHookLaunchWithResume(ctx context.Context, root home.Root, binding core.Binding, provider string,
+	command ports.ProcessSpec, startupInput bool, expectation *core.ResumeExpectation,
+) (ports.ProcessSpec, *hookLaunchIntent, error) {
 	executable, err := os.Executable()
 	if err != nil {
 		return ports.ProcessSpec{}, nil, err
@@ -46,7 +52,7 @@ func (app application) prepareHookLaunch(ctx context.Context, root home.Root, bi
 	}
 	owner := core.ProcessIncarnation{PID: uint64(observed.Incarnation.PID), StartIdentity: observed.Incarnation.Start}
 	coordinator := hookLaunchCoordinator{store: app.store, now: time.Now}
-	return coordinator.prepare(ctx, root, binding, core.DriverName(provider), command, owner, executable, startupInput)
+	return coordinator.prepare(ctx, root, binding, core.DriverName(provider), command, owner, executable, startupInput, expectation)
 }
 
 // admitHookLaunch commits an independently verified foreground observation
@@ -64,7 +70,7 @@ func (app application) admitHookLaunch(ctx context.Context, _ home.Root, intent 
 // prepare records the intent before handing the caller a launchable command.
 // The caller has already verified the binding and the launch-owner incarnation.
 func (c hookLaunchCoordinator) prepare(ctx context.Context, root home.Root, binding core.Binding,
-	provider core.DriverName, command ports.ProcessSpec, owner core.ProcessIncarnation, executable string, startupInput bool,
+	provider core.DriverName, command ports.ProcessSpec, owner core.ProcessIncarnation, executable string, startupInput bool, expectation *core.ResumeExpectation,
 ) (ports.ProcessSpec, *hookLaunchIntent, error) {
 	if c.store == nil || !filepath.IsAbs(root.Dir) || !filepath.IsAbs(executable) || !invoke.IsExecutable(executable) ||
 		binding.ID == "" || binding.IdentityID == "" || binding.PaneIncarnation == nil || !validHookIncarnation(owner) {
@@ -103,7 +109,7 @@ func (c hookLaunchCoordinator) prepare(ctx context.Context, root home.Root, bind
 
 	now := c.now()
 	intent := hookLaunchIntent{Expected: binding, Owner: owner, Driver: provider,
-		CreatedAtMs: uint64(now.UnixMilli()), ExpiresAtMs: uint64(now.Add(hookLaunchLifetime).UnixMilli())}
+		CreatedAtMs: uint64(now.UnixMilli()), ExpiresAtMs: uint64(now.Add(hookLaunchLifetime).UnixMilli()), Resume: expectation}
 	var created bool
 	err := c.store.Write(ctx, func(tx ports.StoreTx) error {
 		var err error
@@ -114,7 +120,7 @@ func (c hookLaunchCoordinator) prepare(ctx context.Context, root home.Root, bind
 		return ports.ProcessSpec{}, nil, err
 	}
 	if !created {
-		return ports.ProcessSpec{}, nil, errHookLaunchChanged
+		return ports.ProcessSpec{}, nil, hookLaunchConflict(expectation, false)
 	}
 	return command, &intent, nil
 }
@@ -139,9 +145,20 @@ func (c hookLaunchCoordinator) admit(ctx context.Context, intent *hookLaunchInte
 		return nil, err
 	}
 	if binding == nil {
-		return nil, errHookLaunchChanged
+		return nil, hookLaunchConflict(intent.Resume, true)
 	}
 	return binding, nil
+}
+
+func hookLaunchConflict(expectation *core.ResumeExpectation, childStarted bool) error {
+	if expectation == nil {
+		return errHookLaunchChanged
+	}
+	message := "The identity changed before resume. No new agent was launched; check the old pane and retry."
+	if childStarted {
+		message = "The identity changed during resume. Inspect the pane before retrying."
+	}
+	return &core.RequestFailure{Code: "RUNTIME_CONFLICT", Status: 5, Reason: "resume_drift", Message: message}
 }
 
 func validHookIncarnation(process core.ProcessIncarnation) bool {
