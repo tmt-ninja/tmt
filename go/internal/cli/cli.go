@@ -58,6 +58,8 @@ func (app application) run(ctx context.Context, args []string, stdout, stderr io
 		err = renderHelp(stdout, invocation.path)
 	case invocation.version:
 		_, err = fmt.Fprintf(stdout, "tmt-go %s\n", Version)
+	case invocation.path[0] == "learn":
+		err = writeLearn(stdout, invocation)
 	case invocation.path[0] == "__completion-script":
 		err = writeCompletionScript(stdout, invocation.operands[0])
 	case invocation.path[0] == "__complete":

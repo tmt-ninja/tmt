@@ -74,6 +74,10 @@ func (s *argumentScan) option(chain []*commandSpec, opt *optionSpec, value strin
 		s.setValue(opt, tail[0])
 		return 1
 	}
+	if opt.defaultValue != "" {
+		s.setValue(opt, opt.defaultValue)
+		return 0
+	}
 	s.reject("A value is required for '--%s'.", opt.name)
 	return 0
 }
@@ -224,6 +228,10 @@ func validateCommand(command *commandSpec, parsed invocation) string {
 		if operand.required && len(parsed.operands) <= i {
 			return fmt.Sprintf("Missing required argument '<%s>'.", operand.name)
 		}
+	}
+
+	if command.name == "learn" {
+		return learnUsage(parsed)
 	}
 
 	required, conflicts, requires := commandConstraints(parsed)

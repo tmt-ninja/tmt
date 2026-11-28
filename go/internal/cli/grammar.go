@@ -3,12 +3,13 @@ package cli
 import "slices"
 
 type optionSpec struct {
-	name, help string
-	short      rune
-	value      bool
-	hyphen     bool
-	hidden     bool
-	repeat     bool
+	name, help   string
+	short        rune
+	value        bool
+	defaultValue string
+	hyphen       bool
+	hidden       bool
+	repeat       bool
 }
 
 type operandSpec struct {
@@ -116,6 +117,8 @@ var options = []optionSpec{
 	{name: "mood", value: true},
 	{name: "for", value: true, hyphen: true},
 	{name: "prefix", value: true},
+	{name: "skill", value: true, defaultValue: "tmt"},
+	{name: "topics"},
 	{name: "check"},
 	{name: "global"},
 	{name: "activity-only", hidden: true},
@@ -134,6 +137,7 @@ var grammar = commandSpec{
 		{name: "host", summary: "Inspect the terminal hosts TMT can drive", children: []commandSpec{
 			{name: "templates", summary: "Show the default launch templates"},
 		}},
+		{name: "learn", summary: "Read agent guidance", humanOnly: true, options: []string{"skill", "topics"}, operands: []operandSpec{optional("TOPIC")}},
 		{name: "completion", summary: "Check shell completion setup", operands: []operandSpec{optional("shell")}},
 		{name: "storage", summary: "Show what local stores occupy on disk"},
 		{name: "init", summary: "Create workspace settings"},
