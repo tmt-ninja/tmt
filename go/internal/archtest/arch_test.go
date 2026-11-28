@@ -118,8 +118,10 @@ func TestLayerRules(t *testing.T) {
 			}
 
 			switch {
-			case under(f.pkg, "internal/jobcalendar"), under(f.pkg, "internal/hostgrammar"):
-				if internal && !under(target, f.pkg) && !(f.test && under(target, "test")) {
+			case under(f.pkg, "internal/jobcalendar"), under(f.pkg, "internal/hostgrammar"),
+				under(f.pkg, "internal/driverprotocol"), under(f.pkg, "internal/ptyprotocol"):
+				leafOK := under(target, f.pkg) || (under(f.pkg, "internal/driverprotocol") && under(target, "internal/hostgrammar"))
+				if internal && !leafOK && !(f.test && under(target, "test")) {
 					fail("pure leaves import no other TMT package")
 				}
 				if !internal && !stdlib(imp) {
