@@ -9,6 +9,7 @@ import (
 )
 
 func TestEndLaunchRefusesSupersededRuntimeAndSettlesOnlyExactCapture(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
 	ctx := t.Context()
@@ -93,6 +94,7 @@ func TestEndLaunchRefusesSupersededRuntimeAndSettlesOnlyExactCapture(t *testing.
 }
 
 func TestCanClosePaneRequiresExactEndedBindingWithoutLiveLaunch(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
 	ctx := t.Context()

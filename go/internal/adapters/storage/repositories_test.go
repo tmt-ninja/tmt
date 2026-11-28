@@ -25,6 +25,7 @@ func testStorage(t *testing.T) *Storage {
 }
 
 func TestStoreTransactions(t *testing.T) {
+	t.Parallel()
 	store := testStorage(t)
 	ctx := t.Context()
 	identity := core.Identity{
@@ -82,6 +83,7 @@ func TestStoreTransactions(t *testing.T) {
 }
 
 func TestRequestRepositoryRoundTrip(t *testing.T) {
+	t.Parallel()
 	store := testStorage(t)
 	const recipient core.IdentityID = "recipient"
 	id := recipient

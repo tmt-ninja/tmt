@@ -8,6 +8,7 @@ import (
 )
 
 func TestHookQueueProvisionedAndRepairedByMainStore(t *testing.T) {
+	t.Parallel()
 	root := testRoot(t)
 	ctx := t.Context()
 	queuePath := filepath.Join(root.Dir, hookQueueFilename)
@@ -56,6 +57,7 @@ func assertHookQueueReady(t *testing.T, path string) {
 }
 
 func TestMigration84RefusesForeignQueueBeforePublishingReceiptSchema(t *testing.T) {
+	t.Parallel()
 	root := testRoot(t)
 	ctx := t.Context()
 	if err := secureDirectory(root.Dir); err != nil {
@@ -102,6 +104,7 @@ func TestMigration84RefusesForeignQueueBeforePublishingReceiptSchema(t *testing.
 }
 
 func TestCurrentMainOpenLeavesIncompatibleQueueUntouched(t *testing.T) {
+	t.Parallel()
 	root := testRoot(t)
 	ctx := t.Context()
 	store, err := Open(ctx, root)

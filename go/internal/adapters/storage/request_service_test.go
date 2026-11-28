@@ -62,6 +62,7 @@ func requireRequestFailure(t *testing.T, err error, code string, status int) *co
 }
 
 func TestRequestServiceKeepsLateFinalUnread(t *testing.T) {
+	t.Parallel()
 	store, service, clock := seedRequestService(t)
 	ctx := t.Context()
 	in := inboxRequest("req_abcdef01-0000-4000-8000-000000000001")
@@ -139,6 +140,7 @@ func TestRequestServiceKeepsLateFinalUnread(t *testing.T) {
 }
 
 func TestRequestServiceNativeReplyRejections(t *testing.T) {
+	t.Parallel()
 	_, service, clock := seedRequestService(t)
 	ctx := t.Context()
 	prepared, err := service.Prepare(ctx, paneRequest("live"))
@@ -197,6 +199,7 @@ func TestRequestServiceNativeReplyRejections(t *testing.T) {
 }
 
 func TestResultPrefixUsesNativeBoundsAndBoundedAmbiguity(t *testing.T) {
+	t.Parallel()
 	_, service, _ := seedRequestService(t)
 	ctx := t.Context()
 	for i := range 7 {
@@ -224,6 +227,7 @@ func TestResultPrefixUsesNativeBoundsAndBoundedAmbiguity(t *testing.T) {
 }
 
 func TestAnswerRequiresUnambiguousRecordedRecipient(t *testing.T) {
+	t.Parallel()
 	_, service, _ := seedRequestService(t)
 	ctx := t.Context()
 	for _, id := range []core.RequestID{"one", "two"} {
@@ -250,6 +254,7 @@ func TestAnswerRequiresUnambiguousRecordedRecipient(t *testing.T) {
 }
 
 func TestRequestRetentionPrunesOnWriteAndPreservesPinnedFinal(t *testing.T) {
+	t.Parallel()
 	store, service, clock := seedRequestService(t)
 	ctx := t.Context()
 

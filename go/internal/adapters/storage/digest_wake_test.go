@@ -49,6 +49,7 @@ func holdStorageFixture(t *testing.T) *Storage {
 }
 
 func TestPrepareNilPolicyPreservesLegacyRows(t *testing.T) {
+	t.Parallel()
 	modern, legacy := holdStorageFixture(t), holdStorageFixture(t)
 	ctx := t.Context()
 	in := holdRequest()
@@ -121,6 +122,7 @@ func snapshotRequestTestTable(t *testing.T, db *sql.DB, table string) [][]any {
 }
 
 func TestExplicitPaneRequestNeverHolds(t *testing.T) {
+	t.Parallel()
 	store := holdStorageFixture(t)
 	ctx := t.Context()
 	in := optIntoRequestHold(holdRequest())
@@ -145,6 +147,7 @@ func TestExplicitPaneRequestNeverHolds(t *testing.T) {
 }
 
 func TestRequestHoldQueuesAtomicallyAndSnapshotsStoredActivity(t *testing.T) {
+	t.Parallel()
 	store := holdStorageFixture(t)
 	ctx := t.Context()
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
@@ -229,6 +232,7 @@ func TestRequestHoldQueuesAtomicallyAndSnapshotsStoredActivity(t *testing.T) {
 }
 
 func TestWakeCandidatesAndScanNeverRewriteAdmission(t *testing.T) {
+	t.Parallel()
 	store := holdStorageFixture(t)
 	ctx := t.Context()
 	if _, err := store.db.ExecContext(ctx, "INSERT INTO orchestration_pending_wakes(identity_id,released_classes,released_at_ms) VALUES (?,1,11000),(?,1,11000)",

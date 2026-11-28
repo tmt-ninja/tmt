@@ -9,6 +9,7 @@ import (
 )
 
 func TestLaunchIntentAdmitsMatchingStagedClaudeEvidence(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
 	ctx := t.Context()
@@ -120,6 +121,7 @@ func TestLaunchIntentAdmitsMatchingStagedClaudeEvidence(t *testing.T) {
 }
 
 func TestLaunchAdmissionWithoutStagedEvidenceDoesNotInventSessionOrActivity(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
 	intent := ports.LaunchIntent{

@@ -14,6 +14,7 @@ const orchSecondJob = "4c881613-65a1-41e2-a91a-0ad7fa1c45c1"
 const orchPlanID = "66a4f2b0-7ec1-4229-bf76-f8fb617fec64"
 
 func TestReadJobsFiltersPagesAndProjectsPolicyAndRuns(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	store := bindingFixture(t)
 	message := strings.Repeat("界", 100) + " final marker"
@@ -135,6 +136,7 @@ func TestOrchJobsAndOwnerPolicyStayOnPinnedSnapshot(t *testing.T) {
 }
 
 func TestOrchPolicySnapshotUsesNativeMemberCapAndFilterOrder(t *testing.T) {
+	t.Parallel()
 	store := testStorage(t)
 	ctx := t.Context()
 	identities := make([]core.Identity, orchSnapshotMemberLimit+1)
@@ -185,6 +187,7 @@ func TestOrchPolicySnapshotUsesNativeMemberCapAndFilterOrder(t *testing.T) {
 }
 
 func TestOrchPolicySnapshotMatchesFollowingDigestReceivingRead(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	ctx := t.Context()
 	if _, err := store.db.ExecContext(ctx, "INSERT INTO orchestration_settings(id,revision,time_zone) VALUES (1,8,'UTC')"); err != nil {

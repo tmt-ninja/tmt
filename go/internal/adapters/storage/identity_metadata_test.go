@@ -11,6 +11,7 @@ import (
 )
 
 func TestMetadataApplyConflictIsAtomicAndFiltersAreConjunctive(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	ctx := t.Context()
 	active, other := bindingOwnerID, bindingOtherID
@@ -67,6 +68,7 @@ func TestMetadataApplyConflictIsAtomicAndFiltersAreConjunctive(t *testing.T) {
 }
 
 func TestMetadataApplyCapAndFailedMutationRollBack(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	ctx := t.Context()
 	id := bindingOwnerID
@@ -118,6 +120,7 @@ func TestMetadataApplyCapAndFailedMutationRollBack(t *testing.T) {
 }
 
 func TestIdentityStatusRetainsStaleEvidenceAndSeparatesRetirement(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	ctx := t.Context()
 	id := bindingOwnerID
@@ -197,6 +200,7 @@ func TestIdentityStatusRetainsStaleEvidenceAndSeparatesRetirement(t *testing.T) 
 }
 
 func TestMetadataAndStatusRejectInvalidInputsBeforeWriting(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	ctx := t.Context()
 	id := bindingOwnerID

@@ -38,6 +38,7 @@ func seedDigestRequest(t *testing.T, s *Storage, n uint64, urgent bool) (core.Re
 }
 
 func TestDigestClaimSealsExactPrefixAndSettlesOnce(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	store := bindingFixture(t)
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
@@ -160,6 +161,7 @@ func TestDigestClaimSealsExactPrefixAndSettlesOnce(t *testing.T) {
 }
 
 func TestDigestReceivingSummaryFreezeAndWakeAdmission(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	store := bindingFixture(t)
 	first, _ := seedDigestRequest(t, store, 1, false)
@@ -248,6 +250,7 @@ func TestDigestCalendarPinsDSTBoundaries(t *testing.T) {
 }
 
 func TestDigestRefusesUnknownStoredEnums(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	seedDigestRequest(t, store, 1, false)
 	ctx := t.Context()
@@ -266,6 +269,7 @@ func TestDigestRefusesUnknownStoredEnums(t *testing.T) {
 }
 
 func TestDigestLaunchRechecksAndReapsStrandedTurn(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	ctx := t.Context()
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))

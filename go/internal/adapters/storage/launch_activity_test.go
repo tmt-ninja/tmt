@@ -11,6 +11,7 @@ import (
 )
 
 func TestLaunchActivityStagesOnlyExistingUnexpiredMatchingIntent(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
 	observation := ports.LaunchActivityObservation{
@@ -68,6 +69,7 @@ func TestLaunchActivityStagesOnlyExistingUnexpiredMatchingIntent(t *testing.T) {
 }
 
 func TestAdmittedLaunchActivityPreservesAnyExistingExactTurn(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
 	ctx := t.Context()

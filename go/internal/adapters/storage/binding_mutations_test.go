@@ -76,6 +76,7 @@ func publishBindingFixture(t *testing.T, store *Storage, reservation core.Bindin
 }
 
 func TestBindingReservationAndMoveFence(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	original := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
 	move := reservationFixture(bindingID2, bindingOwnerID, "%2")
@@ -153,6 +154,7 @@ func TestBindingReservationAndMoveFence(t *testing.T) {
 }
 
 func TestBindingMoveAdmitsOnlyTheSameSettledRuntime(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
 	if _, err := store.db.ExecContext(t.Context(), `UPDATE bindings SET runtime_state='running', last_transition='started',
@@ -196,6 +198,7 @@ func TestBindingMoveAdmitsOnlyTheSameSettledRuntime(t *testing.T) {
 }
 
 func TestRenameAndRetirePreserveIdentityHistory(t *testing.T) {
+	t.Parallel()
 	store := bindingFixture(t)
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
 	request := inboxRequest("preserved-request")
