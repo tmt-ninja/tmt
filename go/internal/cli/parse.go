@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/output"
@@ -264,9 +265,7 @@ func validateOperands(parsed invocation) string {
 			return "Option '--identity' cannot be used with a name."
 		}
 	case "run":
-		if host := parsed.options["host"]; parsed.has("host") && !slices.Contains([]string{"tmux", "herdr", "pty"}, host) {
-			return fmt.Sprintf("Invalid value '%s' for '--host'.", host)
-		}
+		return validateRunOperands(parsed)
 	case "talk":
 		if parsed.has("timeout") && parsed.has("detach") {
 			return "Use either --timeout or --detach, not both."
@@ -288,6 +287,36 @@ func validateOperands(parsed invocation) string {
 		return validateExchangeOptions(parsed)
 	}
 	return ""
+}
+
+func validateRunOperands(inv invocation) string {
+	if host := inv.options["host"]; inv.has("host") && !slices.Contains([]string{"tmux", "herdr", "pty"}, host) {
+		return fmt.Sprintf("Invalid value '%s' for '--host'.", host)
+	}
+	name := inv.operands[0]
+	if !utf8.ValidString(name) {
+		return "Identity name must be valid UTF-8."
+	}
+	if len(inv.operands) == 1 {
+		return ""
+	}
+	if !nativeRunProvider(name) && strings.HasPrefix(inv.operands[1], "-") {
+		return "The command must not start with '-'. TMT options go before the name: tmt-go run -s Alice <command>."
+	}
+	if inv.has("resume") {
+		return "Use `tmt-go run --resume <name>` to resume, or pass the command's own flags after the name; do not combine both forms."
+	}
+	return ""
+}
+
+// The grammar preserves native provider tails even for executables outside the
+// phase 1 driver set. Selection and host admission happen after parsing.
+func nativeRunProvider(executable string) bool {
+	switch executable {
+	case "claude", "codex", "gemini", "agy", "pi", "opencode", "muse", "cursor-agent":
+		return true
+	}
+	return false
 }
 
 func validateContent(parsed invocation, inline bool) string {

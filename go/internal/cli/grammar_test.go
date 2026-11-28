@@ -127,3 +127,25 @@ func TestParseFailureOutputStreams(t *testing.T) {
 		t.Fatalf("exit %d, stdout %q, stderr %q", status, &stdout, &stderr)
 	}
 }
+
+func TestRunSeparatesLaunchOptionsFromProviderArguments(t *testing.T) {
+	args := []string{"run", "--save", "codex", "--json", "--help", "--", string([]byte{0xff})}
+	inv, failure := parse(args)
+	if failure != nil || !inv.has("save") || inv.json || inv.help || !slices.Equal(inv.operands, args[2:]) {
+		t.Fatalf("provider launch = %+v, %v", inv, failure)
+	}
+	for _, option := range []string{"-s", "--save", "--resume", "--help", "-", "--"} {
+		_, failure := parse([]string{"run", "Worker", option})
+		if failure == nil || failure.Code != "USAGE_ERROR" || !strings.Contains(failure.Message, "TMT options go before the name") {
+			t.Fatalf("misplaced %q: failure = %+v", option, failure)
+		}
+	}
+	_, failure = parse([]string{"run", "--resume", "Worker", "codex"})
+	if failure == nil || failure.Code != "USAGE_ERROR" || !strings.Contains(failure.Message, "do not combine") {
+		t.Fatalf("resume with explicit command: failure = %+v", failure)
+	}
+	_, failure = parse([]string{"run", string([]byte{0xff}), "codex"})
+	if failure == nil || failure.Code != "USAGE_ERROR" || failure.Message != "Identity name must be valid UTF-8." {
+		t.Fatalf("invalid name: failure = %+v", failure)
+	}
+}
