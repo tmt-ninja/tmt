@@ -161,6 +161,8 @@ jobs:
           # One list selects the suite cases and defines the expected counts.
           cases = {
               "native": [
+                  ("test/native/binding.test.ts", "filters ls by lifetime and refuses --here outside tmux"),
+                  ("test/native/binding.test.ts", "aligns Unicode and variable-length names in the human ls list"),
                   ("test/native/api.test.ts", "ends an incomplete session frame after publishing only the preceding complete response"),
                   ("test/native/api.test.ts", "bounds incomplete and oversized input before opening storage"),
                   ("test/native/extension-command.test.ts", "executes the exact tail, preserves stdin/output/exit and exposes the invoking executable"),

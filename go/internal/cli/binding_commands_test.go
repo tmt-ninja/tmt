@@ -3,9 +3,12 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -165,4 +168,55 @@ func otherFlavorTMUXOption(name string) string {
 		return "@tmt-go." + name
 	}
 	return "@tmt." + name
+}
+
+func TestListHerePinsCallerSessionAndServerBeforeOpeningStorage(t *testing.T) {
+	server := tmuxtest.Start(t)
+	world := t.TempDir()
+	t.Setenv("HOME", world)
+	t.Setenv(flavor.EnvHome, filepath.Join(world, "state"))
+	pane := strings.TrimSpace(server.Run("display-message", "-p", "#{pane_id}"))
+	peer := strings.TrimSpace(server.Run("new-session", "-d", "-s", "separate", "-P", "-F", "#{pane_id}", "cat"))
+	pid := strings.TrimSpace(server.Run("display-message", "-p", "#{pid}"))
+
+	app := systemApplication()
+	claim := server.Socket + "," + pid + ",0"
+	app.caller.lookup = func(key string) (string, bool) {
+		switch key {
+		case "TMUX":
+			return claim, true
+		case "TMUX_PANE":
+			return pane, true
+		}
+		return "", false
+	}
+	run := func(status int, args ...string) string {
+		t.Helper()
+		var out, stderr bytes.Buffer
+		if got := app.run(t.Context(), append(args, "--json"), &out, &stderr); got != status || stderr.Len() != 0 {
+			t.Fatalf("%q exit %d, stdout=%q stderr=%q", args, got, &out, &stderr)
+		}
+		return out.String()
+	}
+	run(0, "add", pane, "Here")
+	run(0, "add", peer, "Elsewhere")
+	var rows struct{ Identities []struct{ Name string } }
+	if data := run(0, "ls", "--here"); json.Unmarshal([]byte(data), &rows) != nil ||
+		len(rows.Identities) != 1 || rows.Identities[0].Name != "Here" {
+		t.Fatalf("here list = %s", data)
+	}
+
+	fresh := filepath.Join(world, "must-not-open")
+	t.Setenv(flavor.EnvHome, fresh)
+	actualPID, err := strconv.Atoi(pid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claim = server.Socket + "," + strconv.Itoa(actualPID+1) + ",0"
+	if data := run(3, "ls", "--here"); !strings.Contains(data, "PANE_NOT_FOUND") {
+		t.Fatalf("stale caller claim = %s", data)
+	}
+	if _, err := os.Stat(fresh); !os.IsNotExist(err) {
+		t.Fatalf("unverified caller opened storage: %v", err)
+	}
 }

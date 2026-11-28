@@ -35,19 +35,27 @@ type bindingCLI struct {
 	host    bindingHost
 	lookup  func(string) (string, bool)
 	process func(context.Context, int) (runtime.Observation, error)
+	here    *tmux.PaneSnapshot
 	now     func() uint64
 }
 
 // runBinding is the invocation boundary for delegated binding commands.
 // Host effects are composed outside Store.Read and Store.Write.
 func (app application) runBinding(ctx context.Context, root home.Root, inv invocation) (report output.Report) {
-	store := app.store
-	if store == nil {
+	cli := newBindingCLI(app.store, app.caller.lookup)
+	if inv.path[0] == "ls" && inv.has("here") {
+		var failure *output.Failure
+		cli.here, failure = cli.listHere(ctx)
+		if failure != nil {
+			return failure
+		}
+	}
+	if cli.store == nil {
 		opened, err := storage.Open(ctx, root)
 		if err != nil {
 			return bindingFailure("IDENTITY_ERROR", "Could not open identity storage.", 1)
 		}
-		store = opened
+		cli.store = opened
 		defer func() {
 			if err := opened.Close(); err != nil {
 				if _, failed := report.(*output.Failure); !failed {
@@ -56,7 +64,6 @@ func (app application) runBinding(ctx context.Context, root home.Root, inv invoc
 			}
 		}()
 	}
-	cli := newBindingCLI(store, app.caller.lookup)
 	return cli.run(ctx, inv)
 }
 

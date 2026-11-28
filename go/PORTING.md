@@ -240,6 +240,8 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 
 ### Native test mappings from merged main
 
+- `typescript/test/native/binding.test.ts` lifetime filtering, outside-tmux `ls --here` refusal and Unicode list alignment run unchanged in the parity manifest. `TestListHerePinsCallerSessionAndServerBeforeOpeningStorage` verifies the exact caller session and refuses a conflicting server claim before opening storage.
+
 - `rust/crates/tmt-cli/src/parser/tests/messaging.rs` listener timing bounds → `TestExchangeListenValidatesNativeTimingOptions`. The manifest runs five unchanged native `exchange.test.ts` and `inbox.test.ts` cases for retired or foreign selectors, explicit offline identity, legacy flag refusal, recipient pull and acknowledgement boundaries.
 
 - `rust/crates/tmt-cli/src/parser/tests/messaging.rs` Remote UUID pin and passthrough-option constraints → `TestTalkAdmissionMatchesNativeRemoteAndPassthroughOptions`. The manifest runs two unchanged `test/native/talk.test.ts` preflight cases for timing/config and missing recipients against both executables.

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
+	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/flavor"
@@ -193,6 +194,24 @@ func (b bindingCLI) whoami(ctx context.Context, inv invocation) output.Report {
 	}}
 }
 
+func (b bindingCLI) listHere(ctx context.Context) (*tmux.PaneSnapshot, *output.Failure) {
+	claim, failure := b.callerClaim()
+	host, ok := b.host.(markedHost)
+	if failure == nil && ok {
+		seen, err := host.Discover(ctx, claim.pane.Server, claim.pane.PaneID)
+		if err == nil && !seen.Truncated && len(seen.Candidates) == 1 {
+			pane := seen.Candidates[0]
+			if pane.Pane == claim.pane && pane.Server.PID == claim.serverPID &&
+				!pane.Linked && pane.Session != "" && pane.Process.StartIdentity != "" {
+				return &pane, nil
+			}
+		}
+	}
+	failure = bindingFailure("PANE_NOT_FOUND", "`"+flavor.Binary+" ls --here` needs a tmux pane, and this is not one.", 3)
+	failure.Suggestion = "Run it inside tmux, or drop --here to list every agent."
+	return nil, failure
+}
+
 func (b bindingCLI) list(ctx context.Context, inv invocation) output.Report {
 	for _, option := range []string{"room", "detected"} {
 		if inv.has(option) {
@@ -206,18 +225,6 @@ func (b bindingCLI) list(ctx context.Context, inv invocation) output.Report {
 	}
 	if len(inv.operands) > 0 {
 		return b.listTarget(ctx, inv.operands[0], b.socket(inv.options["socket"]))
-	}
-	var here *ports.PaneEvidence
-	if inv.has("here") {
-		claim, failed := b.callerClaim()
-		if failed == nil {
-			here = b.paneDetails(ctx, claim.pane)
-		}
-		if here == nil {
-			failure := bindingFailure("PANE_NOT_FOUND", "`"+flavor.Binary+" ls --here` needs a tmux pane, and this is not one.", 3)
-			failure.Suggestion = "Run it inside tmux, or drop --here to list every agent."
-			return failure
-		}
 	}
 	var entries []bindingEntry
 	err := b.store.Read(ctx, func(tx ports.StoreTx) error {
@@ -248,7 +255,8 @@ func (b bindingCLI) list(ctx context.Context, inv invocation) output.Report {
 	rows := []bindingPresence{}
 	for _, entry := range entries {
 		p := b.presence(ctx, entry)
-		if here != nil && (p.pane == nil || p.pane.Location == nil || p.pane.Location.Session != here.Session || entry.binding.Server.Socket != here.Pane.Server) {
+		if b.here != nil && (p.pane == nil || p.pane.Location == nil || p.pane.Location.Session != b.here.Session ||
+			entry.binding.Server.Socket != b.here.Pane.Server || entry.binding.Server.PID != b.here.Server.PID) {
 			continue
 		}
 		if inv.has("socket") && entry.binding != nil && entry.binding.Server.Socket != inv.options["socket"] {
