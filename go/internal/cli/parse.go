@@ -198,6 +198,9 @@ func parse(args []string) (invocation, *output.Failure) {
 	if parsed.json && command.name == "resume" {
 		return fail("USAGE_ERROR", "Unknown option or argument 'json' for resume.\nUsage: tmt-go resume [OPTIONS] [name]\nTry `tmt-go help resume` for supported options.")
 	}
+	if parsed.json && command.name == "run" && parsed.has("resume") {
+		return fail("USAGE_ERROR", "Unknown option or argument 'json' for run.\nUsage: tmt-go run [OPTIONS] <AGENT [ARGS...] | NAME [COMMAND...]>...\nTry `tmt-go help run` for supported options.")
+	}
 	if parsed.json && command.humanOnly {
 		return fail("JSON_UNSUPPORTED", "This command does not support --json.")
 	}

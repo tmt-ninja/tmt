@@ -23,12 +23,13 @@ type runPlan struct {
 	binding  bindingSelection
 	provider string
 	command  ports.ProcessSpec
+	resume   *core.ResumeExpectation
 }
 
 func prepareRun(root home.Root, inv invocation) (runPlan, *output.Failure) {
-	if inv.has("resume") || inv.has("channel") {
-		// NOT PORTED (CLI-01, CLI-23): Remembered-session resume and channel enrollment.
-		return runPlan{}, bindingUnavailable("--resume/--channel")
+	if inv.has("channel") {
+		// NOT PORTED (CLI-23): Channel enrollment.
+		return runPlan{}, bindingUnavailable("--channel")
 	}
 	if host := inv.options["host"]; host != "" && host != "tmux" {
 		// NOT PORTED (CLI-25): Built-in and external launch hosts.
@@ -76,6 +77,9 @@ func prepareRun(root home.Root, inv invocation) (runPlan, *output.Failure) {
 }
 
 func (app application) runProvider(ctx context.Context, root home.Root, inv invocation, stdout, stderr io.Writer) int {
+	if inv.has("resume") {
+		return app.runResume(ctx, root, inv, stdout, stderr)
+	}
 	plan, failure := prepareRun(root, inv)
 	if failure != nil {
 		return publish(stdout, stderr, failure, false)

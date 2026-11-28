@@ -14,6 +14,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
+	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -36,8 +37,15 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 		return publish(stdout, stderr, bindingUnverified(), false)
 	}
 
-	command, intent, err := app.prepareHookLaunch(ctx, root, *entry.binding, plan.provider, plan.command, true)
+	command, intent, err := app.prepareHookLaunchWithResume(ctx, root, *entry.binding, plan.provider, plan.command, true, plan.resume)
 	if err != nil || intent == nil {
+		var typed *core.RequestFailure
+		if errors.As(err, &typed) && typed != nil {
+			return publish(stdout, stderr, resumeOutputFailure(typed), false)
+		}
+		if plan.resume != nil && (err == nil || errors.Is(err, errHookLaunchChanged)) {
+			return publish(stdout, stderr, resumeConflict(), false)
+		}
 		failure := bindingFailure("RUN_LAUNCH_FAILED", "Could not prepare the provider launch intent. No agent was launched.", 1)
 		return publish(stdout, stderr, failure, false)
 	}
@@ -65,6 +73,7 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 	defer tick.Stop()
 	defer cancel()
 	var admitted *core.Binding
+	var admissionFailure *output.Failure
 	for startup.Err() == nil {
 		select {
 		case err := <-exited:
@@ -78,7 +87,11 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 				return foregroundExit(err)
 			default:
 			}
-			admitted, _ = app.admitHookLaunch(startup, root, intent, main)
+			var err error
+			admitted, err = app.admitHookLaunch(startup, root, intent, main)
+			if plan.resume != nil && admitted == nil {
+				admissionFailure = resumeAdmissionFailure(err)
+			}
 			break
 		}
 		select {
@@ -90,10 +103,13 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 	}
 	cancel()
 	tick.Stop()
-	if admitted == nil {
+	if admitted == nil && admissionFailure == nil {
 		_ = warn(stderr, "command started, but runtime ownership could not be recorded; automatic delivery is not established")
 	}
 	waited := <-exited
+	if admissionFailure != nil {
+		return publish(stdout, stderr, admissionFailure, false)
+	}
 	if admitted != nil && child.ProcessState != nil {
 		if err := settleForeground(ctx, store, *admitted); err != nil {
 			_ = warn(stderr, "could not settle the exited runtime; inspect identity status before retrying")

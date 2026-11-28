@@ -124,7 +124,7 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 	case "add", "name", "rm", "mv", "whoami", "ls":
 		return publish(stdout, stderr, app.runBinding(ctx, root, invocation), invocation.json)
 	case "resume":
-		return publish(stdout, stderr, app.runResumeInspect(ctx, root, invocation), false)
+		return app.runResume(ctx, root, invocation, stdout, stderr)
 	case "run":
 		return app.runProvider(ctx, root, invocation, stdout, stderr)
 	case "__hook":

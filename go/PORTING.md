@@ -60,7 +60,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 
 ## go-3 (cli, output)
 
-- [ ] `CLI-01` Implement `resume` and `run --resume` with a verified remembered session, plus forget, retry, move, fresh start and driver switching.
+- [ ] `CLI-01` Complete resume with provider session presence checks, preset replay, Gemini, forget, retry, move, fresh start and driver switching.
 - [ ] `CLI-02` Implement `send-now` with authorization, a claim on the original queued attempt and verified delivery settlement.
 - [ ] `CLI-03` Implement `focus`, `focus --client` and `focus --into` with verified client and pane evidence.
 - [ ] `CLI-04` Implement `discover` with bounded candidate evidence, classification and discovery digests.
