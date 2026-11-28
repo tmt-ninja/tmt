@@ -251,6 +251,15 @@ impl Store {
             self.connection.total_changes(),
         ))
     }
+    pub(crate) fn history_cloud_bound(&self, page: &str) -> StoreResult<bool> {
+        Ok(self.connection.query_row(
+            "SELECT EXISTS(SELECT 1 FROM cloud_publications WHERE page=?1)
+                 OR EXISTS(SELECT 1 FROM cloud_page_rows WHERE page=?1)",
+            [page],
+            |row| row.get(0),
+        )?)
+    }
+
     pub(crate) fn pinned_content_checkpoint(
         &self,
         page: &str,
@@ -600,7 +609,7 @@ impl Store {
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        let result = append_in(&tx, envelope, self.clock.as_ref(), equivocation);
+        let result = append_in(&tx, envelope, Some(self.clock.as_ref()), equivocation);
         if result.is_ok() {
             tx.commit()?;
         }
@@ -622,56 +631,16 @@ impl Store {
         envelope: &Envelope<'_>,
         signer: Option<&str>,
     ) -> StoreResult<Accepted> {
-        validate(envelope)?;
-        let s = envelope.scope;
-        let epoch = s.epoch.to_string();
-        let seq = sequence(envelope.seq);
-        let digest = Sha256::digest(envelope.bytes).to_vec();
         let tx = self
             .connection
             .transaction_with_behavior(TransactionBehavior::Immediate)?;
-        current(&tx, s)?;
-        unfrozen(&tx, s)?;
-        let head: Option<Vec<u8>> = tx
-            .query_row(
-                "SELECT hash FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=?",
-                params![s.page, epoch, s.stream, seq],
-                |r| r.get(0),
-            )
-            .optional()?;
-        if head.as_deref() != Some(envelope.previous.as_slice()) {
-            return Err(Fault::Gap);
+        let accepted = checkpoint_in(&tx, envelope, signer)?;
+        if accepted == Accepted::Replay {
+            return Ok(accepted);
         }
-        let old: Option<(Vec<u8>,Vec<u8>)> = tx.query_row("SELECT hash,digest FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq=?",
-            params![s.page,epoch,s.stream,envelope.namespace.name(),seq], |r| Ok((r.get(0)?,r.get(1)?))).optional()?;
-        if let Some((hash, stored)) = old {
-            return if hash == envelope.hash && stored == digest {
-                Ok(Accepted::Replay)
-            } else {
-                Err(Fault::Conflict)
-            };
-        }
-        let latest: Option<String> = tx.query_row(
-            "SELECT max(seq) FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=?",
-            params![s.page,epoch,s.stream,envelope.namespace.name()], |r| r.get(0))?;
-        if latest.is_some_and(|latest| seq <= latest) {
-            return Err(Fault::StaleCheckpoint);
-        }
-        tx.execute(
-            "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload,signer) VALUES (?,?,?,?,?,?,?,?,?,?)",
-            params![
-                s.page,
-                epoch,
-                s.stream,
-                envelope.namespace.name(),
-                seq,
-                envelope.hash.as_slice(),
-                digest,
-                envelope.previous.as_slice(),
-                envelope.bytes,
-                signer
-            ],
-        )?;
+        let s = envelope.scope;
+        let epoch = s.epoch.to_string();
+        let seq = sequence(envelope.seq);
         // Sequence/hash continuity belongs to the shared stream, not a namespace.
         // Receipt rows survive pruning, so this test remains valid after compaction.
         let paired: bool = tx.query_row(
@@ -689,8 +658,9 @@ impl Store {
         if paired {
             schema::reclaim(&self.connection);
         }
-        Ok(Accepted::New)
+        Ok(accepted)
     }
+
     /// Install a verified checkpoint pair (or owner fold pair) for a stream this machine holds
     /// nothing of, so its tail can follow from the sequence after it. A fold brings the update it
     /// binds, which is stored as the receipt at that sequence and kept un-pruned like a local fold's
@@ -1317,10 +1287,68 @@ enum Equivocation {
     /// The original is refused and the stream is untouched.
     Refuse,
 }
+/// Stage a checkpoint in the caller's transaction. The caller owns pruning and capacity.
+fn checkpoint_in(
+    tx: &Connection,
+    envelope: &Envelope<'_>,
+    signer: Option<&str>,
+) -> StoreResult<Accepted> {
+    validate(envelope)?;
+    let s = envelope.scope;
+    let epoch = s.epoch.to_string();
+    let seq = sequence(envelope.seq);
+    let digest = Sha256::digest(envelope.bytes).to_vec();
+    current(tx, s)?;
+    unfrozen(tx, s)?;
+    let head: Option<Vec<u8>> = tx
+        .query_row(
+            "SELECT hash FROM receipts WHERE page=? AND epoch=? AND stream=? AND seq=?",
+            params![s.page, epoch, s.stream, seq],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if head.as_deref() != Some(envelope.previous.as_slice()) {
+        return Err(Fault::Gap);
+    }
+    let old: Option<(Vec<u8>,Vec<u8>)> = tx.query_row("SELECT hash,digest FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=? AND seq=?",
+            params![s.page,epoch,s.stream,envelope.namespace.name(),seq], |r| Ok((r.get(0)?,r.get(1)?))).optional()?;
+    if let Some((hash, stored)) = old {
+        return if hash == envelope.hash && stored == digest {
+            Ok(Accepted::Replay)
+        } else {
+            Err(Fault::Conflict)
+        };
+    }
+    let latest: Option<String> = tx.query_row(
+        "SELECT max(seq) FROM checkpoints WHERE page=? AND epoch=? AND stream=? AND namespace=?",
+        params![s.page, epoch, s.stream, envelope.namespace.name()],
+        |r| r.get(0),
+    )?;
+    if latest.is_some_and(|latest| seq <= latest) {
+        return Err(Fault::StaleCheckpoint);
+    }
+    tx.execute(
+            "INSERT INTO checkpoints(page,epoch,stream,namespace,seq,hash,digest,head,payload,signer) VALUES (?,?,?,?,?,?,?,?,?,?)",
+            params![
+                s.page,
+                epoch,
+                s.stream,
+                envelope.namespace.name(),
+                seq,
+                envelope.hash.as_slice(),
+                digest,
+                envelope.previous.as_slice(),
+                envelope.bytes,
+                signer
+            ],
+        )?;
+    Ok(Accepted::New)
+}
+
 fn append_in(
     tx: &Connection,
     envelope: &Envelope<'_>,
-    clock: &Clock,
+    clock: Option<&Clock>,
     equivocation: Equivocation,
 ) -> StoreResult<Option<Accepted>> {
     validate(envelope)?;
@@ -1367,7 +1395,9 @@ fn append_in(
     if previous != envelope.previous {
         return Err(Fault::Conflict);
     }
-    capacity(tx, s.page, envelope.bytes.len(), true)?;
+    if clock.is_some() {
+        capacity(tx, s.page, envelope.bytes.len(), true)?;
+    }
     tx.execute(
         "INSERT INTO receipts VALUES (?,?,?,?,?,?,?,?)",
         params![
@@ -1383,6 +1413,11 @@ fn append_in(
     )?;
     // Every new update counts, whichever namespace it is in: the store only sees sealed bytes,
     // so it cannot tell a comment or reply from an Ask record in the `own` stream.
+    let Some(clock) = clock else {
+        // The recovery transaction checks capacity after staging and pruning.
+        // Its projection-neutral receipt does not record an edit.
+        return Ok(Some(Accepted::New));
+    };
     let now = touch_activity(tx, s.page, clock)?;
     if envelope.namespace == Namespace::Content {
         tx.execute("UPDATE pages SET last_update_at_ms=CASE WHEN last_update_at_ms IS NULL OR last_update_at_ms<?1 THEN ?1 ELSE last_update_at_ms END WHERE page=?2",

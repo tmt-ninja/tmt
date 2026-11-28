@@ -741,10 +741,13 @@ impl OwnerTransaction<'_> {
         &mut self,
         envelope: &super::Envelope<'_>,
     ) -> Result<super::Accepted> {
-        Ok(
-            super::append_in(self.tx, envelope, self.clock, super::Equivocation::Freeze)?
-                .ok_or(super::Fault::Conflict)?,
-        )
+        Ok(super::append_in(
+            self.tx,
+            envelope,
+            Some(self.clock),
+            super::Equivocation::Freeze,
+        )?
+        .ok_or(super::Fault::Conflict)?)
     }
     /// Only content/device projection writes belong here; membership head stays unchanged.
     pub(crate) fn content_savepoint<T>(

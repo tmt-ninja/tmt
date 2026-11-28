@@ -13408,6 +13408,16 @@ fn page_compact_history_current_preserves_native_edits() {
 
 #[test]
 fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
+    verify_history_recovery(false);
+}
+
+#[test]
+#[ignore = "capacity-scale recovery proof; run explicitly with --ignored"]
+fn history_recovery_restores_capacity_after_hundreds_of_whole_rewrites() {
+    verify_history_recovery(true);
+}
+
+fn verify_history_recovery(fill_to_capacity: bool) {
     let pilot = Pilot::new(None);
     let file = pilot.root.join("storage-source.html");
     fs::write(&file, "<p>Keep this page</p>").unwrap();
@@ -13465,10 +13475,45 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
         browser.append(&mut store, &key, page, &[record, comment]);
         store.close().unwrap();
     }
-    for revision in 0..201 {
-        let source = format!("<p>{}</p>", sha256_hex(&revision.to_string()));
-        fs::write(&file, source).unwrap();
-        pilot.patch_call(page, &["--file", file.to_str().unwrap(), "--json"]);
+    let mut refused_source = None;
+    if fill_to_capacity {
+        const CHARACTERS: &[u8] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut state = 0x4567_89ab_cdef_0123_u64;
+        for revision in 0..320 {
+            let fragment: String = (0..32768)
+                .map(|_| {
+                    state ^= state << 13;
+                    state ^= state >> 7;
+                    state ^= state << 17;
+                    char::from(CHARACTERS[state as usize % CHARACTERS.len()])
+                })
+                .collect();
+            let source = format!("<p>{fragment}</p>");
+            fs::write(&file, &source).unwrap();
+            let write = pilot
+                .patch_command(page)
+                .args(["--file", file.to_str().unwrap(), "--json"])
+                .output()
+                .unwrap();
+            if !write.status.success() {
+                let problem: Value = serde_json::from_slice(&write.stdout).unwrap();
+                assert_eq!(problem["error"]["code"], "COLAB_CAPACITY", "{problem}");
+                assert!(
+                    revision >= 150,
+                    "only {revision} whole rewrites before capacity"
+                );
+                refused_source = Some(source);
+                break;
+            }
+        }
+        assert!(refused_source.is_some());
+    } else {
+        for revision in 0..201 {
+            let source = format!("<p>{}</p>", sha256_hex(&revision.to_string()));
+            fs::write(&file, source).unwrap();
+            pilot.patch_call(page, &["--file", file.to_str().unwrap(), "--json"]);
+        }
     }
     let before = pilot.call(&["page", "read", page, "--json"]);
     let storage = pilot.call(&["storage", "--json"]);
@@ -13518,7 +13563,13 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
         "{history}"
     );
     assert!(history["writeFits"].is_null());
-    fs::write(&file, "<p>Proposed replacement</p>").unwrap();
+    fs::write(
+        &file,
+        refused_source
+            .as_deref()
+            .unwrap_or("<p>Proposed replacement</p>"),
+    )
+    .unwrap();
     let measured = pilot.call(&[
         "page",
         "reclaim",
@@ -13543,6 +13594,133 @@ fn storage_reclaim_dry_run_keeps_the_page_and_reports_integer_bytes() {
     let after = pilot.call(&["page", "read", page, "--json"]);
     assert_eq!(before["source"], after["source"]);
     assert_eq!(before["revision"], after["revision"]);
+
+    // Start from a compacted page and fail after the signed decision and anchor were staged.
+    let layout = tmt_colab::keyring::Layout::existing(&pilot.root.join("selected"))
+        .unwrap()
+        .unwrap();
+    let key = tmt_colab::keyring::Keyring::read(&layout).unwrap();
+    let mut store = tmt_colab::store::Store::write_existing(&layout).unwrap();
+    let mut decoder =
+        tmt_colab::decoder::Decoder::with_config(support::decoder_config(BINARY.into())).unwrap();
+    let oracle = rusqlite::Connection::open(&db).unwrap();
+    let records = |sql| {
+        oracle
+            .prepare(sql)
+            .unwrap()
+            .query_map([], |row| row.get::<_, Vec<u8>>(0))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    };
+    let wrap_query = "SELECT envelope FROM wraps ORDER BY page,epoch,kind,recipient,revision";
+    let recipient_query = "SELECT record FROM recipients ORDER BY kind,id";
+    let discussion_query = "SELECT payload FROM receipts WHERE namespace='own' AND payload IS NOT NULL ORDER BY stream,seq";
+    let wraps = records(wrap_query);
+    let recipients = records(recipient_query);
+    let own_payloads = records(discussion_query);
+    oracle.execute_batch(
+        "CREATE TRIGGER refuse_recovery BEFORE INSERT ON checkpoints BEGIN SELECT RAISE(ABORT,'recovery fixture'); END;"
+    ).unwrap();
+    let recover = |store: &mut tmt_colab::store::Store,
+                   decoder: &mut tmt_colab::decoder::Decoder| {
+        tmt_colab::page::compact::discard_history(
+            store,
+            &key,
+            page,
+            "30000000-0000-4000-8000-000000000001",
+            decoder,
+            |_, loss| {
+                assert!(loss.checkpoints > 0);
+                Ok(())
+            },
+        )
+    };
+    assert!(recover(&mut store, &mut decoder).is_err());
+    store.close().unwrap();
+    assert_eq!(
+        pilot.call(&["page", "read", page, "--json"])["revision"],
+        before["revision"]
+    );
+    assert_eq!(pilot.call(&["threads", page, "--json"]), discussion);
+
+    oracle
+        .execute_batch("DROP TRIGGER refuse_recovery")
+        .unwrap();
+    let without_yes = pilot
+        .command()
+        .args([
+            "page",
+            "reclaim",
+            page,
+            "--discard-content-history",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(!without_yes.status.success());
+    assert_eq!(
+        pilot.call(&["page", "read", page, "--json"])["revision"],
+        before["revision"]
+    );
+    let confirmed = pilot
+        .command()
+        .args([
+            "page",
+            "reclaim",
+            page,
+            "--discard-content-history",
+            "--yes",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+    assert!(
+        confirmed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&confirmed.stderr)
+    );
+    let warning = String::from_utf8(confirmed.stderr).unwrap();
+    assert!(warning.contains("This cannot be undone."));
+    assert!(
+        warning.contains(&format!(
+            "{} compressed bytes now, {} in the preview candidate",
+            history["beforeGzipBytes"], history["afterGzipBytes"]
+        )),
+        "warning: {warning}; preview: {history}"
+    );
+    let result: Value = serde_json::from_slice(&confirmed.stdout).unwrap();
+    assert_eq!(result["discarded"], history["discard"]);
+    assert_eq!(result["beforeGzipBytes"], history["beforeGzipBytes"]);
+    assert!(result["freedGzipBytes"].as_u64().unwrap() > 0, "{result}");
+    assert_eq!(
+        result["freedGzipBytes"].as_u64().unwrap(),
+        result["beforeGzipBytes"].as_u64().unwrap() - result["afterGzipBytes"].as_u64().unwrap()
+    );
+    assert_eq!(records(wrap_query), wraps);
+    assert_eq!(records(recipient_query), recipients);
+    assert_eq!(records(discussion_query), own_payloads);
+    let recovered = pilot.call(&["page", "read", page, "--json"]);
+    assert_eq!(recovered["source"], before["source"]);
+    let recovered_discussion = pilot.call(&["threads", page, "--json"]);
+    assert_eq!(recovered_discussion["threads"], discussion["threads"]);
+    assert_eq!(recovered_discussion["asks"], discussion["asks"]);
+    assert_ne!(
+        recovered_discussion["membershipHead"],
+        discussion["membershipHead"]
+    );
+    assert!(
+        recovered["usage"]["percent"].as_u64().unwrap()
+            <= before["usage"]["percent"].as_u64().unwrap()
+    );
+    if let Some(source) = refused_source {
+        eprintln!("History recovery at capacity: {result}");
+        pilot.patch_call(page, &["--file", file.to_str().unwrap(), "--json"]);
+        assert_eq!(
+            pilot.call(&["page", "read", page, "--json"])["source"],
+            source
+        );
+    }
 }
 
 #[test]

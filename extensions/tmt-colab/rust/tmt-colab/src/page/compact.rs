@@ -304,6 +304,9 @@ pub struct HistoryPreview {
     pub write_detail: String,
     pub blocked: Option<String>,
     pub history_loss: &'static str,
+    pub changes_history_policy: Option<bool>,
+    pub affected_recipients: Option<usize>,
+    pub discard: Option<HistoryDiscard>,
 }
 
 /// Build and decode a hypothetical replacement without publishing a checkpoint.
@@ -314,6 +317,23 @@ pub fn preview(
     decoder: &mut Decoder,
     source: Option<&str>,
 ) -> Result<HistoryPreview> {
+    prepare_history_recovery(store, key, page, decoder, source).map(|(preview, _)| preview)
+}
+
+type RecoveryCandidate = (
+    crate::fold::Snapshot,
+    usize,
+    Vec<u8>,
+    crate::store::WriteGeneration,
+);
+
+fn prepare_history_recovery(
+    store: &Store,
+    key: &Keyring,
+    page: &str,
+    decoder: &mut Decoder,
+    source: Option<&str>,
+) -> Result<(HistoryPreview, Option<RecoveryCandidate>)> {
     let generation = store.write_generation()?;
     let snap = snapshot(store, key, page, false)?;
     let (current, _, before) = snap.measure_preview(key, page, decoder, &BTreeMap::new())?;
@@ -328,6 +348,9 @@ pub fn preview(
                 .into(),
         blocked: None,
         history_loss: "Discarded content edits and deleted text in the rebuilt writer checkpoint would no longer be recoverable. Current source, metadata, comments and threads must be preserved.",
+        changes_history_policy: None,
+        affected_recipients: None,
+        discard: None,
     };
     let policy = &snap.authority.policy;
     let local = key.local_writer()?.0;
@@ -335,6 +358,8 @@ pub fn preview(
         Some("Page is archived or deleted.".into())
     } else if policy.public_mode || policy.link_mode {
         Some("Page has public or link access.".into())
+    } else if store.history_cloud_bound(page)? {
+        Some("A cloud page row or stream publication is recorded for this page. Local recovery cannot discard those dependencies.".into())
     } else if snap.epoch != 1 {
         Some(format!(
             "Epoch {} depends on an earlier baseline.",
@@ -364,7 +389,7 @@ pub fn preview(
             .map(|cut| format!("Content from writer {} must be preserved.", cut.stream))
     };
     if result.blocked.is_some() {
-        return Ok(result);
+        return Ok((result, None));
     }
     let mut updates = Vec::new();
     let mut index = None;
@@ -376,28 +401,32 @@ pub fn preview(
     }
     let Some(index) = index else {
         result.blocked = Some("No local content writer to rebuild.".into());
-        return Ok(result);
+        return Ok((result, None));
     };
     let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
     let rebuilt = decoder.rebuild_for_preview(&refs, None)?;
     if !rebuilt.projection.is_null() {
         result.blocked =
             Some("This writer's updates depend on content outside its own stream.".into());
-        return Ok(result);
+        return Ok((result, None));
     }
     let merged = rebuilt.merged;
     if merged.len() > object::MAX_PLAINTEXT {
         result.blocked = Some("The rebuilt writer exceeds the single checkpoint limit.".into());
-        return Ok(result);
+        return Ok((result, None));
     }
-    let (candidate, input, after) =
-        snap.measure_preview(key, page, decoder, &BTreeMap::from([(index, merged)]))?;
+    let mut replacement = BTreeMap::from([(index, merged)]);
+    let (candidate, input, after) = snap.measure_preview(key, page, decoder, &replacement)?;
     if current.source != candidate.source
         || current.meta != candidate.meta
         || current.own != candidate.own
     {
         result.blocked = Some("Rebuilding changes the current page or its discussion.".into());
-        return Ok(result);
+        return Ok((result, None));
+    }
+    if after > current.usage.gzip_limit {
+        result.blocked = Some("The rebuilt page still exceeds the compressed page limit.".into());
+        return Ok((result, None));
     }
     let headroom = current.usage.gzip_limit.saturating_sub(after);
     result.after_gzip_bytes = Some(after);
@@ -448,10 +477,205 @@ pub fn preview(
             }
         }
     }
+    let cut = &snap.cuts[index];
+    result.discard = Some(store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        tx.history_discard_size(
+            StreamScope {
+                page,
+                epoch: cut.epoch,
+                stream: &cut.stream,
+            },
+            cut.tail_seq,
+        )
+    })?);
+    result.changes_history_policy = Some(!policy.history_current);
+    result.affected_recipients = Some(0);
     if store.write_generation()? != generation {
         return Err(Fault::StaleBase.into());
     }
-    Ok(result)
+    let merged = replacement.remove(&index).ok_or(Fault::Invalid)?;
+    Ok((result, Some((snap, index, merged, generation))))
+}
+
+/// Sealed local content payloads replaced by a confirmed recovery.
+#[derive(Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryDiscard {
+    pub checkpoints: u64,
+    pub checkpoint_bytes: u64,
+    pub updates: u64,
+    pub update_bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryRecovery {
+    pub page: String,
+    pub discarded: HistoryDiscard,
+    pub before_gzip_bytes: usize,
+    pub after_gzip_bytes: Option<usize>,
+    pub freed_gzip_bytes: Option<usize>,
+    pub measurement_error: Option<String>,
+}
+
+/// Owner-only implementation. The caller holds the local writer lifecycle lock or
+/// runs inside serve. `announce` reports the exact staged loss before any write.
+pub fn discard_history(
+    store: &mut Store,
+    key: &Keyring,
+    page: &str,
+    operation_id: &str,
+    decoder: &mut Decoder,
+    announce: impl FnOnce(&HistoryPreview, &HistoryDiscard) -> Result<()>,
+) -> Result<HistoryRecovery> {
+    let (mut preview, candidate) = prepare_history_recovery(store, key, page, decoder, None)?;
+    let (snapshot, index, merged, generation) = candidate.ok_or_else(|| {
+        std::io::Error::other(
+            preview
+                .blocked
+                .as_deref()
+                .unwrap_or("History recovery is unavailable."),
+        )
+    })?;
+    if preview
+        .after_gzip_bytes
+        .is_none_or(|after| after >= preview.before_gzip_bytes)
+    {
+        return Err(
+            std::io::Error::other("This recovery would not reduce stored page usage.").into(),
+        );
+    }
+
+    let cut = &snapshot.cuts[index];
+    let scope = StreamScope {
+        page,
+        epoch: cut.epoch,
+        stream: &cut.stream,
+    };
+    let next = cut.tail_seq.checked_add(1).ok_or(Fault::Capacity)?;
+    let discard = preview.discard.take().ok_or(Fault::Invalid)?;
+    let payload = serde_json::to_vec(&serde_json::json!({"pageId":page,"mode":"current"}))?;
+    let decision = key.sign_statement(Some(&snapshot.authority.head), "page.history", &payload)?;
+    let revision = snapshot
+        .authority
+        .head
+        .revision
+        .checked_add(1)
+        .ok_or(Fault::Capacity)?;
+    let mut context = object::Context {
+        space: key.space_id.clone(),
+        page: page.into(),
+        epoch: cut.epoch.to_string(),
+        kind: "update".into(),
+        namespace: "content".into(),
+        author_device: cut.stream.clone(),
+        membership_revision: revision.to_string(),
+        stream_seq: next.to_string(),
+        prev_hash: cut.tail_hash,
+    };
+    // An empty update-v1 advances the signed stream with no document or activity change.
+    let anchor = key.seal_content(&context, &snapshot.secret, &[0, 0])?;
+    let anchor_hash = anchor.hash()?;
+    let anchor_bytes = anchor.to_bytes()?;
+    context.kind = "checkpoint".into();
+    context.prev_hash = anchor_hash;
+    let content = key.seal_content(&context, &snapshot.secret, &merged)?;
+    let content_bytes = content.to_bytes()?;
+    let mut checkpoints = vec![Envelope {
+        scope,
+        namespace: Namespace::Content,
+        seq: next,
+        hash: content.hash()?,
+        previous: anchor_hash,
+        bytes: &content_bytes,
+    }];
+    let own_bytes;
+    if let Some(own_index) = snapshot
+        .cuts
+        .iter()
+        .position(|own| own.stream == cut.stream && own.namespace == "own" && own.tail_seq > 0)
+    {
+        let current = snapshot.materialize(key, page, decoder)?;
+        let own = current.local_own_update.as_ref().ok_or(Fault::Invalid)?;
+        let (candidate, _, after) = snapshot.measure_preview(
+            key,
+            page,
+            decoder,
+            &BTreeMap::from([(index, merged), (own_index, own.clone())]),
+        )?;
+        if after > current.usage.gzip_limit || after >= preview.before_gzip_bytes {
+            return Err(Fault::Capacity.into());
+        }
+        if candidate.source != current.source
+            || candidate.meta != current.meta
+            || candidate.own != current.own
+        {
+            return Err(Fault::Invalid.into());
+        }
+        context.namespace = "own".into();
+        let checkpoint = key.seal_content(&context, &snapshot.secret, own)?;
+        own_bytes = checkpoint.to_bytes()?;
+        checkpoints.push(Envelope {
+            scope,
+            namespace: Namespace::Own,
+            seq: next,
+            hash: checkpoint.hash()?,
+            previous: anchor_hash,
+            bytes: &own_bytes,
+        });
+    }
+    store.owner_transaction(
+        &key.space_id,
+        &key.owner_public(),
+        crate::store::owner::Mutation {
+            operation_id,
+            digest: decision.hash()?,
+            expected_revision: snapshot.authority.head.revision,
+        },
+        |tx| {
+            if tx.write_generation()? != generation
+                || tx.head() != Some(&snapshot.authority.head)
+                || tx.cuts(page, scope.epoch)? != snapshot.cuts
+                || tx.history_discard_size(scope, cut.tail_seq)? != discard
+            {
+                return Err(Fault::StaleBase.into());
+            }
+            announce(&preview, &discard)?;
+            tx.append_statement(&decision)?;
+            tx.stage_history_recovery(
+                &Envelope {
+                    scope,
+                    namespace: Namespace::Content,
+                    seq: next,
+                    hash: anchor_hash,
+                    previous: cut.tail_hash,
+                    bytes: &anchor_bytes,
+                },
+                &checkpoints,
+            )?;
+            Ok(serde_json::to_vec(&discard)?)
+        },
+    )?;
+    // This read is deliberately after commit. A read failure cannot undo the recovery or
+    // turn the preview into a claim about actual freed space.
+    let measured = (|| -> Result<usize> {
+        let committed = super::snapshot(store, key, page, false)?;
+        let (_, _, bytes) = committed.measure_preview(key, page, decoder, &BTreeMap::new())?;
+        Ok(bytes)
+    })();
+    let (after_gzip_bytes, measurement_error) = match measured {
+        Ok(bytes) => (Some(bytes), None),
+        Err(error) => (None, Some(error.to_string())),
+    };
+    Ok(HistoryRecovery {
+        page: page.into(),
+        discarded: discard,
+        before_gzip_bytes: preview.before_gzip_bytes,
+        after_gzip_bytes,
+        freed_gzip_bytes: after_gzip_bytes
+            .map(|after| preview.before_gzip_bytes.saturating_sub(after)),
+        measurement_error,
+    })
 }
 
 /// What a requested compaction did, for the person who asked: whose stream was combined into

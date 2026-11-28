@@ -66,6 +66,21 @@ pub fn page_command() -> Command {
             .value_parser(clap::value_parser!(std::path::PathBuf))
             .help("Measure whether this HTML rewrite fits the candidate (use - for stdin)"),
     )
+    .arg(
+        Arg::new("discard-content-history")
+            .long("discard-content-history")
+            .action(ArgAction::SetTrue)
+            .conflicts_with("dry-run")
+            .requires("yes")
+            .help("Irreversibly discard old content history for this page"),
+    )
+    .arg(
+        Arg::new("yes")
+            .long("yes")
+            .action(ArgAction::SetTrue)
+            .requires("discard-content-history")
+            .help("Confirm that old content history may be discarded"),
+    )
     .arg(crate::cli_grammar::page())
     .arg(dry_run())
 }
@@ -147,6 +162,20 @@ fn print_page(
                     "About {n} whole rewrites of the current source at similar compression (estimate)."
                 )?;
             }
+            if let Some(loss) = &p.discard {
+                writeln!(
+                    out,
+                    "Would discard {} content checkpoints ({} bytes) and {} content updates ({} bytes).",
+                    loss.checkpoints, loss.checkpoint_bytes, loss.updates, loss.update_bytes
+                )?;
+                writeln!(out, "Existing sharing recipients affected: 0.")?;
+                if p.changes_history_policy == Some(true) {
+                    writeln!(
+                        out,
+                        "History would change from shared to current. Future link readers and members would start at the new cut."
+                    )?;
+                }
+            }
             writeln!(out, "{}\n{}", p.write_detail, p.history_loss)?;
         }
     }
@@ -181,6 +210,85 @@ pub fn page(root: &Path, args: &ArgMatches) -> Result<()> {
         return print_page(&report, args.get_flag("json"), Some(&preview));
     }
     store.close()?;
+    if args.get_flag("discard-content-history") {
+        let _lock = layout.serve_lock().map_err(|error| {
+            if error.downcast_ref::<StateFault>() == Some(&StateFault::AlreadyServing) {
+                std::io::Error::other(
+                    "Run `tmt colab stop` before discarding content history. Open pages will disconnect. Run the confirmed command again, then `tmt colab serve` to bring the pages back.",
+                ).into()
+            } else {
+                error
+            }
+        })?;
+        let mut store = Store::write_existing(&layout)?;
+        let mut decoder = Decoder::new(std::env::current_exe()?)?;
+        let result = tmt_colab::page::compact::discard_history(
+            &mut store,
+            &key,
+            &id,
+            &crate::cli_management::fresh_id()?,
+            &mut decoder,
+            |preview, discard| {
+                let mut err = tmt_cli_style::stream::stderr();
+                writeln!(
+                    err,
+                    "Stored page: {} compressed bytes now, {} in the preview candidate.",
+                    preview.before_gzip_bytes,
+                    preview.after_gzip_bytes.ok_or(Fault::Invalid)?
+                )?;
+                writeln!(
+                    err,
+                    "Discarding {} content checkpoints ({} bytes) and {} content updates ({} bytes). This cannot be undone.",
+                    discard.checkpoints,
+                    discard.checkpoint_bytes,
+                    discard.updates,
+                    discard.update_bytes
+                )?;
+                writeln!(
+                    err,
+                    "Current source, metadata, attachments and discussion are kept byte for byte. Existing sharing recipients affected: 0."
+                )?;
+                if preview.changes_history_policy == Some(true) {
+                    writeln!(
+                        err,
+                        "History changes from shared to current. Future link readers and members start at the new cut."
+                    )?;
+                }
+                writeln!(
+                    err,
+                    "Open Colab pages are disconnected while serve is stopped. Run `tmt colab serve` after recovery to reconnect."
+                )?;
+                writeln!(
+                    err,
+                    "This recovery only measures local space and does not remove any cloud copy."
+                )?;
+                err.flush()?;
+                Ok(())
+            },
+        )?;
+        store.close()?;
+        let mut out = tmt_cli_style::stream::stdout(args.get_flag("json"));
+        if args.get_flag("json") {
+            writeln!(out, "{}", serde_json::to_string(&result)?)?;
+        } else if let (Some(after), Some(freed)) =
+            (result.after_gzip_bytes, result.freed_gzip_bytes)
+        {
+            writeln!(
+                out,
+                "Recovered {freed} compressed bytes locally. The stored page is now {after} compressed bytes."
+            )?;
+        } else {
+            writeln!(
+                out,
+                "Recovery committed. Could not measure local space recovered: {}",
+                result
+                    .measurement_error
+                    .as_deref()
+                    .unwrap_or("measurement unavailable")
+            )?;
+        }
+        return Ok(());
+    }
     let report = match layout.serve_lock() {
         Ok(_lock) => {
             let mut store = Store::write_existing(&layout)?;
