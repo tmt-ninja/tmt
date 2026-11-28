@@ -1,0 +1,67 @@
+package install
+
+import (
+	"context"
+	"crypto/sha256"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
+	"testing"
+
+	"github.com/tmt-ninja/tmt/go/internal/ports"
+)
+
+type fakeRelease []byte
+
+func (f fakeRelease) Latest(context.Context, string, string) (ports.Artifact, error) {
+	return ports.Artifact{}, nil
+}
+
+func (f fakeRelease) Fetch(context.Context, ports.Artifact) ([]byte, error) { return f, nil }
+
+func TestReplaceExecutableVerifiesBeforeAtomicReplacement(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "tmt-go")
+	native := filepath.Join(dir, "tmt")
+	for _, path := range []string{target, native} {
+		if err := os.WriteFile(path, []byte("original"), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	original, err := os.Open(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer original.Close()
+	binary := fakeRelease("replacement")
+	artifact := ports.Artifact{
+		OS: runtime.GOOS, Arch: runtime.GOARCH,
+		SHA256: fmt.Sprintf("%x", sha256.Sum256(binary)),
+	}
+	if err := replaceExecutable(t.Context(), fakeRelease("corrupt"), artifact, target); err == nil {
+		t.Fatal("accepted a corrupt artifact")
+	}
+	assertFile(t, target, "original")
+	if err := replaceExecutable(t.Context(), binary, artifact, target); err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, target, string(binary))
+	assertFile(t, native, "original")
+	old := make([]byte, len("original"))
+	if _, err := original.Read(old); err != nil || string(old) != "original" {
+		t.Fatalf("open executable changed to %q: %v", old, err)
+	}
+	info, err := os.Stat(target)
+	if err != nil || info.Mode().Perm() != 0755 {
+		t.Fatalf("replacement mode = %v, %v", info, err)
+	}
+}
+
+func assertFile(t *testing.T, path, want string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != want {
+		t.Fatalf("%s = %q, %v; want %q", path, got, err, want)
+	}
+}
