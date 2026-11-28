@@ -3212,9 +3212,33 @@ test('the agent picked in the question editor receives the answer, and the creat
     const block = page.locator(`[data-block-id="${question}"]`);
     await expect(block).toBeVisible({ timeout: 30_000 });
     await expect(block.getByRole('button', { name: 'Edit question' })).toHaveCount(0);
-    await block.hover();
-    await block.getByRole('button', { name: 'Block actions' }).click();
-    await page.getByRole('menuitem', { name: 'Edit question', exact: true }).click();
+    await selectBlockByFocus(block);
+    await page.keyboard.press('Shift+F10');
+    const menu = page.getByRole('menu', { name: 'Block actions' });
+    await expect
+      .poll(() => menu.getByRole('menuitem').evaluateAll((items) => items.map((item) => item.id)))
+      .toEqual([
+        'block-action-comment',
+        'block-action-move-up',
+        'block-action-move-down',
+        'block-action-duplicate',
+        'block-action-edit-question',
+        'block-action-delete',
+      ]);
+    await page.keyboard.press('Home');
+    await expect(menu).toHaveAttribute('aria-activedescendant', 'block-action-comment');
+    await page.keyboard.press('Enter');
+    const composer = page.locator('.annotation-popover');
+    await expect(composer.getByText('Annotate the block', { exact: true })).toBeVisible();
+    await composer.getByRole('button', { name: text.threadCollapse, exact: true }).click();
+    await expect(composer).toHaveCount(0);
+
+    await selectBlockByFocus(block);
+    await page.keyboard.press('Shift+F10');
+    await page.keyboard.press('End');
+    await page.keyboard.press('ArrowUp');
+    await expect(menu).toHaveAttribute('aria-activedescendant', 'block-action-edit-question');
+    await page.keyboard.press('Enter');
     const edit = page.getByRole('group', { name: 'Edit question' });
     await expect(edit).toContainText('Answers go to');
     const pick = edit.locator('.question-recipient-trigger');

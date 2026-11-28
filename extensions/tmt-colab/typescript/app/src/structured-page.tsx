@@ -762,6 +762,7 @@ function Blocks({
       onKeyDown={(event) => {
         if (
           !rest.annotationMode &&
+          rest.blockMenu?.id !== block.id &&
           block.type === 'question' &&
           event.key === 'Enter' &&
           event.target === event.currentTarget
