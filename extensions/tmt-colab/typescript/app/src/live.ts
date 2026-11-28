@@ -1472,7 +1472,11 @@ export class Live implements PageBinding {
       if (!(error instanceof Error) || c.active) throw error;
       result = await this.#settleLost(c, operationId);
     }
-    if (result.state === 'rejected' && result.code === 'COLAB_STALE_BASE') {
+    if (
+      action !== 'html.checkbox' &&
+      result.state === 'rejected' &&
+      result.code === 'COLAB_STALE_BASE'
+    ) {
       const cuts = this.#metadataCuts.get(expectedRevision);
       if (cuts !== undefined) {
         const revision = await this.#membershipOnlyRevision(c, cuts).catch(() => undefined);

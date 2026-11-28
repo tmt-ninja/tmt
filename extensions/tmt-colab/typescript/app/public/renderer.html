@@ -492,7 +492,8 @@
             [...doc.documentElement.attributes].map((a) => [a.name, a.value]),
           ]);
         }
-        function install(renderId, port, theme, layout, boundSource, withRuntime) {
+        function install(renderId, port, theme, layout, boundSource, withRuntime, taskCheckboxes) {
+          let sourceDigest = renderId.split(':')[1];
           // Installed before the page runtime and removed when it registers. Author scripts run
           // afterwards and cannot impersonate a message from the private renderer port.
           let blockSink;
@@ -1036,6 +1037,57 @@
           // Registered before author HTML runs. These messages remain untrusted parent inputs.
           // Existing annotation/highlight selection gets first refusal of a plain click.
           document.addEventListener('click', chooseTarget, true);
+          if (taskCheckboxes)
+            document.addEventListener(
+              'click',
+              (event) => {
+                const input = event.target;
+                if (
+                  !event.isTrusted ||
+                  event.defaultPrevented ||
+                  !(input instanceof HTMLInputElement) ||
+                  input.type !== 'checkbox' ||
+                  input.closest('form,fieldset,tmt-question,tmt-questions,[hidden]') ||
+                  input.hasAttribute('form') ||
+                  input.disabled
+                )
+                  return;
+                // Match against the saved fragment rather than treating a DOM-only input as a task.
+                const template = document.createElement('template');
+                template.innerHTML = boundSource;
+                const inputs = (root) =>
+                  [...root.querySelectorAll('input')].filter(
+                    (node) => node instanceof HTMLInputElement,
+                  );
+                const live = inputs(document);
+                const saved = inputs(template.content);
+                const ordinal = live.indexOf(input);
+                if (live.length !== saved.length || !saved[ordinal]?.isEqualNode(input)) return;
+                const headings = template.content.querySelectorAll('h2,h3');
+                if (
+                  ![...headings].some(
+                    (heading) =>
+                      !heading.closest(
+                        'head,noscript,tmt-question,tmt-thread-ref,[hidden],[data-colab-highlight],[data-colab-image]',
+                      ) &&
+                      heading.compareDocumentPosition(saved[ordinal]) &
+                        Node.DOCUMENT_POSITION_FOLLOWING,
+                  )
+                )
+                  return;
+                event.preventDefault();
+                parent.postMessage(
+                  {
+                    type: 'colab.render.task-checkbox',
+                    renderId,
+                    sourceDigest,
+                    input: ordinal,
+                  },
+                  '*',
+                );
+              },
+              true,
+            );
           document.addEventListener('click', anchor, true);
           document.addEventListener('auxclick', anchor, true);
           document.addEventListener('keydown', anchor, true);
@@ -2772,6 +2824,7 @@
               let applied = false;
               try {
                 applied = applySource(v.source);
+                if (applied) sourceDigest = v.sourceDigest;
               } catch {}
               port.postMessage(
                 applied
@@ -3592,7 +3645,9 @@
               5 +
                 (Object.hasOwn(value, 'layout') ? 1 : 0) +
                 (Object.hasOwn(value, 'runtime') ? 1 : 0) +
-                (Object.hasOwn(value, 'ds') ? 1 : 0) ||
+                (Object.hasOwn(value, 'ds') ? 1 : 0) +
+                (Object.hasOwn(value, 'taskCheckboxes') ? 1 : 0) ||
+            (Object.hasOwn(value, 'taskCheckboxes') && value.taskCheckboxes !== true) ||
             (Object.hasOwn(value, 'layout') &&
               !['column', 'full', 'canvas', 'freeform'].includes(value.layout)) ||
             (Object.hasOwn(value, 'runtime') && !runtimeBundle(value.runtime)) ||
@@ -3629,6 +3684,7 @@
               value.layout,
               value.source,
               !!value.runtime && !!value.ds,
+              value.taskCheckboxes === true,
             );
           const acknowledgement =
             '<script>window.__colabRenderStart();delete window.__colabRenderStart;<\/script>';

@@ -16,6 +16,7 @@ export interface RendererHandlers {
     quote: QuoteSelector | null | undefined,
     rect: SelectionRect | null | undefined,
   ): void;
+  onTaskCheckbox?(source: string, ordinal: number): void;
   onAnnotate(): void;
   onToggleSelectionMode(): void;
   onKey(key: Parameters<NonNullable<RendererOptions['onKey']>>[0]): void;
@@ -86,6 +87,7 @@ export function usePageRenderer({
   pageView?: RendererOptions['pageView'];
   workBundle?: RendererOptions['workBundle'];
 }) {
+  const taskCheckboxes = !!handlers.onTaskCheckbox;
   const [resolved, setResolved] = useState<string[]>([]);
   const [anchorsChecked, setAnchorsChecked] = useState(false);
   // Until the frame reports what its page paints, the cards keep the app theme.
@@ -214,6 +216,9 @@ export function usePageRenderer({
               ?.offsetHeight ?? 0)
           : 0,
       viewportBottom: () => reserve.current,
+      onTaskCheckbox: taskCheckboxes
+        ? (source, ordinal) => current.current.onTaskCheckbox?.(source, ordinal)
+        : undefined,
       onSelection: (_value, quote, rect) => current.current.onSelection(quote, rect),
       onAnchors: (ids, checked = false) => {
         setResolved(ids);
@@ -256,6 +261,7 @@ export function usePageRenderer({
     remounts,
     view.layout,
     view.pageType,
+    taskCheckboxes,
     pageView,
     workBundle,
     endedError,

@@ -123,6 +123,7 @@ export type WorkAction =
 
 /** Closed metadata actions; the native owner checks the expected revision and body. */
 export type MetadataAction =
+  | 'html.checkbox'
   | 'creator.set'
   | 'question.handle'
   | 'question.reopen'

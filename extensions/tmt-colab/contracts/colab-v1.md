@@ -4818,7 +4818,7 @@ operations are:
 | `saveresult`     | `operationId, state` and `revision[, merged, sourceSha256]` or `code, message[, conflicts]`, plus `childPage` where a `subpage.create` made a page; the one reply to a `save` or `savestatus`                                                                                                                                                                                                                                                                                                 |
 | `work`           | `operationId, action, body`; owner device only; one closed work action of the page ([Work](#work-4050)), prepared and committed natively                                                                                                                                                                                                                                                                                                                                                      |
 | `workresult`     | as `saveresult`, plus optional `reason` on `COLAB_LINK_REFUSED` (the stable hierarchy reason above), and `childPage` for a `subpage.create`; the one reply to a `work`                                                                                                                                                                                                                                                                                                                        |
-| `metadata`       | `operationId, expectedRevision, action, body`; owner device only; closed `creator.set` (`{agent:{id,name}}`), `question.handle` or `question.reopen` (`{id}`), `question.agent` (`{id, selector?}`, the serve resolves the selector), `template.set` (`{name, description?}`) or `template.clear` (`{}`), admitted as `template save` and `template remove` admit them ([Templates in the browser](#templates-in-the-browser-5076-5077)), committed through the conditional content publisher |
+| `metadata`       | `operationId, expectedRevision, action, body`; owner device only; closed `creator.set` (`{agent:{id,name}}`), `question.handle` or `question.reopen` (`{id}`), `question.agent` (`{id, selector?}`, the serve resolves the selector), `template.set` (`{name, description?}`) or `template.clear` (`{}`), admitted as `template save` and `template remove` admit them ([Templates in the browser](#templates-in-the-browser-5076-5077)), or `html.checkbox` (`{input, checked}`), committed through the conditional content publisher |
 | `metadataresult` | as `saveresult`; the one reply to a `metadata` frame; `savestatus` settles a lost reply for the same operation ID                                                                                                                                                                                                                                                                                                                                                                             |
 | `usage`          | no fields; owner device only; how full the page is                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `usageresult`    | `usage` ([Page usage](#page-usage-and-requested-compaction-2846)) or `error: {code, message}`; the one reply to a `usage`                                                                                                                                                                                                                                                                                                                                                                     |
@@ -7033,10 +7033,18 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     that contains it. The type match is ASCII case-insensitive. Presence of the boolean `checked`
     attribute contributes one done task. Inputs with `disabled` or `form`, or inside forms,
     fieldsets, question groups or excluded subtrees, are ignored. The projection reads saved HTML
-    without evaluating CSS or scripts. A checkbox clicked in the renderer is local to that frame.
-    Work and the outline show the saved counts, and reloading restores the source state. Saving
-    an edit to the `checked` attribute updates the counts. HTML checkboxes contribute section
-    progress only. The data is omitted for a read-only page and is display only:
+    without evaluating CSS or scripts. On an owner device, a click on a saved task proposes
+    the matching input for confirmation in trusted parent chrome. The frame can nominate an
+    input but carries no write authority. The parent derives the label, section and requested
+    state from its saved source and requires a trusted activation to publish. Other readers can
+    change their frame's display only. Work and the outline always use saved counts.
+    `html.checkbox` selects the zero-based native HTML input ordinal in the source fragment and
+    sets its boolean `checked` state. The serve authenticates the owner device, requires the
+    exact expected revision, verifies that the input is eligible and has an exact source tag,
+    and changes only its `checked` attribute. If the page moved, the action refuses without
+    retrying and the live page shows the latest saved state. A lost reply uses `savestatus` for
+    the original operation. HTML checkboxes contribute section progress only.
+    The data is omitted for a read-only page and is display only:
     it never authorizes anything. An open structured page counts its own sections live from the
     blocks it draws (#6687), the serve from its fold; `vectors/sections-v1.json` holds both to the
     same cases, and the page keeps the serve's state only where pull request facts decide it.

@@ -216,6 +216,7 @@ import { usePanelMode } from './panel-mode.js';
 import { useStructuredDiscussionLayout } from './structured-discussion-layout.js';
 import './panel-layout.css';
 import { useAnnotations } from './use-annotations.js';
+import { useTaskCheckbox } from './use-task-checkbox.js';
 import { usePageRenderer } from './use-page-renderer.js';
 
 /** Controls in the page and above it that the floating actions move above, never over: the cards'
@@ -2814,6 +2815,7 @@ function OpenPage({
     const source = workBundleSource(transport, space, (id) => routing.pageHref(id));
     return gateWorkBundleSource(source, admitted);
   }, [transport, space, routing, view.ownerOnlyWorkBundle]);
+  const taskCheckbox = useTaskCheckbox(view, snapshot.binding);
   const {
     resolved: frameResolved,
     anchorsChecked: frameAnchorsChecked,
@@ -2847,6 +2849,7 @@ function OpenPage({
     pageView: pageViewSource,
     workBundle: workSource,
     handlers: {
+      onTaskCheckbox: taskCheckbox.nominate,
       onSelection,
       onAnnotate: annotate,
       onToggleSelectionMode: () => toggleSelectionMode.current(),
@@ -3685,6 +3688,7 @@ function OpenPage({
         onCreated={(pageId) => routing.open(`/pages/${pageId}`)}
       />
       <Toast message={templateToast} />
+      {taskCheckbox.dialog}
       <MetadataDialogs
         key={snapshot.id}
         kind={metadataDialog}

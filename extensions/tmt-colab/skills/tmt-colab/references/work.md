@@ -54,9 +54,11 @@ Under an HTML page's `h2` or `h3`, use native task checkboxes outside forms and 
 </ul>
 ```
 
-This section shows 1/2. An enclosing section also includes those two tasks. Record progress by
-saving a source edit that adds or removes `checked`. Clicking the box in the page frame changes
-that frame's display until it reloads. Work and the outline show the saved counts.
+This section shows 1/2. An enclosing section also includes those two tasks. On an owner device,
+click the checkbox and confirm the saved change in Colab. Work and the outline update when the
+save lands, and the tick survives reload. If the page changed before the save, review the latest
+state and select the task again. A shared reader's toggle stays in its frame. Saving a source edit
+that adds or removes `checked` also records progress.
 
 ## Link rules
 

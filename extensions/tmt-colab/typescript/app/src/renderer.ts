@@ -276,6 +276,7 @@ export async function mountRenderer(
     onAttachmentDownload?(reference: string): void;
     /** An admitted `data:` image download request; the parent still confirms before saving. */
     onImageDownload?(image: ImageDownload): void;
+    onTaskCheckbox?(source: string, ordinal: number): void;
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
     onToggleSelectionMode?(): void;
@@ -378,6 +379,7 @@ export async function mountRenderer(
   // clamp the window offset to a temporary viewport-high document.
   const previousHeight = host.querySelector('iframe')?.getBoundingClientRect().height;
   const snapshot = await captureRender(source);
+  let appliedSource = source;
   options.signal.throwIfAborted();
   const frame = document.createElement('iframe');
   frame.title = text.boundary;
@@ -667,6 +669,22 @@ export async function mountRenderer(
     const data = event.data;
     if (!data || typeof data !== 'object' || Array.isArray(data)) return;
     const value = data as Record<string, unknown>;
+    if (
+      ready &&
+      options.onTaskCheckbox &&
+      !pendingUpdate &&
+      Object.keys(value).length === 4 &&
+      value.type === 'colab.render.task-checkbox' &&
+      value.renderId === snapshot.renderId &&
+      value.sourceDigest === frame.dataset.sourceDigest &&
+      typeof value.input === 'number' &&
+      Number.isSafeInteger(value.input) &&
+      value.input >= 0
+    ) {
+      // A frame can forge a nomination. Only trusted shell chrome can confirm it.
+      options.onTaskCheckbox(appliedSource, value.input);
+      return;
+    }
     if (
       ready &&
       Object.keys(value).length === 3 &&
@@ -1794,6 +1812,7 @@ export async function mountRenderer(
         type: 'colab.render.bind',
         ...snapshot,
         theme: frameTheme(),
+        ...(options.onTaskCheckbox ? { taskCheckboxes: true } : {}),
         ...(options.layout ? { layout: options.layout } : {}),
         ...(boundRuntime ? { runtime: boundRuntime } : {}),
         ...(bundle && ds ? { ds: { script: ds.script, style: ds.style } } : {}),
@@ -1894,7 +1913,10 @@ export async function mountRenderer(
       const settle = (result: SourceUpdate) => {
         clearTimeout(timer);
         if (pendingUpdate?.requestId === requestId) pendingUpdate = undefined;
-        if (result === 'applied') frame.dataset.sourceDigest = sourceDigest;
+        if (result === 'applied') {
+          appliedSource = source;
+          frame.dataset.sourceDigest = sourceDigest;
+        }
         resolve(result);
       };
       pendingUpdate = { requestId, settle };
