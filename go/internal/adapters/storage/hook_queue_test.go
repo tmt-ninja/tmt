@@ -43,11 +43,7 @@ func TestHookQueueClaimAndReceiptRecovery(t *testing.T) {
 	parallelStorageFixture(t)
 	ctx := t.Context()
 	root := testRoot(t)
-	store, err := Open(ctx, root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { store.Close() })
+	store := testStorageAt(t, root)
 	q, other := testHookOpen(t, root), testHookOpen(t, root)
 	claim, ok, err := q.TryClaim(ctx)
 	if err != nil || !ok {
@@ -145,11 +141,7 @@ func TestHookQueueQuarantineAndProvisionalBatchReuse(t *testing.T) {
 	parallelStorageFixture(t)
 	ctx := t.Context()
 	root := testRoot(t)
-	store, err := Open(ctx, root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { store.Close() })
+	testStorageAt(t, root)
 	queue := testHookOpen(t, root)
 	if _, err := queue.db.ExecContext(ctx, `INSERT INTO hook_writes(event_id,identity_id,kind,enqueued_ms,payload)
 		VALUES ('invalid',?,'capture',0,'private untrusted text')`, bindingOwnerID); err != nil {

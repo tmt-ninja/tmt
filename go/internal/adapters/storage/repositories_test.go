@@ -17,7 +17,11 @@ import (
 
 func testStorage(t *testing.T) *Storage {
 	t.Helper()
-	root := testRoot(t)
+	return testStorageAt(t, testRoot(t))
+}
+
+func testStorageAt(t *testing.T, root home.Root) *Storage {
+	t.Helper()
 	image, err := migratedFixtureImage()
 	if err != nil {
 		t.Fatal(err)
