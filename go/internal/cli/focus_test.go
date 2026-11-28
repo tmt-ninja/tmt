@@ -21,6 +21,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
+	"github.com/tmt-ninja/tmt/go/test/storagetest"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
 )
 
@@ -59,7 +60,10 @@ func newFocusWorld(t *testing.T) focusWorld {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return focusWorld{t, server, t.TempDir(), tmux, script, executable}
+	world := t.TempDir()
+	// The timed work starts with the real add, after schema preparation.
+	storagetest.Seed(t, filepath.Join(world, "state"))
+	return focusWorld{t, server, world, tmux, script, executable}
 }
 
 func (w focusWorld) tmuxText(args ...string) string {
