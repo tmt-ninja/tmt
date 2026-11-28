@@ -10,6 +10,9 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/flavor"
@@ -130,6 +133,65 @@ func TestForegroundExitRefreshesOnlyExactLateAdmission(t *testing.T) {
 			if len(store.ends) != 1 || !reflect.DeepEqual(store.ends[0].Expected, expected) ||
 				store.ends[0].Owner != owner || store.ends[0].Runtime != runtime {
 				t.Fatalf("end launch = %+v, want exact owner/runtime and %+v", store.ends, expected)
+			}
+		})
+	}
+}
+
+func TestReapedLauncherSettlesOnlyAGoneForeground(t *testing.T) {
+	const launcherPID = 320
+	const start = "ps-v1:Sat Jan 1 00:00:00 2000"
+	const newStart = "ps-v1:Sun Jan 2 00:00:00 2000"
+	owner := core.ProcessIncarnation{PID: 319, StartIdentity: start}
+	for _, tc := range []struct {
+		name       string
+		pid        int
+		state      runtime.Observation
+		probeError error
+		wantEnd    bool
+	}{
+		{name: "direct child was reaped", pid: launcherPID, wantEnd: true},
+		{name: "distinct foreground still live", pid: 321, state: runtime.Observation{
+			State: runtime.Alive, Incarnation: runtime.Incarnation{PID: 321, Start: start},
+		}},
+		{name: "distinct foreground unknown", pid: 321},
+		{name: "distinct foreground gone", pid: 321, state: runtime.Observation{State: runtime.Gone}, wantEnd: true},
+		{name: "distinct PID reused", pid: 321, state: runtime.Observation{
+			State: runtime.Alive, Incarnation: runtime.Incarnation{PID: 321, Start: newStart},
+		}, wantEnd: true},
+		{name: "failed proof cannot settle", pid: 321, state: runtime.Observation{State: runtime.Gone},
+			probeError: errors.New("cannot observe process")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			recorded := core.ProcessIncarnation{PID: uint64(tc.pid), StartIdentity: start}
+			binding := core.Binding{ID: "binding", IdentityID: "member", PaneID: "%1",
+				Session: core.BindingSessionState{RuntimeState: "running", LaunchOwner: &owner, Runtime: &recorded}}
+			store := &foregroundEndFixture{current: binding}
+			calls := 0
+			observe := func(ctx context.Context, pid int) (runtime.Observation, error) {
+				calls++
+				if len(store.ends) != 0 || pid != tc.pid {
+					t.Fatalf("observed PID %d with %d prior settlements", pid, len(store.ends))
+				}
+				if deadline, ok := ctx.Deadline(); !ok || ctx.Err() != nil || time.Until(deadline) > time.Second {
+					t.Fatal("exit observation lacks the independent one-second bound")
+				}
+				return tc.state, tc.probeError
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			if err := settleReapedForeground(ctx, store, binding, launcherPID, observe); err != nil {
+				t.Fatal(err)
+			}
+			wantCalls := 1
+			if tc.pid == launcherPID {
+				wantCalls = 0
+			}
+			if calls != wantCalls || (len(store.ends) != 0) != tc.wantEnd {
+				t.Fatalf("observations = %d, settlement = %+v", calls, store.ends)
+			}
+			if tc.wantEnd && (len(store.ends) != 1 || store.ends[0].Runtime != recorded) {
+				t.Fatalf("settlement lost recorded runtime: %+v", store.ends)
 			}
 		})
 	}

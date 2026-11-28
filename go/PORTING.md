@@ -211,7 +211,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 
 ## go-3 (cli, output)
 
-- [ ] `CLI-01` Complete resume with direct provider session presence checks, Codex npm launcher ownership, Gemini, retry, move, fresh start and driver switching. Saved presets with an exec-in-place launcher replay the pinned command and settings. Generic wrapper descendants receive no runtime admission.
+- [ ] `CLI-01` Complete resume with direct provider session presence checks, Gemini, retry, move, fresh start and driver switching. Saved presets with an exec-in-place launcher replay the pinned command and settings. Generic wrapper descendants receive no runtime admission.
 - [ ] `CLI-02` Extend send-now to verified provider-channel delivery and built-in and external hosts.
 - [ ] `CLI-03` Focus built-in and external hosts. Go tmux focus is covered by the focus parser cases from Rust parser/tests/identity.rs and the private Go equivalents of typescript/test/e2e/focus.e2e.test.ts: cross-session focus and back, unique/ambiguous key jobs, four-direction swap and already-beside, zoom and absent/stale/foreign refusals.
 - [ ] `CLI-04` Port admitted external host discovery and additional native built-in driver aliases. The tmux inventory tests reuse the read-only scan and fresh binding assertions from `discovery.e2e.test.ts` and the native SHA-256 contract vectors from `contracts/discovery-v1.json`.
@@ -265,6 +265,8 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [x] `CLI-50` Fix intermittent parallel private-tmux deadlines via GO2-01 (8d7b740d72). `TestPrivateDiscoveryAndMarkedPaneWithoutMetadata` expired its 1 s process read in the old pane's exact Discover after re-marking. `TestDiscoverAndMarkedOnPrivateTmux` returned an empty, truncated initial inventory under load. `TestPrivateFocusAndSwapExactInvokingClient` reached the 12 s fixture limit in its last focus action. A separate adapter trace pinned the 4 s swap deadline in a post-swap batched `ps` read with 368 ms left, following reads up to 944 ms. `TestFocusSwapGeometryMatchesNative` reported generic reconciliation in left and right without identifying a stage. Native start observations and one ancestry snapshot per proof replace the repeated subprocess work. All original deadlines and exact pre/post checks remain, and all four fixtures passed uncached with package parallelism in both flavors.
 
 ### Native test mappings from merged main
+
+- Rust `run_command/run.rs` waits on the original launcher and confirms a distinct foreground is gone before settling → `TestReapedLauncherSettlesOnlyAGoneForeground`. The Codex npm admission proof is mapped in GO2-16.
 
 - `typescript/test/native/room.test.ts` membership, listing, ambiguity and malformed command cases run unchanged in the parity manifest. The retired UUID, idempotent retirement and still-retained membership assertions → `TestRoomRetainsRetiredUUIDWithoutResolvingItsName`. Rust `parser/tests/room.rs` dispatch argv and malformed commands → `TestRoomGrammarMatchesNative`. The Rust renderer oracle `room_command.rs::rooms_list_in_state_sections_by_name_with_short_ids` → `TestRoomListMatchesNativeStateSections`.
 

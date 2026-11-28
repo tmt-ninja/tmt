@@ -6,12 +6,14 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"os/signal"
 	"reflect"
 	"time"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
@@ -50,6 +52,11 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 		failure := bindingFailure("RUN_LAUNCH_FAILED", "Could not prepare the provider launch intent. No agent was launched.", 1)
 		return publish(stdout, stderr, failure, false)
 	}
+	var npmLauncher *codex.NpmLauncher
+	var inspectionErr error
+	if intent.Driver == core.DriverCodex {
+		npmLauncher, inspectionErr = codex.InspectNpmLauncher(command)
+	}
 	// Keep the child in the invoking shell's foreground process group. The
 	// terminal delivers Ctrl-C to the group, and the CLI waits for the child
 	// to provide the command's exit status. Ctrl-Z and fg keep shell control.
@@ -75,13 +82,14 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 	defer cancel()
 	var admitted *core.Binding
 	var admissionFailure *output.Failure
-	for startup.Err() == nil {
+	// An invalid npm shim still runs, without any path to direct admission.
+	for inspectionErr == nil && startup.Err() == nil {
 		select {
 		case err := <-exited:
 			return foregroundExit(err)
 		default:
 		}
-		main := app.observeForeground(startup, observer, entry, pane, child.Process.Pid, intent.Driver)
+		main := app.observeForeground(startup, observer, entry, pane, child.Process.Pid, intent, npmLauncher)
 		if main.PID != 0 {
 			select {
 			case err := <-exited:
@@ -112,11 +120,32 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 		return publish(stdout, stderr, admissionFailure, false)
 	}
 	if admitted != nil && child.ProcessState != nil {
-		if err := settleForeground(ctx, store, *admitted); err != nil {
+		if err := settleReapedForeground(ctx, store, *admitted, child.Process.Pid, observer.Observe); err != nil {
 			_ = warn(stderr, "could not settle the exited runtime; inspect identity status before retrying")
 		}
 	}
 	return foregroundExit(waited)
+}
+
+// Wait proves only the process we started exited. A distinct provider needs
+// its own Gone observation before attempting the binding write.
+func settleReapedForeground(ctx context.Context, store ports.Store, binding core.Binding, launchedPID int,
+	observe func(context.Context, int) (runtime.Observation, error),
+) error {
+	recorded := binding.Session.Runtime
+	if recorded != nil && recorded.PID != uint64(launchedPID) {
+		if recorded.PID > math.MaxInt32 {
+			return nil
+		}
+		expected := runtime.Incarnation{PID: int(recorded.PID), Start: recorded.StartIdentity}
+		proof, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		defer cancel()
+		state, err := observe(proof, expected.PID)
+		if err != nil || proof.Err() != nil || state.Match(expected) != runtime.Gone {
+			return nil
+		}
+	}
+	return settleForeground(ctx, store, binding)
 }
 
 func settleForeground(ctx context.Context, store ports.Store, binding core.Binding) error {
@@ -154,7 +183,7 @@ func settleForeground(ctx context.Context, store ports.Store, binding core.Bindi
 }
 
 func (app application) observeForeground(ctx context.Context, observer runtime.Observer, entry bindingEntry,
-	pane ports.PaneRef, child int, driver core.DriverName,
+	pane ports.PaneRef, child int, intent *hookLaunchIntent, npmLauncher *codex.NpmLauncher,
 ) core.ProcessIncarnation {
 	if app.caller.probe == nil {
 		return core.ProcessIncarnation{}
@@ -167,12 +196,19 @@ func (app application) observeForeground(ctx context.Context, observer runtime.O
 	if err != nil {
 		return core.ProcessIncarnation{}
 	}
-	main := core.ProcessIncarnation{PID: uint64(child), StartIdentity: observed.Incarnation.Start}
-	proven, err := observer.ProveLaunchChild(ctx, *entry.identity, *entry.binding, probe, main, driver)
+	launcher := core.ProcessIncarnation{PID: uint64(child), StartIdentity: observed.Incarnation.Start}
+	if npmLauncher != nil {
+		provider, err := npmLauncher.ProveForeground(ctx, observer, *entry.identity, *entry.binding, probe, intent.Owner, launcher)
+		if err != nil || provider.Name != string(intent.Driver) || !provider.Incarnation.Valid() {
+			return core.ProcessIncarnation{}
+		}
+		return core.ProcessIncarnation{PID: uint64(provider.Incarnation.PID), StartIdentity: provider.Incarnation.Start}
+	}
+	proven, err := observer.ProveLaunchChild(ctx, *entry.identity, *entry.binding, probe, launcher, intent.Driver)
 	if err != nil || !proven {
 		return core.ProcessIncarnation{}
 	}
-	return main
+	return launcher
 }
 
 func foregroundExit(err error) int {

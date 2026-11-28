@@ -358,7 +358,7 @@ func preflightResume(ctx context.Context, observe func(context.Context, int) (ru
 	return bindingFailure("RUNTIME_CONFLICT", message, 5)
 }
 
-// NOT PORTED (CLI-01): Provider session presence and Codex npm launcher ownership.
+// NOT PORTED (CLI-01): Provider session presence.
 func prepareExactResume(root home.Root, inv invocation, snapshot *core.ResumeSnapshot) (runPlan, *output.Failure) {
 	session := snapshot.Selected
 	if session == nil {
