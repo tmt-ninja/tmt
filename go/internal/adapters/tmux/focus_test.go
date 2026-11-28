@@ -156,13 +156,47 @@ func TestPrivateFocusHelper(t *testing.T) {
 		if _, err := c.FocusPane(ctx, claim, client, stale); !errors.Is(err, ErrFocusChanged) {
 			return fmt.Errorf("stale focus = %v", err)
 		}
+		beside, err := readPane(neighbour)
+		if err != nil {
+			return err
+		}
+		var mutations []string
+		runner := c.Process
+		c.Process = runFunc(func(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
+			if spec.Path == c.Path {
+				for _, arg := range spec.Args[3:] {
+					if strings.HasPrefix(arg, "swap-pane") || strings.HasPrefix(arg, "select-") ||
+						strings.HasPrefix(arg, "switch-client") || strings.HasPrefix(arg, "kill-") {
+						mutations = append(mutations, arg)
+					}
+				}
+			}
+			return runner.Run(ctx, spec)
+		})
 		after, err := c.SwapInto(ctx, claim, client, target, SwapRight)
-		if err != nil || after != client {
-			return fmt.Errorf("swap changed invoking client or failed: %+v, %v", after, err)
+		if err != nil || after != (SwapResult{View: client, Target: want, Neighbour: neighbour}) {
+			return fmt.Errorf("swap did not report its exact participating panes: %+v, %v", after, err)
+		}
+		exactSwap := "swap-pane -d -s " + want + " -t " + neighbour
+		if len(mutations) != 1 || mutations[0] != exactSwap {
+			return fmt.Errorf("swap actions = %v, want %q", mutations, exactSwap)
 		}
 		swapped, err := readPane(neighbour)
-		if err != nil || swapped.WindowID != target.WindowID {
-			return fmt.Errorf("neighbour did not move to expected window: %+v, %v", swapped, err)
+		if err != nil || swapped.WindowID != target.WindowID || swapped.PaneIndex != target.PaneIndex {
+			return fmt.Errorf("neighbour did not move to expected location: %+v, %v", swapped, err)
+		}
+		moved, err := readPane(want)
+		if err != nil || moved.WindowID != beside.WindowID || moved.PaneIndex != beside.PaneIndex {
+			return fmt.Errorf("target did not move to expected location: %+v, %v", moved, err)
+		}
+		already, err := c.SwapInto(ctx, claim, client, moved, SwapRight)
+		if err != nil || already != (SwapResult{View: client, Target: want, Neighbour: want, Already: true}) ||
+			len(mutations) != 1 {
+			return fmt.Errorf("already beside = %+v, %v; swap actions = %v", already, err, mutations)
+		}
+		unchanged, err := readPane(want)
+		if err != nil || !samePaneSnapshot(unchanged, moved) || unchanged.PaneIndex != moved.PaneIndex {
+			return fmt.Errorf("already-beside changed the target: %+v, %v", unchanged, err)
 		}
 		view, err := c.FocusPane(ctx, claim, client, swapped)
 		if err != nil || view.PaneID != neighbour || view.Process != client.Process {

@@ -260,20 +260,27 @@ const (
 
 var ErrNoNeighbour = errors.New("no visible tmux neighbour in that direction")
 
+// SwapResult reports the exact pane selected by the pre-swap geometry.
+type SwapResult struct {
+	View              ClientView
+	Target, Neighbour string
+	Already           bool
+}
+
 // SwapInto swaps the target with the visible neighbour of the invoking pane.
 // It keeps the exact invoker client, even if tmux changes that client's view.
-func (c Client) SwapInto(ctx context.Context, claim TmuxCaller, expected ClientView, target PaneSnapshot, direction SwapDirection) (ClientView, error) {
+func (c Client) SwapInto(ctx context.Context, claim TmuxCaller, expected ClientView, target PaneSnapshot, direction SwapDirection) (SwapResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
 	if !validPane(claim.PaneID) {
-		return ClientView{}, ErrInvokerClient
+		return SwapResult{}, ErrInvokerClient
 	}
 	if claim.PaneID == target.Pane.PaneID {
-		return ClientView{}, ErrNoNeighbour
+		return SwapResult{}, ErrNoNeighbour
 	}
 	current, err := c.checkFocus(ctx, claim, expected, target)
 	if err != nil {
-		return ClientView{}, err
+		return SwapResult{}, err
 	}
 	read := func() (string, error) {
 		format := fields("pane_id", "pane_left", "pane_top", "pane_width", "pane_height", "window_zoomed_flag")
@@ -281,38 +288,42 @@ func (c Client) SwapInto(ctx context.Context, claim TmuxCaller, expected ClientV
 	}
 	text, err := read()
 	if err != nil {
-		return ClientView{}, err
+		return SwapResult{}, err
 	}
 	next, err := swapNeighbour(text, claim.PaneID, direction)
 	if err != nil {
-		return ClientView{}, err
+		return SwapResult{}, err
 	}
-	if next == target.Pane.PaneID {
-		return c.clientAfter(ctx, expected)
+	result := SwapResult{Target: current.Pane.PaneID, Neighbour: next, Already: next == current.Pane.PaneID}
+	if !result.Already {
+		neighbour, err := c.paneSnapshot(ctx, ports.PaneRef{Server: claim.Socket, PaneID: next})
+		if err != nil || neighbour.Server != current.Server || neighbour.WindowID != expected.WindowID ||
+			neighbour.SessionID != expected.SessionID {
+			return SwapResult{}, ErrFocusChanged
+		}
+		if again, err := read(); err != nil || again != text {
+			return SwapResult{}, ErrFocusChanged
+		}
+		if _, err := c.checkFocus(ctx, claim, expected, current); err != nil {
+			return SwapResult{}, err
+		}
+		if err := c.verifyUnsharedFocus(ctx, expected, current.SessionID); err != nil {
+			return SwapResult{}, err
+		}
+		if err := c.runPaneAction(ctx, neighbour, "swap-pane -d -s "+current.Pane.PaneID+" -t "+next); err != nil {
+			return SwapResult{}, err
+		}
+		moved, err := c.paneSnapshot(ctx, current.Pane)
+		if err != nil || moved.Process != current.Process || moved.ServerProcess != current.ServerProcess ||
+			moved.WindowID != neighbour.WindowID || moved.SessionID != neighbour.SessionID {
+			return SwapResult{}, ErrFocusChanged
+		}
 	}
-	neighbour, err := c.paneSnapshot(ctx, ports.PaneRef{Server: claim.Socket, PaneID: next})
-	if err != nil || neighbour.Server != current.Server || neighbour.WindowID != expected.WindowID ||
-		neighbour.SessionID != expected.SessionID {
-		return ClientView{}, ErrFocusChanged
+	result.View, err = c.clientAfter(ctx, expected)
+	if err != nil {
+		return SwapResult{}, err
 	}
-	if again, err := read(); err != nil || again != text {
-		return ClientView{}, ErrFocusChanged
-	}
-	if _, err := c.checkFocus(ctx, claim, expected, current); err != nil {
-		return ClientView{}, err
-	}
-	if err := c.verifyUnsharedFocus(ctx, expected, current.SessionID); err != nil {
-		return ClientView{}, err
-	}
-	if err := c.runPaneAction(ctx, neighbour, "swap-pane -d -s "+current.Pane.PaneID+" -t "+next); err != nil {
-		return ClientView{}, err
-	}
-	moved, err := c.paneSnapshot(ctx, current.Pane)
-	if err != nil || moved.Process != current.Process || moved.ServerProcess != current.ServerProcess ||
-		moved.WindowID != neighbour.WindowID || moved.SessionID != neighbour.SessionID {
-		return ClientView{}, ErrFocusChanged
-	}
-	return c.clientAfter(ctx, expected)
+	return result, nil
 }
 
 type paneGeometry struct {
