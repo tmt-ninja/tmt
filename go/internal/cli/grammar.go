@@ -211,6 +211,7 @@ var grammar = commandSpec{
 		{name: "whoami", summary: "Show this pane's verified identity", options: []string{"context"}},
 		{name: "reply", summary: "Submit an exact final response",
 			operands: []operandSpec{required("request-id")}, options: []string{"file", "message", "stdin", "receipt"}},
+		{name: "send-now", summary: "Send an eligible queued message now", operands: []operandSpec{required("request-id")}, options: []string{"identity"}},
 		{name: "result", summary: "Retrieve a retained final response", operands: []operandSpec{required("request-id")}},
 		{name: "inbox", summary: "List requests waiting on you for a final response", options: []string{"identity", "limit", "from"}},
 		{name: "answer", summary: "Answer the request an identity is waiting on you for",

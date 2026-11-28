@@ -23,6 +23,7 @@ func (app application) runRequest(ctx context.Context, root home.Root, inv invoc
 	var failure *output.Failure
 	command := inv.path[0]
 	var talk talkPlan
+	var sendDelay time.Duration
 	switch command {
 	case "talk":
 		var stop context.CancelFunc
@@ -32,6 +33,20 @@ func (app application) runRequest(ctx context.Context, root home.Root, inv invoc
 		if failure != nil {
 			return failure
 		}
+
+	case "send-now":
+		var stop context.CancelFunc
+		ctx, stop = signal.NotifyContext(ctx, os.Interrupt)
+		defer stop()
+		selected, failure = app.caller.selectIdentity(ctx, inv)
+		if failure != nil {
+			return failure
+		}
+		settings, err := loadSettings(root)
+		if err != nil {
+			return talkConfigFailure()
+		}
+		sendDelay = timerSeconds(settings["pasteEnterDelayMs"].value.(float64) / 1000)
 
 	case "inbox", "answer", "x":
 		if command == "x" && len(inv.path) == 2 && (inv.path[1] == "flow" || inv.path[1] == "listen") {
@@ -86,6 +101,8 @@ func (app application) runRequest(ctx context.Context, root home.Root, inv invoc
 	switch command {
 	case "talk":
 		return app.talk(ctx, talk)
+	case "send-now":
+		return app.sendNow(ctx, root, selected, inv.operands[0], sendDelay)
 	case "reply":
 		return app.reply(ctx, inv, body)
 	case "result":
@@ -103,6 +120,8 @@ func requestOpenFailure(command string, err error) *output.Failure {
 		return exchangeFailure(err)
 	case "talk":
 		return talkFailure(err)
+	case "send-now":
+		return sendNowFailure(err)
 	case "answer", "inbox":
 		return incomingFailure(err)
 	default:
