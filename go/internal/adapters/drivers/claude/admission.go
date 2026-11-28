@@ -9,6 +9,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 // StartupCapture holds the binding and launch captured by the caller. Owner
@@ -23,34 +24,15 @@ type StartupCapture struct {
 	ObservedAtMs uint64
 }
 
-// LaunchActivityObservation is the verified startup evidence handed to the
-// storage writer. This adapter-local shape matches the proposed binding port.
-type LaunchActivityObservation struct {
-	ExpectedBinding core.Binding
-	Owner           core.ProcessIncarnation
-	Runtime         core.ProcessIncarnation
-	ProviderSession string
-	Transition      string
-	InitialIdle     bool
-	ObservedAtMs    uint64
-}
-
-// LaunchActivityWriter compares the captured binding, incarnation and launch
-// fence in one storage write. A stale comparison returns false. An early
-// observation can only stage an existing intent. A replay must preserve newer activity.
-type LaunchActivityWriter interface {
-	ObserveLaunchActivity(context.Context, LaunchActivityObservation) (bool, error)
-}
-
 // AdmitStartup verifies a Claude callback and sends one observation to the
 // binding CAS. A staged observation does not yet establish deliverability.
-func AdmitStartup(ctx context.Context, payload []byte, capture StartupCapture, observer runtime.Observer, writer LaunchActivityWriter) (bool, error) {
+func AdmitStartup(ctx context.Context, payload []byte, capture StartupCapture, observer runtime.Observer, store ports.Store) (bool, error) {
 	reportedPID, present := os.LookupEnv("CLAUDE_PID")
-	return admitStartup(ctx, payload, capture, observer, writer, os.Getpid(), reportedPID, present)
+	return admitStartup(ctx, payload, capture, observer, store, os.Getpid(), reportedPID, present)
 }
 
 func admitStartup(ctx context.Context, payload []byte, capture StartupCapture, observer readinessObserver,
-	writer LaunchActivityWriter, hookPID int, reportedPID string, hasReportedPID bool,
+	store ports.Store, hookPID int, reportedPID string, hasReportedPID bool,
 ) (bool, error) {
 	event := decodeStartup(payload)
 	const maxObservedAt = 9007199254740991
@@ -79,16 +61,23 @@ func admitStartup(ctx context.Context, payload []byte, capture StartupCapture, o
 	if recorded.RuntimeState == "running" && main != recordedIncarnation(recorded.Runtime) {
 		return false, nil
 	}
-	if writer == nil {
+	if store == nil {
 		return false, errors.New("Claude startup requires a binding activity writer")
 	}
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	return writer.ObserveLaunchActivity(ctx, LaunchActivityObservation{
-		ExpectedBinding: binding, Owner: capture.Owner,
+	observation := ports.LaunchActivityObservation{
+		Expected: binding, Owner: capture.Owner,
 		Runtime:         core.ProcessIncarnation{PID: uint64(main.PID), StartIdentity: main.Start},
 		ProviderSession: event.session, Transition: event.transition,
 		InitialIdle: capture.StartupInput && event.idle, ObservedAtMs: capture.ObservedAtMs,
+	}
+	var recordedOK bool
+	err = store.Write(ctx, func(tx ports.StoreTx) error {
+		var err error
+		recordedOK, err = tx.Bindings().ObserveLaunchActivity(observation)
+		return err
 	})
+	return err == nil && recordedOK, err
 }

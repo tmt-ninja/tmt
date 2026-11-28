@@ -81,7 +81,7 @@ func proveStartup(ctx context.Context, identity core.Identity, binding core.Bind
 
 type startup struct {
 	session    string
-	transition string
+	transition core.LaunchTransition
 	idle       bool
 }
 
@@ -100,12 +100,12 @@ func decodeStartup(input []byte) startup {
 		len(event.Session) > 256 || strings.TrimSpace(event.Session) == "" || strings.ContainsFunc(event.Session, unicode.IsControl) {
 		return startup{}
 	}
-	var transition string
+	var transition core.LaunchTransition
 	switch event.Source {
 	case "startup":
-		transition = "started"
+		transition = core.LaunchTransitionStarted
 	case "resume":
-		transition = "resumed"
+		transition = core.LaunchTransitionResumed
 	default:
 		return startup{}
 	}
