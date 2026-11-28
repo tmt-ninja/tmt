@@ -68,22 +68,38 @@ test('confirmed history recovery keeps a dirty source draft on the old connectio
     const read = () =>
       JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])).source;
     await expect.poll(read).toBe(draft);
-    const restored = JSON.parse(
-      run(world, colab, [
-        'attachment',
-        'read',
-        created.pageId,
-        attached.attachmentId,
-        '--output',
-        world.workspace,
-        '--json',
-      ]),
-    );
-    expect(fs.readFileSync(restored.path, 'utf8')).toBe(note);
     await page.reload();
     await expect(
       page.frameLocator('iframe').getByText('Keep the current page. Unsent edit.'),
     ).toBeVisible();
+    const attachmentText = () => {
+      let restored: { path: string };
+      try {
+        restored = JSON.parse(
+          run(world, colab, [
+            'attachment',
+            'read',
+            created.pageId,
+            attached.attachmentId,
+            '--output',
+            world.workspace,
+            '--json',
+          ]),
+        );
+      } catch (error) {
+        // The document can be live before Remote has reactivated the attachment channel.
+        if (
+          error instanceof Error &&
+          error.message.includes(
+            '"code":"COLAB_UNAVAILABLE","message":"Colab attachments are unavailable until a Colab page is opened in the browser or Remote restarts."',
+          )
+        )
+          return undefined;
+        throw error;
+      }
+      return fs.readFileSync(restored.path, 'utf8');
+    };
+    await expect.poll(attachmentText, { timeout: 30_000 }).toBe(note);
   });
 });
 
