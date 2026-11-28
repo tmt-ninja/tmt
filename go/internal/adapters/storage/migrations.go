@@ -39,6 +39,17 @@ func migrateThrough(ctx context.Context, conn *sql.Conn, last int) error {
 }
 
 func applyMigration(ctx context.Context, conn *sql.Conn, version int) (err error) {
+	var hostReference []schemaObject
+	if version == 41 {
+		current, err := recordedThrough(ctx, conn)
+		if err != nil || current >= version {
+			return err
+		}
+		hostReference, err = hostSourceReference(ctx)
+		if err != nil {
+			return fmt.Errorf("build schema-40 reference: %w", err)
+		}
+	}
 	switch version {
 	case 9, 41, 65, 66:
 		// Rebuilds must suspend cascading deletions outside the transaction.
@@ -74,7 +85,7 @@ func applyMigration(ctx context.Context, conn *sql.Conn, version int) (err error
 				return err
 			}
 		case 41:
-			if err := validateHostSource(ctx, tx); err != nil {
+			if err := validateHostSource(ctx, tx, hostReference); err != nil {
 				return err
 			}
 			if err := checkForeignKeys(ctx, tx); err != nil {

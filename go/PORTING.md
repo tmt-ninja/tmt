@@ -162,6 +162,14 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     `TestRoomRetirementPreservesHistoricalRosterAndReplaysAtMaxRevision`.
     CLI selectors and durable dispatch composition are separate.
 
+- [x] GO1-30: Keep fresh-open migrations convergent under contention.
+  - Native `storage/tests.rs::concurrent_openers_commit_each_migration_only_once`
+    and `cold_open_race_initializes_wal_for_every_caller` map to
+    `TestConcurrentFreshOpen`. Migration 41 builds its private reference before
+    taking the live writer, then validates the actual schema under that writer.
+    `migrations/writer_wait_tests.rs::a_writer_that_adds_no_version_still_ends_the_wait_in_busy_after_the_stall_bound`
+    maps to `TestOpenStalledMigrationReturnsTypedBusy` at the production bound.
+
 ## go-2 (sys, process, tmux, host, drivers, channel)
 
 - [x] GO2-01: Native selected-process start reads on Darwin and Linux before the bounded ps fallback. Rust `process/process_info.rs::stopped_and_exited_owned_children_keep_batch_parity` → `TestNativeProcessStartsForLiveStoppedAndGone` and `TestNativeStartTokenMatchesTheBoundedPSFallback`; Linux stat parsing → `TestNativeLinuxStatKeepsTheStartFieldAfterComplexCommand`. Under concurrent test suites, repeated batched ps reads exhausted the swap budget, including the fresh post-swap check. Native reads preserve the persisted token and remove those subprocesses. Each focus ancestry proof also checks both required links from one snapshot (`TestProcessTreeProvesBothSegmentsFromOneSnapshot`), with fresh rechecks and deadlines intact.

@@ -33,6 +33,13 @@ type Storage struct {
 	closeErr       error
 }
 
+// BusyError reports a bounded SQLite wait that ended in contention.
+type BusyError struct{ cause error }
+
+func (e *BusyError) Error() string   { return "storage is busy" }
+func (e *BusyError) Unwrap() error   { return e.cause }
+func (e *BusyError) Retryable() bool { return true }
+
 func Open(ctx context.Context, root home.Root) (*Storage, error) {
 	if !filepath.IsAbs(root.Dir) || filepath.Clean(root.Database) != filepath.Join(root.Dir, home.DatabaseName) {
 		return nil, errors.New("invalid tmt-go database path")
@@ -48,7 +55,11 @@ func Open(ctx context.Context, root home.Root) (*Storage, error) {
 		return nil, fmt.Errorf("open storage: %w", err)
 	}
 	if err := prepareStorage(ctx, db, root.Database); err != nil {
-		return nil, errors.Join(err, db.Close())
+		cause := errors.Join(err, db.Close())
+		if isBusy(err) {
+			return nil, &BusyError{cause: cause}
+		}
+		return nil, cause
 	}
 	return &Storage{db: db, path: root.Database}, nil
 }

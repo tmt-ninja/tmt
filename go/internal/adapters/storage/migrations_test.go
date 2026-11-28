@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -114,6 +115,58 @@ func TestConcurrentFreshOpen(t *testing.T) {
 	var count int
 	if err := store.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM _migrations").Scan(&count); err != nil || count != SchemaVersion {
 		t.Fatalf("migration count = %d, %v", count, err)
+	}
+}
+
+func TestOpenStalledMigrationReturnsTypedBusy(t *testing.T) {
+	root := testRoot(t)
+	ctx := t.Context()
+	if err := os.MkdirAll(root.Dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	db, err := openSQLite(root.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := configureWAL(ctx, conn); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateThrough(ctx, conn, 1); err != nil {
+		t.Fatal(err)
+	}
+	holder, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holder.Rollback()
+
+	wait, cancel := context.WithTimeout(ctx, 2*busyTimeout)
+	defer cancel()
+	started := time.Now()
+	store, err := Open(wait, root)
+	var busy *BusyError
+	if store != nil {
+		_ = store.Close()
+		t.Fatal("open passed a stalled migration writer")
+	}
+	if !errors.As(err, &busy) || !busy.Retryable() || !isBusy(busy.Unwrap()) ||
+		!strings.Contains(busy.Unwrap().Error(), "initialize migration history") {
+		t.Fatalf("stalled migration error = %T %v", err, err)
+	}
+	if elapsed := time.Since(started); elapsed < busyTimeout || elapsed >= 2*busyTimeout {
+		t.Fatalf("migration wait = %v, want at least %v and below %v", elapsed, busyTimeout, 2*busyTimeout)
+	}
+	if err := holder.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if version, err := recordedThrough(ctx, conn); err != nil || version != 1 {
+		t.Fatalf("stalled opener changed the history: %d, %v", version, err)
 	}
 }
 

@@ -139,31 +139,32 @@ type schemaObject struct {
 	kind, name, table, definition string
 }
 
-// Schema 41 refuses unknown dependencies before it replaces the four tables.
-func validateHostSource(ctx context.Context, tx *sql.Tx) error {
-	actual, err := hostSchemaObjects(ctx, tx)
-	if err != nil {
-		return err
-	}
+// Schema 41 compares against an independent schema-40 database. Build it
+// before acquiring the real writer so another opener can follow the chain.
+func hostSourceReference(ctx context.Context) ([]schemaObject, error) {
 	fresh, err := sql.Open("sqlite", "file::memory:?_txlock=immediate&_pragma=foreign_keys(ON)")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer fresh.Close()
 	conn, err := fresh.Conn(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer conn.Close()
 	if err := migrateThrough(ctx, conn, 40); err != nil {
-		return fmt.Errorf("build schema-40 reference: %w", err)
+		return nil, err
 	}
 	reference, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer reference.Rollback()
-	expected, err := hostSchemaObjects(ctx, reference)
+	return hostSchemaObjects(ctx, reference)
+}
+
+func validateHostSource(ctx context.Context, tx *sql.Tx, expected []schemaObject) error {
+	actual, err := hostSchemaObjects(ctx, tx)
 	if err != nil {
 		return err
 	}
