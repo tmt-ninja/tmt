@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/fs"
 	"math"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -134,7 +133,7 @@ func inspectDatabaseFootprint(ctx context.Context, root *os.Root, path string) (
 	if wal != nil {
 		result.WALBytes = *wal
 	}
-	result.Pages, err = observeFootprintPages(ctx, root, path, wal != nil)
+	result.Pages, err = observeFootprintPages(ctx, root, path)
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -145,29 +144,8 @@ func inspectDatabaseFootprint(ctx context.Context, root *os.Root, path string) (
 	return &result, nil
 }
 
-func observeFootprintPages(ctx context.Context, root *os.Root, path string, wal bool) (*DatabasePages, error) {
-	parameters := url.Values{"mode": {"ro"}, "_pragma": {"busy_timeout(100)"}}
-	name := filepath.Base(path)
-	if wal {
-		shm, err := statFootprintFile(root, name+"-shm")
-		if err != nil {
-			return nil, err
-		}
-		if shm == nil {
-			// NOT PORTED (#6938, GO1-09): native can observe a WAL without an existing index.
-			// Refuse that case so SQLite does not initialize a sidecar during inspection.
-			return nil, errors.New("WAL page counts require an existing shared-memory index")
-		}
-	} else {
-		if info, err := root.Lstat(name + "-wal"); err == nil && !info.Mode().IsRegular() {
-			return nil, errors.New("invalid database WAL file")
-		} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
-		}
-		parameters.Set("immutable", "1")
-	}
-	dsn := url.URL{Scheme: "file", Path: path, RawQuery: parameters.Encode()}
-	db, err := sql.Open("sqlite", dsn.String())
+func observeFootprintPages(ctx context.Context, root *os.Root, path string) (*DatabasePages, error) {
+	db, err := openExistingSQLiteReadOnly(root, path, 100)
 	if err != nil {
 		return nil, err
 	}

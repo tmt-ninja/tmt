@@ -26,7 +26,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO1-06: Atomic SQLite symlink refusal when opening the hook queue.
 - [ ] GO1-07: SQLite no-checkpoint-on-close connection option.
 - [x] GO1-08: Digest holds and provider activity in the request delivery view.
-- [ ] GO1-09: Read footprint page counts when a WAL exists without an index.
+- [ ] GO1-09: Read footprint page counts and discovery ownership when a WAL exists without an index.
 - [ ] GO1-10: Enumerate the full native Colab backup set in footprint.
 - [ ] GO1-11: Reply callbacks, provider capture and flow accounting.
 - [ ] GO1-12: Partial usage totals for unmeasured wake turns.
@@ -51,6 +51,13 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [x] GO1-21: Observe future schema versions through an existing API session.
 - [ ] GO1-22: Decode authoritative Digest idle activity for Agy and Pi.
 - [ ] GO1-23: Preserve the retained thread-root frame when a request is sent now.
+
+- [x] GO1-24: Read existing discovery ownership without provisioning.
+  - Native `storage/bindings/service_tests/discovery.rs::read_only_discovery_preserves_rows_and_distinguishes_known_stale_hook_only_and_duplicates`
+    maps to Go `TestReadDiscoveryPreservesOwnershipAndFiltersHostSocket` for unchanged
+    ownership, host isolation, and both records for a duplicate pane, and to
+    `TestReadDiscoveryLeavesMissingHomeAbsent` for a missing database. Candidate
+    classification is tracked in CLI-04.
 
 ## go-2 (sys, process, tmux, host, drivers, channel)
 

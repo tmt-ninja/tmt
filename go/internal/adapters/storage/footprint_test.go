@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -135,6 +136,10 @@ func TestInspectFootprintObservesCommittedWALPages(t *testing.T) {
 	if copied == nil || copied.Pages != nil || copied.PageError == nil ||
 		copied.Bytes != uint64(len(disk)) || copied.WALBytes != uint64(len(wal)) {
 		t.Fatalf("database without SHM = %+v", copied)
+	}
+	if _, err := ReadDiscovery(t.Context(), copyRoot, "tmux", "/tmp/fixture.sock"); err == nil ||
+		!strings.Contains(err.Error(), "shared-memory index") {
+		t.Fatalf("discovery without SHM error = %v", err)
 	}
 	if _, err := os.Lstat(copyRoot.Database + "-shm"); !os.IsNotExist(err) {
 		t.Fatalf("WAL index stat = %v", err)
