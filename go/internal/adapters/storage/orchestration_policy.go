@@ -58,8 +58,14 @@ func readOrchPolicy(r records, owners map[core.IdentityID]core.Name) (core.OrchP
 	return policy, err
 }
 
+const orchPlanLimit = 128
+
+func orchReadLimit() *core.RequestFailure {
+	return requestFailure("ORCH_LIMIT", "Orchestration query exceeds its bounded expansion.", 1)
+}
+
 func orchPlans(r records) ([]core.OrchPlan, error) {
-	plans, err := scanRows(r, "SELECT id,name,revision,priority,enabled,schedule,fields FROM orchestration_plans ORDER BY priority LIMIT 129", func(row scanner) (core.OrchPlan, error) {
+	plans, err := scanRows(r, "SELECT id,name,revision,priority,enabled,schedule,fields FROM orchestration_plans ORDER BY priority LIMIT ?", func(row scanner) (core.OrchPlan, error) {
 		var plan core.OrchPlan
 		var schedule, fields []byte
 		err := row.Scan(&plan.ID, &plan.Name, &plan.Revision, &plan.Priority, &plan.Enabled, &schedule, &fields)
@@ -71,12 +77,12 @@ func orchPlans(r records) ([]core.OrchPlan, error) {
 		}
 		plan.Fields, err = decodeOrchFields(fields)
 		return plan, err
-	})
+	}, orchPlanLimit+1)
 	if err != nil {
 		return nil, err
 	}
-	if len(plans) > 128 {
-		return nil, errInvalidOrchRow
+	if len(plans) > orchPlanLimit {
+		return nil, orchReadLimit()
 	}
 	for index := range plans {
 		if err := readOrchPlanMembers(r, &plans[index]); err != nil {

@@ -68,6 +68,12 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     `TestReadDiscoveryLeavesMissingHomeAbsent` for a missing database. Candidate
     classification is tracked in CLI-04.
 
+- [x] GO1-25: Read plans and their revision without expanding members.
+  - Main native `orchestration/read.rs` Plans read permits 257 active identities
+    and returns `ORCH_LIMIT` at 129 plans. Go
+    `TestOrchPolicySnapshotUsesNativeMemberCapAndFilterOrder` covers both
+    boundaries, plan order, targets and member overrides.
+
 ## go-2 (sys, process, tmux, host, drivers, channel)
 
 - [ ] GO2-01: Native process-table reads before the bounded ps fallback.

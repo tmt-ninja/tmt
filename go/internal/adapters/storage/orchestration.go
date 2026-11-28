@@ -60,7 +60,7 @@ func (s *Storage) ReadPolicySnapshot(ctx context.Context, q core.OrchSnapshotQue
 			return err
 		}
 		if len(members) > orchSnapshotMemberLimit {
-			return requestFailure("ORCH_LIMIT", "Orchestration query exceeds its bounded expansion.", 1)
+			return orchReadLimit()
 		}
 		identities := make(map[core.IdentityID]core.Name, len(members))
 		page.IdentityIDs = make([]core.IdentityID, 0, len(members))
@@ -73,6 +73,23 @@ func (s *Storage) ReadPolicySnapshot(ctx context.Context, q core.OrchSnapshotQue
 	})
 	if err != nil {
 		return core.OrchSnapshotPage{}, err
+	}
+	return page, nil
+}
+
+func (s *Storage) ReadPlans(ctx context.Context) (core.OrchPlansPage, error) {
+	var page core.OrchPlansPage
+	err := s.transact(ctx, true, func(r records) error {
+		if err := r.one("SELECT COALESCE((SELECT revision FROM orchestration_settings WHERE id=1),0)").
+			Scan(&page.Revision); err != nil {
+			return err
+		}
+		var err error
+		page.Plans, err = orchPlans(r)
+		return err
+	})
+	if err != nil {
+		return core.OrchPlansPage{}, err
 	}
 	return page, nil
 }

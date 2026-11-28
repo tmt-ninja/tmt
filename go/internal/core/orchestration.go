@@ -16,6 +16,11 @@ type OrchSnapshotPage struct {
 	IdentityIDs []IdentityID
 }
 
+type OrchPlansPage struct {
+	Revision uint64
+	Plans    []OrchPlan
+}
+
 type OrchJobQuery struct {
 	RoomID      *string
 	OwnerID     *IdentityID

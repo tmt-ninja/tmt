@@ -169,6 +169,60 @@ func TestOrchPolicySnapshotUsesNativeMemberCapAndFilterOrder(t *testing.T) {
 		t.Fatalf("more than 256 matches produced a partial snapshot: %+v", page)
 	}
 
+	// Native Plans skips the 256-member expansion while preserving the plan
+	// documents, including targets and overrides.
+	insertPlans := func(first, end int) {
+		t.Helper()
+		if err := store.transact(ctx, false, func(r records) error {
+			for n := first; n < end; n++ {
+				id := fmt.Sprintf("379a614e-5064-4678-af33-%012d", n)
+				priority := orchPlanLimit - n
+				if _, err := r.exec(`INSERT INTO orchestration_plans (id,name,revision,priority,enabled,schedule,fields)
+					VALUES (?, ?, 1, ?, 1, '{"kind":"always"}', '{}')`,
+					id, fmt.Sprintf("Plan %03d", priority), priority); err != nil {
+					return err
+				}
+				if _, err := r.exec(`INSERT INTO orchestration_plan_targets (plan_id,position,target)
+					VALUES (?,0,'{"kind":"all"}')`, id); err != nil {
+					return err
+				}
+				if priority == 1 {
+					if _, err := r.exec(`INSERT INTO orchestration_plan_targets (plan_id,position,target)
+						VALUES (?,1,json_object('kind','identity','id',?))`, id, identities[0].ID); err != nil {
+						return err
+					}
+					if _, err := r.exec(`INSERT INTO orchestration_member_overrides (plan_id,identity_id,fields)
+						VALUES (?,?,'{"routine":"run"}')`, id, identities[0].ID); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := store.db.ExecContext(ctx, "INSERT INTO orchestration_settings VALUES (1,42,'UTC')"); err != nil {
+		t.Fatal(err)
+	}
+	insertPlans(0, orchPlanLimit)
+	plans, err := store.ReadPlans(ctx)
+	if err != nil || plans.Revision != 42 || len(plans.Plans) != orchPlanLimit {
+		t.Fatalf("read plans with 257 active members: revision %d, %d plans, %v", plans.Revision, len(plans.Plans), err)
+	}
+	for n, plan := range plans.Plans {
+		if plan.Priority != int32(n+1) {
+			t.Fatalf("plan %d priority = %d", n, plan.Priority)
+		}
+	}
+	firstPlan := plans.Plans[0]
+	override := firstPlan.Members[identities[0].ID]
+	if len(firstPlan.Targets) != 2 || firstPlan.Targets[0].Kind != "all" ||
+		firstPlan.Targets[1].Kind != "identity" || firstPlan.Targets[1].ID != identities[0].ID ||
+		override.Routine == nil || *override.Routine != core.OrchRoutineRun {
+		t.Fatalf("first plan targets and overrides: %+v", firstPlan)
+	}
+
 	last := identities[len(identities)-1].ID
 	if _, err := store.db.ExecContext(ctx, "UPDATE identities SET retired_at_ms=1500 WHERE id=?", last); err != nil {
 		t.Fatal(err)
@@ -183,6 +237,14 @@ func TestOrchPolicySnapshotUsesNativeMemberCapAndFilterOrder(t *testing.T) {
 		if id != identity.ID || page.Policy.Identities[id] != identity.Name {
 			t.Fatalf("member %d = %s (%q), want %s (%q)", i, id, page.Policy.Identities[id], identity.ID, identity.Name)
 		}
+	}
+
+	insertPlans(orchPlanLimit, orchPlanLimit+1)
+	overflow, err := store.ReadPlans(ctx)
+	failure = requireRequestFailure(t, err, "ORCH_LIMIT", 1)
+	if failure.Message != "Orchestration query exceeds its bounded expansion." ||
+		overflow.Revision != 0 || len(overflow.Plans) != 0 {
+		t.Fatalf("plan overflow: %+v, %v", overflow, failure)
 	}
 }
 
