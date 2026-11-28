@@ -20,7 +20,7 @@ var Version = "0.0.0-go-dev"
 func Main(args []string, stdout, stderr io.Writer) int {
 	invocation, failure := parse(args)
 	if failure != nil {
-		return failure.Publish(stdout, stderr, invocation.json)
+		return output.Publish(stdout, stderr, failure, invocation.json)
 	}
 	var err error
 	switch {
@@ -42,15 +42,15 @@ func execute(invocation invocation, stdout, stderr io.Writer) int {
 	userHome, err := os.UserHomeDir()
 	if err != nil {
 		failure := &output.Failure{Code: "HOME_UNKNOWN", Message: err.Error(), Status: 1}
-		return failure.Publish(stdout, stderr, invocation.json)
+		return output.Publish(stdout, stderr, failure, invocation.json)
 	}
 	if _, err := home.Resolve(os.LookupEnv, userHome); err != nil {
 		failure := &output.Failure{Code: "NATIVE_ROOT_REFUSED", Message: err.Error(), Status: 2}
-		return failure.Publish(stdout, stderr, invocation.json)
+		return output.Publish(stdout, stderr, failure, invocation.json)
 	}
 	// NOT PORTED (#6938): command execution over the storage and host ports.
 	failure := &output.Failure{
 		Code: "NOT_PORTED", Message: fmt.Sprintf("Command '%s' is not yet ported.", strings.Join(invocation.path, " ")), Status: 2,
 	}
-	return failure.Publish(stdout, stderr, invocation.json)
+	return output.Publish(stdout, stderr, failure, invocation.json)
 }
