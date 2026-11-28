@@ -98,6 +98,10 @@ type Screen struct {
 type DeliveryInput struct {
 	Text   string
 	Submit []KeyStep
+	// BeforeSubmit waits after the text is pasted and before the first submit
+	// key (native pasteEnterDelayMs). Zero submits at once. Cancellation during
+	// the wait is DeliveryUncertain: the text may already be in the terminal.
+	BeforeSubmit time.Duration
 }
 
 // KeyStep is one host input step: literal text or a named key, then a pause.
