@@ -38,6 +38,22 @@ func TestResolveAndDiscoverUsePATHOrder(t *testing.T) {
 	}
 }
 
+func TestCoreGoBinariesAreNotDispatchedOrDiscovered(t *testing.T) {
+	dir := t.TempDir()
+	names := []string{"go", "go-darwin-arm64", "go-linux-amd64", "go-experimental", "go-"}
+	for _, name := range names {
+		fixture(t, dir, "tmt-"+name, 0700, "")
+		if path, err := Resolve(name, dir); path != "" || err != nil {
+			t.Fatalf("resolved Core binary %q as %q, %v", name, path, err)
+		}
+	}
+	want := fixture(t, dir, "tmt-gopher", 0700, "")
+	discovered, err := Discover(dir)
+	if err != nil || !reflect.DeepEqual(discovered, map[string]string{"gopher": want}) {
+		t.Fatalf("discover = %v, %v", discovered, err)
+	}
+}
+
 func TestResolveKeepsSymlinkParentTraversalInRelativePATH(t *testing.T) {
 	root := t.TempDir()
 	nested := filepath.Join(root, "real", "nested")

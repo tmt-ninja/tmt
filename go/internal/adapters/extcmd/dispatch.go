@@ -33,9 +33,14 @@ func ValidName(name string) bool {
 	return true
 }
 
+// tmt-go and its platform-specific distribution binaries are Core executables.
+func isGoBinary(name string) bool {
+	return name == "go" || strings.HasPrefix(name, "go-")
+}
+
 // Resolve probes the exact filename in PATH order.
 func Resolve(name, searchPath string) (string, error) {
-	if !ValidName(name) {
+	if !ValidName(name) || isGoBinary(name) {
 		return "", nil
 	}
 	path, found := invoke.FindExecutable(prefix+name, searchPath)
@@ -60,7 +65,7 @@ func Discover(searchPath string) (map[string]string, error) {
 		}
 		for _, entry := range entries {
 			name, ok := strings.CutPrefix(entry.Name(), prefix)
-			if !ok || name == "" || !utf8.ValidString(name) || found[name] != "" {
+			if !ok || name == "" || !utf8.ValidString(name) || isGoBinary(name) || found[name] != "" {
 				continue
 			}
 			path := appendPath(directory, entry.Name())
