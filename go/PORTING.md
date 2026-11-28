@@ -148,8 +148,8 @@ in the initial dual-runtime native slice (3 passed on each runtime):
   stdin, stdout, stderr, exit status, and the callback executable.
 
 The same three TypeScript assertions also passed with `nativecompat` and the
-unmodified TypeScript harness. The dispatch-only CI job and first CI E2E
-measurement are pending.
+unmodified TypeScript harness. The dispatch-only CI job is available. Its first
+E2E measurement is pending.
 
 - [ ] Finish local API v1 operation admission, response parity, lazy schema fencing,
   lifecycle delivery, and CLI composition. Qualify MCP identity pinning and all
@@ -161,9 +161,13 @@ measurement are pending.
   timer commands over the clock lease and minute window.
 - [ ] Port lifecycle-hook enable, disable and delivery with executable verification
   and bounded context contributions.
-- [ ] Complete orchestration reads and CLI commands, including the Why journal,
-  then workspace capture and restore; port the external-command dispatch markers
-  currently marked unported in the dispatch adapter.
+- [ ] Complete orchestration overview, plans, preview, jobs, talks and routes.
+  API Why is wired. Its paging, uncertainty and unchanged change-cursor
+  assertions map to `why_reads_actual_transactional_events_and_preserves_uncertainty`
+  in `rust/crates/tmt-cli/tests/orchestration.rs`. Why advertises Digest claims
+  and settlements. Hold and sending producers and orchestration CLI entry
+  points remain pending. Then port workspace capture and restore and the remaining
+  external-command dispatch markers.
 - [ ] Port Go guide reference topics in native order. Complete setup, owned skill
   registry and provider integration that are currently unported in the managed
   skills adapter. Keep Go launch guidance on its isolated binary and home.

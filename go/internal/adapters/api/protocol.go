@@ -208,6 +208,19 @@ func (s *requestSession) respond(body []byte) (SessionResponse, error) {
 			return encodeFault(&Fault{Code: "TICK_IO", Message: "Tick I/O failed: " + err.Error()})
 		}
 		value = status
+	case orchestrationRead:
+		query, ok := decodeWhy(request.Input, now)
+		if !ok {
+			return encodeFault(invalid())
+		}
+		if fault := s.open(ctx); fault != nil {
+			return encodeFault(fault)
+		}
+		result, err := readWhy(ctx, s.store, query)
+		if err != nil {
+			return encodeFault(orchestrationFault(err))
+		}
+		value = result
 	case "digest.wake.step":
 		input, ok := decodeWake(request.Input)
 		if !ok {
@@ -324,7 +337,7 @@ func encodeFault(fault *Fault) (SessionResponse, error) {
 }
 
 func capabilities() any {
-	operations := append([]string{"capabilities", "storage.root", "tick.status", "digest.wake.step"}, digestOperations...)
+	operations := append([]string{"capabilities", "storage.root", "tick.status", "digest.wake.step", orchestrationRead}, digestOperations...)
 	operations = append(operations, usageOperations...)
 	return map[string]any{
 		"version":    ProtocolVersion,
