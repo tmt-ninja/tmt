@@ -44,6 +44,7 @@ jobs:
           start=$(date +%s)
           test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
           go vet ./...
+          go vet -tags nativecompat ./...
           sh scripts/check-schema-copy.sh
           echo "check: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
       - name: tmux
@@ -102,13 +103,18 @@ jobs:
         run: |
           version="0.0.0-go.${GITHUB_RUN_NUMBER}+${GITHUB_SHA::10}"
           mkdir -p dist
+          # Two flavors per target: isolated tmt-go, and the native-compatible
+          # tmt (-tags nativecompat) that replaces native after merge.
           for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
             os=${target%/*}; arch=${target#*/}
             GOOS=$os GOARCH=$arch go build -trimpath \
               -ldflags "-s -w -X github.com/tmt-ninja/tmt/go/internal/cli.Version=$version" \
               -o "dist/tmt-go-$os-$arch" ./cmd/tmt-go
+            GOOS=$os GOARCH=$arch go build -trimpath -tags nativecompat \
+              -ldflags "-s -w -X github.com/tmt-ninja/tmt/go/internal/cli.Version=$version" \
+              -o "dist/tmt-$os-$arch" ./cmd/tmt-go
           done
-          (cd dist && sha256sum tmt-go-* > SHA256SUMS)
+          (cd dist && sha256sum tmt-go-* tmt-darwin-* tmt-linux-* > SHA256SUMS)
           ls -l dist >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
