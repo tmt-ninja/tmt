@@ -60,7 +60,7 @@ pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
     let (line, hits) = paint(false);
     let scope = app.workspace.visibility.scope.len();
     // Reserve the shortest complete scope chip before offering any truncated
-    // tab. A compact strip keeps all four full labels and their hit areas.
+    // tab. A compact strip keeps all full labels and their hit areas.
     let shortest_chip =
         unicode_width::UnicodeWidthStr::width(format!(" Scope {scope} × ").as_str());
     let (line, hits) = if scope != 0
