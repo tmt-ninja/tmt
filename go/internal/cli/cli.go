@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
+	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 // Version is injected at build time with -ldflags "-X .../cli.Version=...".
@@ -18,6 +20,14 @@ var Version = "0.0.0-go-dev"
 
 // Main runs one invocation and returns the process exit status.
 func Main(args []string, stdout, stderr io.Writer) int {
+	return application{}.run(context.Background(), args, stdout, stderr)
+}
+
+type application struct {
+	requests ports.RequestService
+}
+
+func (app application) run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	invocation, failure := parse(args)
 	if failure != nil {
 		return output.Publish(stdout, stderr, failure, invocation.json)
@@ -29,7 +39,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	case invocation.version:
 		_, err = fmt.Fprintf(stdout, "tmt-go %s\n", Version)
 	default:
-		return execute(invocation, stdout, stderr)
+		return app.execute(ctx, invocation, stdout, stderr)
 	}
 	if err != nil {
 		fmt.Fprintf(stderr, "error: Could not write CLI output: %s\n", err)
@@ -38,7 +48,7 @@ func Main(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-func execute(invocation invocation, stdout, stderr io.Writer) int {
+func (app application) execute(ctx context.Context, invocation invocation, stdout, stderr io.Writer) int {
 	userHome, err := os.UserHomeDir()
 	if err != nil {
 		failure := &output.Failure{Code: "HOME_UNKNOWN", Message: err.Error(), Status: 1}
@@ -48,7 +58,14 @@ func execute(invocation invocation, stdout, stderr io.Writer) int {
 		failure := &output.Failure{Code: "NATIVE_ROOT_REFUSED", Message: err.Error(), Status: 2}
 		return output.Publish(stdout, stderr, failure, invocation.json)
 	}
-	// NOT PORTED (#6938): command execution over the storage and host ports.
+	if app.requests != nil {
+		switch invocation.path[0] {
+		case "reply", "result":
+			return output.Publish(stdout, stderr, app.response(ctx, invocation), invocation.json)
+		}
+	}
+	// NOT PORTED (#6938): open the real request store after its adapter lands,
+	// and compose the remaining commands over the storage and host ports.
 	failure := &output.Failure{
 		Code: "NOT_PORTED", Message: fmt.Sprintf("Command '%s' is not yet ported.", strings.Join(invocation.path, " ")), Status: 2,
 	}
