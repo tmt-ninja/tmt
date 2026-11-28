@@ -285,6 +285,7 @@ struct BudgetRow<'a> {
     forecast: crate::board::limits::BudgetForecast,
     report: Option<&'a Result<crate::board::usage_report::budgets::SpendReport, String>>,
     quote: Option<&'a crate::board::limits::BudgetQuote>,
+    start: u64,
     resets: u64,
 }
 
@@ -315,6 +316,7 @@ fn budget_rows(app: &App, now: u64) -> impl Iterator<Item = BudgetRow<'_>> {
                 forecast: budget_forecast(budget.limit_usd_micros, start, resets, now, quote),
                 report,
                 quote,
+                start,
                 resets,
             })
         })
@@ -336,8 +338,7 @@ pub(super) fn budget_height(app: &App, width: u16, available: u16) -> u16 {
     if height > heading { height } else { 0 }
 }
 
-fn money(micros: u64, upper_bound: bool) -> String {
-    let micros = u128::from(micros);
+fn money(micros: u128, upper_bound: bool) -> String {
     let cents = if upper_bound {
         micros.div_ceil(10_000)
     } else {
@@ -351,7 +352,7 @@ fn money(micros: u64, upper_bound: bool) -> String {
 }
 
 fn dollars(value: Option<u64>) -> String {
-    value.map_or_else(|| "—".into(), |micros| money(micros, false))
+    value.map_or_else(|| "—".into(), |micros| money(u128::from(micros), false))
 }
 
 fn dated(at: u64, zone: &jiff::tz::TimeZone) -> String {
@@ -383,17 +384,22 @@ impl BudgetRow<'_> {
     fn left(&self) -> String {
         match self.forecast.left_usd_micros {
             Some(micros) if self.forecast.left_is_upper_bound => {
-                format!("≤ {}", money(micros, true))
+                format!("≤ {}", money(u128::from(micros), true))
             }
             value => dollars(value),
         }
     }
 
     fn need(&self) -> String {
-        dollars(
-            self.forecast
-                .need_usd_micros_per_hour
-                .map(|micros| micros.round() as u64),
+        self.forecast.need_usd_micros_per_hour.map_or_else(
+            || "—".into(),
+            |micros| {
+                if self.forecast.left_is_upper_bound {
+                    format!("≤ {}", money(micros.ceil() as u128, true))
+                } else {
+                    money(micros.round() as u128, false)
+                }
+            },
         )
     }
 
@@ -469,6 +475,20 @@ pub(super) fn paint_budgets(frame: &mut Frame, app: &App, area: Rect) {
                     text(grid, y, x, width, &value, role);
                     x += width;
                 }
+            } else if row.forecast.left_usd_micros.is_none() {
+                let suffix = " · spend unknown";
+                let name = crate::board::view::fit(
+                    &row.budget.name,
+                    usize::from(area.width).saturating_sub(suffix.width() + 1),
+                );
+                text(
+                    grid,
+                    y,
+                    0,
+                    area.width,
+                    &format!("{}{suffix}", name.trim_end()),
+                    Role::Muted,
+                );
             } else {
                 let (projection, role) = outcome(
                     crate::board::limits::worst(row.forecast.lines),
@@ -510,6 +530,34 @@ pub(super) fn paint_budgets(frame: &mut Frame, app: &App, area: Rect) {
     });
 }
 
+fn budget_prices<'a>(
+    row: &'a BudgetRow<'a>,
+) -> impl Iterator<Item = &'a crate::labels::digest::PricedModel> {
+    row.report
+        .and_then(|report| report.as_ref().ok())
+        .and_then(|report| report.pricing.as_ref())
+        .into_iter()
+        .flat_map(|pricing| &pricing.models)
+        .filter(move |model| {
+            row.quote
+                .is_some_and(|quote| quote.models.contains(&model.model_id))
+        })
+}
+
+pub(super) fn budget_sources(app: &App, now: u64) -> Vec<String> {
+    budget_rows(app, now)
+        .flat_map(|row| {
+            budget_prices(&row)
+                .map(|model| model.source.clone())
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn readable_reasons(reasons: &[String]) -> String {
+    crate::board::notes::sanitize(&reasons.join(", ").replace('_', " "))
+}
+
 pub(super) fn budget_details(app: &App, now: u64) -> Vec<String> {
     let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
     let ascii = matches!(
@@ -518,16 +566,40 @@ pub(super) fn budget_details(app: &App, now: u64) -> Vec<String> {
     );
     let mut lines = Vec::new();
     for row in budget_rows(app, now) {
-        lines.push(format!(
-            "{} · {} · resets {}",
-            row.budget.name,
-            row.plan(),
-            dated(row.resets, &zone)
-        ));
+        lines.push(format!("{} · {}", row.budget.name, row.plan()));
         lines.push(format!(
             "All {} usage on this machine; other machines not included. List-price estimate.",
             row.budget.provider
         ));
+        lines.push(format!(
+            "Period: {}–{}",
+            dated(row.start, &zone),
+            dated(row.resets, &zone)
+        ));
+        if let Some(prices) = row
+            .report
+            .and_then(|report| report.as_ref().ok())
+            .and_then(|report| report.pricing.as_ref())
+        {
+            lines.push(format!(
+                "Digest list-price table {} · as of {}{}",
+                prices.version,
+                prices.as_of,
+                prices
+                    .origin
+                    .map_or_else(String::new, |origin| format!(" · {origin}"))
+            ));
+            for price in budget_prices(&row) {
+                let effective = price
+                    .effective_from
+                    .as_ref()
+                    .map_or_else(String::new, |day| format!(" from {day}"));
+                lines.push(format!(
+                    "{}{} · {}",
+                    price.model_id, effective, price.source
+                ));
+            }
+        }
         lines.push(format!("LEFT {} · NEED/h {}", row.left(), row.need()));
         for (label, projection) in ["3 h", "6 h", "24 h", "phase"]
             .into_iter()
@@ -542,17 +614,14 @@ pub(super) fn budget_details(app: &App, now: u64) -> Vec<String> {
                 dated(quote.to_ms, &zone)
             ));
             if !quote.total.reasons.is_empty() {
-                lines.push(format!(
-                    "Spend: {}",
-                    crate::board::notes::sanitize(&quote.total.reasons.join(", "))
-                ));
+                lines.push(format!("Spend: {}", readable_reasons(&quote.total.reasons)));
             }
             for pace in &quote.pace {
                 if !pace.spend.reasons.is_empty() {
                     lines.push(format!(
                         "{} h pace: {}",
                         pace.window_ms / 3_600_000,
-                        crate::board::notes::sanitize(&pace.spend.reasons.join(", "))
+                        readable_reasons(&pace.spend.reasons)
                     ));
                 }
             }

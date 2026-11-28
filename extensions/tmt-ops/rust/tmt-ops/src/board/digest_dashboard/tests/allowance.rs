@@ -459,6 +459,18 @@ pub(in crate::board) fn budget_fixture(look: crate::look::Look) -> App {
     };
     let document = serde_json::json!({
         "version": 1, "since": null,
+        "pricing": {
+            "version": "2026-10-01", "asOf": "2026-10-01",
+            "basis": "standard-list", "origin": "built-in",
+            "models": [
+                {"modelId": "gemini-4-argon", "effectiveFrom": "2026-10-01",
+                 "usdMicrosPerMillion": {"input": 1000000},
+                 "source": "https://ai.google.dev/gemini-api/docs/pricing", "asOf": "2026-10-01"},
+                {"modelId": "gpt-5", "effectiveFrom": null,
+                 "usdMicrosPerMillion": {"input": 1250000},
+                 "source": "https://openai.com/api/pricing/", "asOf": "2026-10-01"}
+            ]
+        },
         "spend": {
             "requestedFromMs": start, "fromMs": start, "toMs": cut,
             "providers": [
@@ -490,7 +502,7 @@ fn allowance_budget_rows_distinguish_missing_floors_and_exact_spend() {
     let resets = heading.find("RESETS").unwrap();
     let budget = |name: &str| lines.iter().find(|row| row.contains(name)).unwrap();
     assert!(budget("OpenAI budget").contains("✗ Oct 10 04:40"));
-    assert!(budget("Google budget").contains("≤ $494"));
+    assert_eq!(budget("Google budget").matches("≤ $").count(), 2);
     assert!(budget("Anthropic budget").contains("—"));
     for name in ["OpenAI budget", "Google budget", "Anthropic budget"] {
         assert!(
@@ -505,11 +517,17 @@ fn allowance_budget_rows_distinguish_missing_floors_and_exact_spend() {
     let narrow = rows(&buffer(&mut app, 80, 36)).join("\n");
     assert!(narrow.contains("OpenAI budget $20 left"));
     assert!(narrow.contains("✗ Oct 10 04:40"));
-    assert!(narrow.contains("Google budget ≤ $494 left"));
+    assert!(narrow.contains("Google budget ≤ $494 left · ≤ $0.95/h needed · —"));
+    assert!(narrow.contains("Anthropic budget · spend unknown"));
     let details = super::super::allowance::budget_details(&app, NOW).join("\n");
     assert!(details.contains("All google usage on this machine; other machines not included."));
-    assert!(details.contains("Spend: coverage_partial, unattributed"));
-    assert!(details.contains("Spend: no_price"));
+    assert!(details.contains("Spend: coverage partial, unattributed"));
+    assert!(details.contains("Spend: no price"));
+    assert!(details.contains("Period: Oct 01 00:00–Nov 01 00:00"));
+    assert!(details.contains("Digest list-price table 2026-10-01 · as of 2026-10-01"));
+    assert!(details.contains(
+        "gemini-4-argon from 2026-10-01 · https://ai.google.dev/gemini-api/docs/pricing"
+    ));
     assert_eq!(details.matches("phase:").count(), 3);
     assert!(!details.contains("tokens:"));
 }

@@ -321,6 +321,11 @@ pub(super) fn links(app: &App) -> Vec<String> {
             links.push(model.source.clone());
         }
     }
+    for source in super::allowance::budget_sources(app, crate::status::now_ms()) {
+        if !links.contains(&source) {
+            links.push(source);
+        }
+    }
     links
 }
 

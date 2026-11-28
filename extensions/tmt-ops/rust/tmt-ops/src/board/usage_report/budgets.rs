@@ -9,6 +9,7 @@ use std::time::Duration;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) struct SpendReport {
     pub providers: Vec<BudgetQuote>,
+    pub pricing: Option<crate::labels::digest::Pricing>,
 }
 
 fn strings(value: &Value) -> Option<Vec<String>> {
@@ -87,7 +88,10 @@ impl SpendReport {
             .map(|(row, vendor)| provider(row, vendor, from_ms, to_ms))
             .collect::<Option<_>>()
             .ok_or_else(malformed)?;
-        Ok(Self { providers })
+        Ok(Self {
+            providers,
+            pricing: crate::labels::digest::Pricing::parse(&document["pricing"]),
+        })
     }
 }
 

@@ -263,10 +263,14 @@ pub(crate) fn budget_forecast(
     }) else {
         return unknown;
     };
+    let remaining_ms = period_end_ms - now_ms;
+    let remaining_hours = remaining_ms as f64 / HOUR_MS as f64;
     if let Some(spend) = quote.total.usd_micros.filter(|_| quote.total.lower_bound) {
+        let left = limit_usd_micros.saturating_sub(spend);
         return BudgetForecast {
-            left_usd_micros: Some(limit_usd_micros.saturating_sub(spend)),
+            left_usd_micros: Some(left),
             left_is_upper_bound: true,
+            need_usd_micros_per_hour: Some(left as f64 / remaining_hours),
             ..unknown
         };
     }
@@ -278,8 +282,6 @@ pub(crate) fn budget_forecast(
         return unknown;
     };
     let left = limit_usd_micros.saturating_sub(spend);
-    let remaining_ms = period_end_ms - now_ms;
-    let remaining_hours = remaining_ms as f64 / HOUR_MS as f64;
     let observed_ms = quote.to_ms - quote.from_ms;
     let phase = (observed_ms > 0).then(|| spend as f64 / (observed_ms as f64 / HOUR_MS as f64));
     let lines = [

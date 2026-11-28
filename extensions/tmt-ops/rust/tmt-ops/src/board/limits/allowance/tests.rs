@@ -320,8 +320,7 @@ fn allowance_budget_forecasts_use_only_complete_owner_quotes() {
         );
         assert_eq!(
             got.need_usd_micros_per_hour,
-            left.filter(|_| !upper_bound)
-                .map(|dollars| (dollars * DOLLAR) as f64 / 10.0),
+            left.map(|dollars| (dollars * DOLLAR) as f64 / 10.0),
             "{label}"
         );
         assert_eq!(got.left_is_upper_bound, upper_bound, "{label}");

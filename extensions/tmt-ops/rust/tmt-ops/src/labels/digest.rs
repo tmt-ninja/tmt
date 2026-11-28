@@ -597,7 +597,7 @@ impl Percent {
 }
 
 impl Pricing {
-    fn parse(value: &Value) -> Option<Self> {
+    pub(crate) fn parse(value: &Value) -> Option<Self> {
         let models = value.get("models")?.as_array()?;
         if models.is_empty() || models.len() > MAX_PRICED_MODELS {
             return None;

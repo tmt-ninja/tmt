@@ -1647,12 +1647,23 @@ fn dump_allowance_budget_oracle() {
     let captured = crate::status::with_now_ms(1_791_600_000_000, || {
         let mut styles = Styles::default();
         let frames = allowance_budget_frames(&mut styles);
+        let (name, look) = looks()[0];
+        let mut app = crate::board::digest_dashboard::tests::allowance::budget_fixture(look);
+        app.open_estimate_basis();
+        let details = capture_frame(
+            &app,
+            "digest-allowance-budget-details",
+            name,
+            160,
+            70,
+            &mut styles,
+        );
         let styles = styles
             .0
             .into_iter()
             .map(|(cell, id)| (id, cell))
             .collect::<BTreeMap<_, _>>();
-        json!({"styles": styles, "frames": frames})
+        json!({"styles": styles, "frames": frames, "details": details})
     });
     fs::write(
         path,
