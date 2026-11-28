@@ -70,14 +70,14 @@ func TestWakeSpendsOneAdmissionAndSettlesExactClaim(t *testing.T) {
 		t.Run(test.state, func(t *testing.T) {
 			fixture := wakeFixture{claimBatch: true, page: core.DigestWakeCandidates{IdentityIDs: []core.IdentityID{"busy", "ready", "later"}}}
 			var sent int
-			prepare := func(_ context.Context, id core.IdentityID) (SendIdle, error) {
+			prepare := func(_ context.Context, id core.IdentityID) (*IdleDelivery, error) {
 				if id == "busy" {
 					return nil, nil
 				}
 				if id != "ready" {
 					t.Fatalf("unexpected candidate %s", id)
 				}
-				return func(_ context.Context, text string) (ports.DeliveryOutcome, bool, error) {
+				return &IdleDelivery{Send: func(_ context.Context, text string) (ports.DeliveryOutcome, bool, error) {
 					sent++
 					if text != "you have 8 messages, 2 urgent: tmt-go inbox" {
 						t.Fatalf("notification = %q", text)
@@ -86,7 +86,7 @@ func TestWakeSpendsOneAdmissionAndSettlesExactClaim(t *testing.T) {
 						return test.outcome, true, nil
 					}
 					return test.outcome, false, errors.New("transport did not confirm delivery")
-				}, nil
+				}}, nil
 			}
 			result, err := WakeStep(t.Context(), &fixture, prepare, func() uint64 { return 5000 }, time.Second, 3)
 			if err != nil || result.State != test.state || result.IdentityID == nil || *result.IdentityID != "ready" ||
@@ -98,7 +98,7 @@ func TestWakeSpendsOneAdmissionAndSettlesExactClaim(t *testing.T) {
 				t.Fatalf("unexpected attempts: sent=%d fixture=%+v", sent, fixture)
 			}
 			claim, settle := fixture.claims[0], fixture.settled[0]
-			if claim.Kind != core.DigestProjectionIncomingSummary || claim.Opportunity != core.DigestOpportunityIdle ||
+			if claim.Kind != core.DigestProjectionIncomingSummary || claim.Opportunity != core.DigestOpportunityIdle || claim.Launch == nil ||
 				!core.ValidUUID(string(claim.ChecklistID)) || !core.ValidUUID(string(claim.AttemptToken)) ||
 				settle.IdentityID != claim.IdentityID || settle.ChecklistID != claim.ChecklistID || settle.AttemptToken != claim.AttemptToken ||
 				settle.Outcome != test.settled || settle.MessageStarted != (test.outcome == ports.DeliveryDelivered) {
@@ -110,11 +110,11 @@ func TestWakeSpendsOneAdmissionAndSettlesExactClaim(t *testing.T) {
 
 func TestWakeClockAndNilClaimNeverSend(t *testing.T) {
 	fixture := wakeFixture{page: core.DigestWakeCandidates{IdentityIDs: []core.IdentityID{"first"}, Clock: core.DigestWakeClock{NextAdmissionMs: 6000}}}
-	prepare := func(context.Context, core.IdentityID) (SendIdle, error) {
-		return func(context.Context, string) (ports.DeliveryOutcome, bool, error) {
+	prepare := func(context.Context, core.IdentityID) (*IdleDelivery, error) {
+		return &IdleDelivery{Send: func(context.Context, string) (ports.DeliveryOutcome, bool, error) {
 			t.Fatal("wake sent without fresh admission")
 			return ports.DeliveryNotStarted, false, nil
-		}, nil
+		}}, nil
 	}
 	now := func() uint64 { return 5000 }
 	result, err := WakeStep(t.Context(), &fixture, prepare, now, time.Second, 1)
@@ -141,11 +141,11 @@ func TestWakeCanceledAfterClaimReleasesWithoutTransport(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	fixture := wakeFixture{claimBatch: true, afterClaim: cancel, page: core.DigestWakeCandidates{IdentityIDs: []core.IdentityID{"ready"}}}
-	prepare := func(context.Context, core.IdentityID) (SendIdle, error) {
-		return func(context.Context, string) (ports.DeliveryOutcome, bool, error) {
+	prepare := func(context.Context, core.IdentityID) (*IdleDelivery, error) {
+		return &IdleDelivery{Send: func(context.Context, string) (ports.DeliveryOutcome, bool, error) {
 			t.Fatal("transport reached after cancellation")
 			return ports.DeliveryUncertain, false, nil
-		}, nil
+		}}, nil
 	}
 	result, err := WakeStep(ctx, &fixture, prepare, func() uint64 { return 5000 }, time.Second, 1)
 	if err != nil || result.State != "unavailable" || len(fixture.settled) != 1 || fixture.settled[0].Outcome != core.DigestStateDefinitelyUnsent {

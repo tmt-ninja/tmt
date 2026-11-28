@@ -22,7 +22,13 @@ type WakeStore interface {
 // A nil send leaves the candidate pending. The send rechecks the launch before
 // transport and returns whether delivery also proved that a message started.
 // Every return, including errors, carries authoritative transport evidence.
-type PrepareIdle func(context.Context, core.IdentityID) (SendIdle, error)
+type PrepareIdle func(context.Context, core.IdentityID) (*IdleDelivery, error)
+
+type IdleDelivery struct {
+	Launch core.DigestLaunchFence
+	Send   SendIdle
+}
+
 type SendIdle func(context.Context, string) (ports.DeliveryOutcome, bool, error)
 
 type WakeResult struct {
@@ -88,15 +94,15 @@ func claimWake(ctx context.Context, store WakeStore, prepare PrepareIdle, now fu
 	if err != nil || !released || ctx.Err() != nil {
 		return nil, nil, err
 	}
-	send, err := prepare(ctx, id)
-	if err != nil || send == nil || ctx.Err() != nil {
+	idle, err := prepare(ctx, id)
+	if err != nil || idle == nil || idle.Send == nil || ctx.Err() != nil {
 		return nil, nil, err
 	}
 	batch, err := store.Claim(ctx, core.DigestClaim{
 		IdentityID: id, ChecklistID: core.DigestChecklistID(wakeUUID()), AttemptToken: core.DigestAttemptToken(wakeUUID()),
-		Kind: core.DigestProjectionIncomingSummary, Opportunity: core.DigestOpportunityIdle, NowMs: now(),
+		Kind: core.DigestProjectionIncomingSummary, Opportunity: core.DigestOpportunityIdle, Launch: &idle.Launch, NowMs: now(),
 	})
-	return batch, send, err
+	return batch, idle.Send, err
 }
 
 func deliverWake(ctx, scan context.Context, store WakeStore, send SendIdle, now func() uint64, batch *core.DigestChecklist, result WakeResult) (WakeResult, error) {
