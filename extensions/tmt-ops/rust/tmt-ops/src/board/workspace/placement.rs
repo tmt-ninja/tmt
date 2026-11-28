@@ -174,7 +174,7 @@ impl MemberOrder {
         let mut roots = self.0.iter().filter(|entry| entry.parent.is_none());
         match direction {
             Shift::Earlier => roots.next(),
-            Shift::Later => roots.last(),
+            Shift::Later => roots.next_back(),
             _ => None,
         }
         .is_some_and(|entry| entry.member == member)
