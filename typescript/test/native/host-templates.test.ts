@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { runCli, withSandbox, type Sandbox } from '../support/cli-process.js';
@@ -189,4 +189,144 @@ describe('the tmux launch template', () => {
       ).toHaveLength(1);
     });
   }, 60_000);
+
+  it('leaves a usable shell at the same pane_pid after pi, claude, non-zero exit, SIGINT, and SIGTERM', async () => {
+    await withPrivateServer(async ({ sandbox, tmux, launch }) => {
+      tmux(['new-session', '-d', '-s', 'squad', '-x', '120', '-y', '30', 'sleep 600']);
+
+      const fakeBin = path.join(sandbox.root, 'fake-bin');
+      mkdirSync(fakeBin);
+      for (const tool of ['pi', 'claude'] as const) {
+        const scriptPath = path.join(fakeBin, tool);
+        writeFileSync(
+          scriptPath,
+          [
+            '#!/bin/sh',
+            'if [ "${1:-}" = "--version" ]; then echo "1.3.0"; exit 0; fi',
+            'printf "%s\\n" "$$" > "$TMT_TEST_PID_FILE"',
+            'echo "AGENT_READY_${TMT_TEST_CASE}"',
+            'case "${TMT_TEST_MODE}" in',
+            '  exit0) while [ ! -f "$TMT_TEST_QUIT_FILE" ]; do sleep 0.02; done; exit 0 ;;',
+            '  exit42) while [ ! -f "$TMT_TEST_QUIT_FILE" ]; do sleep 0.02; done; exit 42 ;;',
+            '  signal) while :; do sleep 0.05; done ;;',
+            'esac',
+            '',
+          ].join('\n')
+        );
+        chmodSync(scriptPath, 0o700);
+      }
+
+      const waitForCapture = async (pane: string, needle: string, timeoutMs = 15_000) => {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          const captured = tmux(['capture-pane', '-p', '-t', pane]);
+          if (captured.includes(needle)) return captured;
+          await new Promise((resolve) => setTimeout(resolve, 40));
+        }
+        throw new Error(
+          `Timed out waiting for ${JSON.stringify(needle)} in ${pane}:\n${tmux(['capture-pane', '-p', '-t', pane])}`
+        );
+      };
+
+      const waitForPidFile = async (pidFile: string, timeoutMs = 15_000): Promise<number> => {
+        const deadline = Date.now() + timeoutMs;
+        while (Date.now() < deadline) {
+          if (existsSync(pidFile)) {
+            const raw = readFileSync(pidFile, 'utf8').trim();
+            const parsed = Number(raw);
+            if (Number.isInteger(parsed) && parsed > 0) return parsed;
+          }
+          await new Promise((resolve) => setTimeout(resolve, 40));
+        }
+        throw new Error(`Timed out waiting for pid file ${pidFile}`);
+      };
+
+      const pathValue = [fakeBin, sandbox.env.PATH ?? ''].join(path.delimiter);
+      const quote = (value: string) => `'${value.replace(/'/g, "'\\''")}'`;
+
+      const cases: Array<{
+        id: string;
+        tool: 'pi' | 'claude';
+        mode: 'exit0' | 'exit42' | 'signal';
+        stop: 'quit' | 'sigint' | 'sigterm';
+      }> = [
+        { id: 'pi-exit0', tool: 'pi', mode: 'exit0', stop: 'quit' },
+        { id: 'claude-exit0', tool: 'claude', mode: 'exit0', stop: 'quit' },
+        { id: 'pi-exit42', tool: 'pi', mode: 'exit42', stop: 'quit' },
+        { id: 'pi-sigint', tool: 'pi', mode: 'signal', stop: 'sigint' },
+        { id: 'claude-sigterm', tool: 'claude', mode: 'signal', stop: 'sigterm' },
+      ];
+
+      for (const testCase of cases) {
+        const pidFile = path.join(sandbox.root, `${testCase.id}.pid`);
+        const quitFile = path.join(sandbox.root, `${testCase.id}.quit`);
+        const command = [
+          `HOME=${quote(sandbox.home)}`,
+          `XDG_CONFIG_HOME=${quote(sandbox.xdgConfigHome)}`,
+          `TMT_HOME=${quote(sandbox.env.TMT_HOME ?? sandbox.globalDir)}`,
+          `PATH=${quote(pathValue)}`,
+          `TMT_TEST_CASE=${quote(testCase.id)}`,
+          `TMT_TEST_MODE=${quote(testCase.mode)}`,
+          `TMT_TEST_PID_FILE=${quote(pidFile)}`,
+          `TMT_TEST_QUIT_FILE=${quote(quitFile)}`,
+          `${[quote(sandbox.cli.executable), ...sandbox.cli.args.map(quote)].join(' ')} run ${quote(`member-${testCase.id}`)} ${testCase.tool}`,
+        ].join(' ');
+
+        const opened = launch('squad', command);
+        expect(opened.status, `${testCase.id}: ${String(opened.stderr)}`).toBe(0);
+        const pane = String(opened.stdout).trim();
+        const windowId = tmux(['display-message', '-p', '-t', pane, '#{window_id}']);
+        const initialPanePid = tmux(['display-message', '-p', '-t', pane, '#{pane_pid}']);
+        expect(tmux(['display-message', '-p', '-t', pane, OPENED])).toBe('1');
+
+        await waitForCapture(pane, `AGENT_READY_${testCase.id}`);
+        const agentPid = await waitForPidFile(pidFile);
+
+        if (testCase.stop === 'quit') {
+          writeFileSync(quitFile, 'quit');
+        } else if (testCase.stop === 'sigint') {
+          // Deliver SIGINT to the pane foreground process group (verifies SIGINT is not ignored
+          // by the agent and does not kill the outer wrapper shell).
+          tmux(['send-keys', '-t', pane, 'C-c']);
+        } else {
+          process.kill(agentPid, 'SIGTERM');
+        }
+
+        // Wait until the agent process exits, then verify the pane stays open at a usable shell.
+        const exitDeadline = Date.now() + 15_000;
+        while (Date.now() < exitDeadline) {
+          try {
+            process.kill(agentPid, 0);
+            await new Promise((resolve) => setTimeout(resolve, 40));
+          } catch {
+            break;
+          }
+        }
+
+        const panes = tmux(['list-panes', '-a', '-F', '#{pane_id} #{window_id} #{pane_pid}']);
+        expect(panes, `${testCase.id}: pane should remain alive`).toContain(
+          `${pane} ${windowId} ${initialPanePid}`
+        );
+        expect(tmux(['display-message', '-p', '-t', pane, OPENED])).toBe('1');
+
+        const shellMarker = `SHELL_ALIVE_${testCase.id}`;
+        // Split the token in the command line so only real shell execution produces `shellMarker`.
+        const shellProbe = `printf '%s%s\\n' 'SHELL_ALIVE_' '${testCase.id}'`;
+        const shellDeadline = Date.now() + 10_000;
+        let shellReady = false;
+        while (Date.now() < shellDeadline) {
+          tmux(['send-keys', '-t', pane, '-l', shellProbe]);
+          tmux(['send-keys', '-t', pane, 'Enter']);
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          if (tmux(['capture-pane', '-p', '-t', pane]).includes(shellMarker)) {
+            shellReady = true;
+            break;
+          }
+        }
+        expect(shellReady, `${testCase.id}: fallback shell should execute commands`).toBe(true);
+        // pane_pid must still match the original wrapper pid after exec into the login shell.
+        expect(tmux(['display-message', '-p', '-t', pane, '#{pane_pid}'])).toBe(initialPanePid);
+      }
+    });
+  }, 120_000);
 });

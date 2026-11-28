@@ -11,14 +11,18 @@ use tmt_driver_protocol::LaunchTemplate;
 pub(super) const OPENED_OPTION: &str = "@tmt.opened";
 
 /// Opens a new window in the session, or creates the session detached with the command as its
-/// first window. Nothing is interpolated: `$1` is the session, `$2` the command line. It sets
-/// the marker on the pane it opened and prints that pane's ID; a command that ends before the
-/// marker is set leaves nothing to mark, and the script fails. An empty session or command is
-/// refused first: tmux would read an empty session name as "any session".
+/// first window. Nothing is interpolated: `$1` is the session, `$2` the command line. The pane
+/// runs `$2` in a child shell while catching `INT`/`TERM` in the outer wrapper (never ignoring
+/// them, so the launched agent keeps default signal disposition), then replaces the wrapper in
+/// place (`exec`) with the user's login shell (`$SHELL -l`, falling back to `/bin/sh -l`) so
+/// quitting or killing the agent leaves a usable shell at the same `pane_pid` and with
+/// `@tmt.opened=1` intact. An empty session or command is refused first: tmux would read an
+/// empty session name as "any session".
 const SCRIPT: &str = "[ -n \"$1\" ] && [ -n \"$2\" ] || { echo 'tmt-launch: a session and a command are required' >&2; exit 2; }; \
+w='trap : INT TERM; sh -c \"$1\"; trap - INT TERM; s=\"${SHELL:-/bin/sh}\"; [ -x \"$s\" ] || s=/bin/sh; exec \"$s\" -l'; \
 if tmux has-session -t \"=$1\" 2>/dev/null; then \
-p=$(tmux new-window -d -P -F '#{pane_id}' -t \"=$1:\" -- \"$2\"); \
-else p=$(tmux new-session -d -P -F '#{pane_id}' -s \"$1\" -- \"$2\"); fi \
+p=$(tmux new-window -d -P -F '#{pane_id}' -t \"=$1:\" -- sh -c \"$w\" tmt-pane \"$2\"); \
+else p=$(tmux new-session -d -P -F '#{pane_id}' -s \"$1\" -- sh -c \"$w\" tmt-pane \"$2\"); fi \
 && tmux set-option -p -t \"$p\" @tmt.opened 1 && printf '%s\\n' \"$p\"";
 
 pub fn launch_template() -> LaunchTemplate {
@@ -151,6 +155,10 @@ mod tests {
         assert_eq!(&argv[..2], ["sh", "-c"]);
         assert!(!argv[2].contains("{session}") && !argv[2].contains("{command}"));
         assert!(argv[2].contains(OPENED_OPTION));
+        // Outer wrapper catches (never ignores) INT/TERM and execs a login shell with /bin/sh fallback.
+        assert!(argv[2].contains("trap : INT TERM"));
+        assert!(!argv[2].contains("trap ''"));
+        assert!(argv[2].contains("exec \"$s\" -l"));
         assert_eq!(&argv[4..], ["{session}", "{command}"]);
     }
 
