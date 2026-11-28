@@ -114,6 +114,10 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 
 ## go-4 (install, extensions, api, mcp, digest, tick)
 
+API help is compared byte-for-byte (after the executable-name substitution) by
+`go/test/parity` → `TestHelpMatchesNative/{80,120}/root/api`, against the native
+binary built from the same branch.
+
 - [ ] Finish local API v1 operation admission, response parity, lazy schema fencing,
   lifecycle delivery, and CLI composition. Qualify MCP identity pinning and all
   eight tool calls against real Go request services.

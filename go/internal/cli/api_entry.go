@@ -11,13 +11,6 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/output"
 )
 
-const apiHelp = `Versioned JSON extension interface on stdin
-
-Usage: tmt-go api [--session]
-
-Close stdin after one JSON request. With --session, send ordered JSON lines until stdin closes.
-`
-
 func (app application) runAPI(args []string, stdout, stderr io.Writer) int {
 	var session, help, jsonOutput bool
 	for _, arg := range args {
@@ -41,7 +34,7 @@ func (app application) runAPI(args []string, stdout, stderr io.Writer) int {
 		}, slices.Contains(args, "--json"))
 	}
 	if help {
-		if _, err := io.WriteString(stdout, apiHelp); err != nil {
+		if err := renderHelp(stdout, []string{"api"}); err != nil {
 			fmt.Fprintf(stderr, "error: %s\n", err)
 			return 1
 		}
