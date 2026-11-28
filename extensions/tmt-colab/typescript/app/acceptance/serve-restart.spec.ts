@@ -1,6 +1,6 @@
 import { text } from '../src/strings.js';
 import { expect, test, type Page } from '@playwright/test';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { READMIT_DELAYS_MS } from '../src/readmit.js';
@@ -82,6 +82,121 @@ test('confirmed history recovery keeps a dirty source draft on the old connectio
     await expect(
       page.frameLocator('iframe').getByText('Keep the current page. Unsent edit.'),
     ).toBeVisible();
+  });
+});
+
+test('capacity recovery shows the owner its dated audit and the page remains editable', async () => {
+  test.setTimeout(300_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const colab = world.binaries.colab;
+    const created = createPage(world, 'Capacity recovery audit', '<p>First source.</p>');
+    let source = '';
+    let recoveredAt: number | undefined;
+    // Pair only after recovery: a page already admitted to another device is ineligible.
+    for (let revision = 0; revision < 20 && recoveredAt === undefined; revision++) {
+      const payload = createHash('shake256', { outputLength: 337_500 })
+        .update(String(revision))
+        .digest('base64');
+      source = `<p>Capacity fixture revision ${revision}</p><pre>${payload}</pre>`;
+      const receipt = JSON.parse(
+        run(world, colab, patchArgs(world, created.pageId, ['--file', '-', '--json']), source),
+      );
+      recoveredAt = receipt.historyReclaimedAtMs;
+    }
+    expect(recoveredAt).toBeGreaterThan(0);
+    const device = await pairBrowser(world, 'capacity-audit-owner');
+    const page = await openPage(door, device, created);
+    await expect(page.getByText(text.historyReclaimed, { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(text.historyReclaimedAt(new Date(recoveredAt!).toLocaleString()), {
+        exact: true,
+      }),
+    ).toBeVisible();
+    const editor = await openSource(page);
+    await expect(editor).toHaveValue(source);
+    const next = `${source}<p>The next browser save works.</p>`;
+    await editor.fill(next);
+    await save(page);
+    const read = () =>
+      JSON.parse(run(world, colab, ['page', 'read', created.pageId, '--json'])).source;
+    await expect.poll(read).toBe(next);
+  });
+});
+
+test('block capacity recovery preserves the document and the next browser edit', async () => {
+  test.setTimeout(300_000);
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const cli = (args: string[], input?: string) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'], input));
+    const created = cli(['page', 'create', '--title', 'Block recovery audit', '--no-open']);
+    const pageId: string = created.pageId;
+    const marked = randomUUID();
+    const editable = randomUUID();
+    const table = randomUUID();
+    const row = randomUUID();
+    const ids: string[] = Array.from({ length: 8 }, () => randomUUID());
+    const churn = (revision: number) =>
+      ids.map((_, index) =>
+        createHash('shake256', { outputLength: 19_500 })
+          .update(`block:${revision}:${index}`)
+          .digest('base64'),
+      );
+    const batch = (ops: unknown[]) =>
+      cli(['block', 'batch', pageId, '--file', '-'], JSON.stringify(ops));
+    const blocks = () => cli(['block', 'ls', pageId, '--all']).blocks;
+    let current = churn(0);
+    batch([
+      { op: 'insert', id: editable, type: 'paragraph', text: 'Before browser edit' },
+      { op: 'insert', id: marked, type: 'paragraph', text: 'Keep the bold mark' },
+      { op: 'text', id: marked, format: { from: 0, to: 4, mark: 'bold', value: true } },
+      {
+        op: 'insert',
+        id: table,
+        type: 'table',
+        props: { columns: [{ id: 'state', name: 'State' }] },
+      },
+      { op: 'table', id: table, action: 'add-row', row, cells: { state: 'Keep this cell' } },
+      ...ids.map((id, index) => ({ op: 'insert', id, type: 'paragraph', text: current[index] })),
+    ]);
+    let recoveredAt: number | undefined;
+    for (let revision = 1; revision <= 38 && recoveredAt === undefined; revision++) {
+      const next = churn(revision);
+      const before = blocks();
+      const receipt = batch(
+        ids.map((id, index) => ({ op: 'text', id, base: current[index], set: next[index] })),
+      );
+      expect(receipt.droppedHunks).toEqual([]);
+      current = next;
+      if (receipt.historyReclaimedAtMs !== undefined) {
+        recoveredAt = receipt.historyReclaimedAtMs;
+        const expected = before.map((block: { id: string; text?: { s: string } }) => {
+          const index = ids.indexOf(block.id);
+          return index < 0 ? block : { ...block, text: { ...block.text, s: next[index] } };
+        });
+        expect(blocks()).toEqual(expected);
+      }
+    }
+    expect(recoveredAt).toBeGreaterThan(0);
+    const device = await pairBrowser(world, 'block-capacity-audit-owner');
+    const page = await openPage(door, device, created);
+    await expect(page.getByText(text.historyReclaimed, { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(text.historyReclaimedAt(new Date(recoveredAt!).toLocaleString()), {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.locator(`[data-block-id="${marked}"]`)).toHaveText('Keep the bold mark');
+    await expect(page.getByText('Keep this cell', { exact: true })).toBeVisible();
+    const block = page.locator(`[data-block-id="${editable}"]`);
+    await block.click();
+    const editor = block.locator('[contenteditable="true"]');
+    await editor.fill('After browser edit');
+    await editor.press('Tab');
+    await expect
+      .poll(() => cli(['block', 'get', pageId, editable]).block.base)
+      .toBe('After browser edit');
   });
 });
 

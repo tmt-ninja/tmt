@@ -840,12 +840,45 @@ fn commit_source(
             &clock,
         )
     };
+    // Capture the exact revision before preparation. It is only used for the recovery intent;
+    // an intervening write makes the owner reject that intent without touching history.
+    let recovery_revision = if base_source_sha256.is_some() && page_layout.is_none() {
+        Some(page::revision(&store, key, id)?)
+    } else {
+        None
+    };
     let preparation = match prepare(&store, expected_revision, decoder) {
         Ok(prepared) => {
             store.close()?;
             prepared
         }
         Err(original) => {
+            if page::compact::compressed_capacity(original.as_ref())
+                && let (Some(revision), Some(base)) = (recovery_revision, base_source_sha256)
+            {
+                store.close()?;
+                let intent = page::compact::RecoveryIntent {
+                    space: key.space_id.clone(),
+                    page: id.into(),
+                    revision,
+                    operation_id: page::fresh_id()?,
+                    edit: page::compact::RecoveryEdit::Html {
+                        source: source.into(),
+                        base,
+                        publisher: publisher_agent,
+                    },
+                };
+                return recover_content_owned(
+                    layout,
+                    key,
+                    &intent,
+                    decoder,
+                    clock()?,
+                    write_lock.as_ref(),
+                    original,
+                )
+                .map(|saved| saved.receipt);
+            }
             let tail_full = matches!(original.downcast_ref::<tmt_colab::store::owner::OwnerFault>(),
                 Some(tmt_colab::store::owner::OwnerFault::PageCapacity(capacity))
                     if capacity.edit && capacity.compactable);
@@ -984,6 +1017,12 @@ fn print_receipt(
         // Quiet until the page is nearly full: the full numbers are in `page read --json`.
         if let Some(message) = reopened_question_hint(&receipt) {
             rows.push(("questions", message));
+        }
+        if receipt.history_reclaimed_at_ms.is_some() {
+            rows.push((
+                "history",
+                "Old content history was discarded to fit this edit.".into(),
+            ));
         }
         if let Some(usage) = receipt.usage.filter(|usage| usage.percent >= 80) {
             rows.push(("usage", cli_compact::nearly_full(&usage, &receipt.page_id)));
@@ -1194,6 +1233,44 @@ fn publish_structured_owned(
             receipt
         }
     })
+}
+
+fn recover_content_owned(
+    layout: &Layout,
+    key: &Keyring,
+    intent: &tmt_colab::page::compact::RecoveryIntent,
+    decoder: &mut tmt_colab::decoder::Decoder,
+    now: u64,
+    write_lock: Option<&nix::fcntl::Flock<std::fs::File>>,
+    original: Box<dyn std::error::Error + Send + Sync>,
+) -> Result<tmt_colab::page::compact::RecoveredEdit> {
+    use tmt_colab::page::{self, OutcomeUnknown};
+    let saved = if let Some(_lock) = write_lock {
+        let mut store = Store::write_existing(layout)?;
+        let effect = page::compact::recover_edit(&mut store, key, intent, decoder, now);
+        let closed = store.close();
+        let effect = effect.map_err(|_| original)?;
+        closed?;
+        effect
+    } else {
+        match page::ipc::recover_edit(layout, key, intent) {
+            Ok(Some(saved)) => saved,
+            // A definite refusal preserves the ordinary capacity error. An uncertain reply
+            // never retries the intent, including on the offline path.
+            Err(_) => return Err(original),
+            Ok(None) => Store::read(layout)
+                .ok()
+                .and_then(|store| {
+                    page::compact::recovery_status(&store, key, intent, now)
+                        .ok()
+                        .flatten()
+                })
+                .ok_or_else(|| OutcomeUnknown {
+                    operation_id: intent.operation_id.clone(),
+                })?,
+        }
+    };
+    Ok(saved)
 }
 
 fn publish_write_owned(

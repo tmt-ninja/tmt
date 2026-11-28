@@ -246,6 +246,8 @@ function todoWorkItem(value: unknown): void {
 }
 export interface PageInfo extends ExpiryInfo {
   ticketRepository?: string;
+  /** An owner-local audit of the last capacity-triggered history discard. */
+  historyReclaimedAtMs?: number;
   state?: PageState | null;
   stateError?: 'page-unavailable';
   pageId: string;
@@ -535,6 +537,9 @@ export async function discover(
       'expiresAtMs',
       'warnings',
       'projects',
+      ...(page !== null && typeof page === 'object' && 'historyReclaimedAtMs' in page
+        ? ['historyReclaimedAtMs']
+        : []),
       ...(page !== null && typeof page === 'object' && 'workNumber' in page ? ['workNumber'] : []),
       ...(page !== null && typeof page === 'object' && 'ticketRepository' in page
         ? ['ticketRepository']
@@ -559,6 +564,10 @@ export async function discover(
     if ('ticketRepository' in page)
       requireValue(
         typeof page.ticketRepository === 'string' && validTicketRepository(page.ticketRepository),
+      );
+    if ('historyReclaimedAtMs' in page)
+      requireValue(
+        Number.isSafeInteger(page.historyReclaimedAtMs) && Number(page.historyReclaimedAtMs) >= 0,
       );
     if ('workNumber' in page)
       requireValue(

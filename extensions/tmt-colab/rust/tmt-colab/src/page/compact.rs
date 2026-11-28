@@ -391,39 +391,19 @@ fn prepare_history_recovery(
     if result.blocked.is_some() {
         return Ok((result, None));
     }
-    let mut updates = Vec::new();
-    let mut index = None;
-    for (i, object) in &snap.objects {
-        if snap.cuts[*i].namespace == "content" && snap.cuts[*i].stream == local {
-            updates.push(snap.open_object(key, page, *i, object)?.plaintext);
-            index = Some(*i);
+    let RebuiltHistory {
+        index,
+        merged,
+        candidate,
+        input,
+        after,
+    } = match rebuild_history(&snap, key, page, &current, decoder)? {
+        Ok(candidate) => candidate,
+        Err(reason) => {
+            result.blocked = Some(reason);
+            return Ok((result, None));
         }
-    }
-    let Some(index) = index else {
-        result.blocked = Some("No local content writer to rebuild.".into());
-        return Ok((result, None));
     };
-    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
-    let rebuilt = decoder.rebuild_for_preview(&refs, None)?;
-    if !rebuilt.projection.is_null() {
-        result.blocked =
-            Some("This writer's updates depend on content outside its own stream.".into());
-        return Ok((result, None));
-    }
-    let merged = rebuilt.merged;
-    if merged.len() > object::MAX_PLAINTEXT {
-        result.blocked = Some("The rebuilt writer exceeds the single checkpoint limit.".into());
-        return Ok((result, None));
-    }
-    let mut replacement = BTreeMap::from([(index, merged)]);
-    let (candidate, input, after) = snap.measure_preview(key, page, decoder, &replacement)?;
-    if current.source != candidate.source
-        || current.meta != candidate.meta
-        || current.own != candidate.own
-    {
-        result.blocked = Some("Rebuilding changes the current page or its discussion.".into());
-        return Ok((result, None));
-    }
     if after > current.usage.gzip_limit {
         result.blocked = Some("The rebuilt page still exceeds the compressed page limit.".into());
         return Ok((result, None));
@@ -493,8 +473,68 @@ fn prepare_history_recovery(
     if store.write_generation()? != generation {
         return Err(Fault::StaleBase.into());
     }
-    let merged = replacement.remove(&index).ok_or(Fault::Invalid)?;
     Ok((result, Some((snap, index, merged, generation))))
+}
+
+struct RebuiltHistory {
+    index: usize,
+    merged: Vec<u8>,
+    candidate: crate::fold::View,
+    input: crate::fold::MaterializationInput,
+    after: usize,
+}
+
+/// Rebuild only the local content stream, keeping the canonical clocks and every
+/// current projection. Admission of the requested edit runs against the replacement.
+fn rebuild_history(
+    snap: &crate::fold::Snapshot,
+    key: &Keyring,
+    page: &str,
+    current: &crate::fold::View,
+    decoder: &mut Decoder,
+) -> Result<std::result::Result<RebuiltHistory, String>> {
+    let local = key.local_writer()?.0;
+    let mut updates = Vec::new();
+    let mut index = None;
+    for (i, object) in &snap.objects {
+        if snap.cuts[*i].namespace == "content" && snap.cuts[*i].stream == local {
+            updates.push(snap.open_object(key, page, *i, object)?.plaintext);
+            index = Some(*i);
+        }
+    }
+    let Some(index) = index else {
+        return Ok(Err("No local content writer to rebuild.".into()));
+    };
+    let refs = updates.iter().map(Vec::as_slice).collect::<Vec<_>>();
+    let rebuilt = decoder.rebuild_for_preview(&refs, None)?;
+    if !rebuilt.projection.is_null() {
+        return Ok(Err(
+            "This writer's updates depend on content outside its own stream.".into(),
+        ));
+    }
+    if rebuilt.merged.len() > object::MAX_PLAINTEXT {
+        return Ok(Err(
+            "The rebuilt writer exceeds the single checkpoint limit.".into(),
+        ));
+    }
+    let mut replacement = BTreeMap::from([(index, rebuilt.merged)]);
+    let (candidate, input, after) = snap.measure_preview(key, page, decoder, &replacement)?;
+    if current.source != candidate.source
+        || current.meta != candidate.meta
+        || current.blocks != candidate.blocks
+        || current.own != candidate.own
+    {
+        return Ok(Err(
+            "Rebuilding changes the current page or its discussion.".into(),
+        ));
+    }
+    Ok(Ok(RebuiltHistory {
+        index,
+        merged: replacement.remove(&index).ok_or(Fault::Invalid)?,
+        candidate,
+        input,
+        after,
+    }))
 }
 
 /// Sealed local content payloads replaced by a confirmed recovery.
@@ -547,12 +587,6 @@ pub fn discard_history(
     }
 
     let cut = &snapshot.cuts[index];
-    let scope = StreamScope {
-        page,
-        epoch: cut.epoch,
-        stream: &cut.stream,
-    };
-    let next = cut.tail_seq.checked_add(1).ok_or(Fault::Capacity)?;
     let discard = preview.discard.take().ok_or(Fault::Invalid)?;
     let payload = serde_json::to_vec(&serde_json::json!({"pageId":page,"mode":"current"}))?;
     let decision = key.sign_statement(Some(&snapshot.authority.head), "page.history", &payload)?;
@@ -562,68 +596,15 @@ pub fn discard_history(
         .revision
         .checked_add(1)
         .ok_or(Fault::Capacity)?;
-    let mut context = object::Context {
-        space: key.space_id.clone(),
-        page: page.into(),
-        epoch: cut.epoch.to_string(),
-        kind: "update".into(),
-        namespace: "content".into(),
-        author_device: cut.stream.clone(),
-        membership_revision: revision.to_string(),
-        stream_seq: next.to_string(),
-        prev_hash: cut.tail_hash,
-    };
-    // An empty update-v1 advances the signed stream with no document or activity change.
-    let anchor = key.seal_content(&context, &snapshot.secret, &[0, 0])?;
-    let anchor_hash = anchor.hash()?;
-    let anchor_bytes = anchor.to_bytes()?;
-    context.kind = "checkpoint".into();
-    context.prev_hash = anchor_hash;
-    let content = key.seal_content(&context, &snapshot.secret, &merged)?;
-    let content_bytes = content.to_bytes()?;
-    let mut checkpoints = vec![Envelope {
-        scope,
-        namespace: Namespace::Content,
-        seq: next,
-        hash: content.hash()?,
-        previous: anchor_hash,
-        bytes: &content_bytes,
-    }];
-    let own_bytes;
-    if let Some(own_index) = snapshot
-        .cuts
-        .iter()
-        .position(|own| own.stream == cut.stream && own.namespace == "own" && own.tail_seq > 0)
-    {
-        let current = snapshot.materialize(key, page, decoder)?;
-        let own = current.local_own_update.as_ref().ok_or(Fault::Invalid)?;
-        let (candidate, _, after) = snapshot.measure_preview(
-            key,
-            page,
-            decoder,
-            &BTreeMap::from([(index, merged), (own_index, own.clone())]),
-        )?;
-        if after > current.usage.gzip_limit || after >= preview.before_gzip_bytes {
-            return Err(Fault::Capacity.into());
-        }
-        if candidate.source != current.source
-            || candidate.meta != current.meta
-            || candidate.own != current.own
-        {
-            return Err(Fault::Invalid.into());
-        }
-        context.namespace = "own".into();
-        let checkpoint = key.seal_content(&context, &snapshot.secret, own)?;
-        own_bytes = checkpoint.to_bytes()?;
-        checkpoints.push(Envelope {
-            scope,
-            namespace: Namespace::Own,
-            seq: next,
-            hash: checkpoint.hash()?,
-            previous: anchor_hash,
-            bytes: &own_bytes,
-        });
-    }
+    let staged = StagedRecovery::prepare(
+        key,
+        page,
+        &snapshot,
+        index,
+        merged,
+        (preview.before_gzip_bytes, revision),
+        decoder,
+    )?;
     store.owner_transaction(
         &key.space_id,
         &key.owner_public(),
@@ -633,6 +614,7 @@ pub fn discard_history(
             expected_revision: snapshot.authority.head.revision,
         },
         |tx| {
+            let scope = staged.scope(page);
             if tx.write_generation()? != generation
                 || tx.head() != Some(&snapshot.authority.head)
                 || tx.cuts(page, scope.epoch)? != snapshot.cuts
@@ -642,17 +624,7 @@ pub fn discard_history(
             }
             announce(&preview, &discard)?;
             tx.append_statement(&decision)?;
-            tx.stage_history_recovery(
-                &Envelope {
-                    scope,
-                    namespace: Namespace::Content,
-                    seq: next,
-                    hash: anchor_hash,
-                    previous: cut.tail_hash,
-                    bytes: &anchor_bytes,
-                },
-                &checkpoints,
-            )?;
+            staged.commit(tx, page)?;
             Ok(serde_json::to_vec(&discard)?)
         },
     )?;
@@ -676,6 +648,471 @@ pub fn discard_history(
             .map(|after| preview.before_gzip_bytes.saturating_sub(after)),
         measurement_error,
     })
+}
+
+struct StagedRecovery {
+    stream: String,
+    epoch: u64,
+    next: u64,
+    previous: [u8; 32],
+    anchor_hash: [u8; 32],
+    anchor_bytes: Vec<u8>,
+    content_hash: [u8; 32],
+    content_bytes: Vec<u8>,
+    own: Option<([u8; 32], Vec<u8>)>,
+}
+
+impl StagedRecovery {
+    fn prepare(
+        key: &Keyring,
+        page: &str,
+        snapshot: &crate::fold::Snapshot,
+        index: usize,
+        merged: Vec<u8>,
+        (before_gzip_bytes, revision): (usize, u64),
+        decoder: &mut Decoder,
+    ) -> Result<Self> {
+        let cut = &snapshot.cuts[index];
+        let tail = snapshot
+            .cuts
+            .iter()
+            .filter(|c| c.stream == cut.stream)
+            .max_by_key(|c| c.tail_seq)
+            .ok_or(Fault::Invalid)?;
+        let next = tail.tail_seq.checked_add(1).ok_or(Fault::Capacity)?;
+        let mut context = object::Context {
+            space: key.space_id.clone(),
+            page: page.into(),
+            epoch: cut.epoch.to_string(),
+            kind: "update".into(),
+            namespace: "content".into(),
+            author_device: cut.stream.clone(),
+            membership_revision: revision.to_string(),
+            stream_seq: next.to_string(),
+            prev_hash: tail.tail_hash,
+        };
+        // An empty update-v1 advances the signed stream with no document or activity change.
+        let anchor = key.seal_content(&context, &snapshot.secret, &[0, 0])?;
+        let anchor_hash = anchor.hash()?;
+        context.kind = "checkpoint".into();
+        context.prev_hash = anchor_hash;
+        let content = key.seal_content(&context, &snapshot.secret, &merged)?;
+        let own =
+            if let Some(own_index) = snapshot.cuts.iter().position(|own| {
+                own.stream == cut.stream && own.namespace == "own" && own.tail_seq > 0
+            }) {
+                let current = snapshot.materialize(key, page, decoder)?;
+                let own = current.local_own_update.as_ref().ok_or(Fault::Invalid)?;
+                let (candidate, _, after) = snapshot.measure_preview(
+                    key,
+                    page,
+                    decoder,
+                    &BTreeMap::from([(index, merged), (own_index, own.clone())]),
+                )?;
+                if after > current.usage.gzip_limit || after >= before_gzip_bytes {
+                    return Err(Fault::Capacity.into());
+                }
+                if candidate.source != current.source
+                    || candidate.meta != current.meta
+                    || candidate.blocks != current.blocks
+                    || candidate.own != current.own
+                {
+                    return Err(Fault::Invalid.into());
+                }
+                context.namespace = "own".into();
+                let checkpoint = key.seal_content(&context, &snapshot.secret, own)?;
+                Some((checkpoint.hash()?, checkpoint.to_bytes()?))
+            } else {
+                None
+            };
+        Ok(Self {
+            stream: cut.stream.clone(),
+            epoch: cut.epoch,
+            next,
+            previous: tail.tail_hash,
+            anchor_hash,
+            anchor_bytes: anchor.to_bytes()?,
+            content_hash: content.hash()?,
+            content_bytes: content.to_bytes()?,
+            own,
+        })
+    }
+
+    fn scope<'a>(&'a self, page: &'a str) -> StreamScope<'a> {
+        StreamScope {
+            page,
+            epoch: self.epoch,
+            stream: &self.stream,
+        }
+    }
+
+    fn commit(&self, tx: &mut crate::store::owner::OwnerTransaction<'_>, page: &str) -> Result<()> {
+        let scope = self.scope(page);
+        let anchor = Envelope {
+            scope,
+            namespace: Namespace::Content,
+            seq: self.next,
+            hash: self.anchor_hash,
+            previous: self.previous,
+            bytes: &self.anchor_bytes,
+        };
+        let mut checkpoints = vec![Envelope {
+            scope,
+            namespace: Namespace::Content,
+            seq: self.next,
+            hash: self.content_hash,
+            previous: self.anchor_hash,
+            bytes: &self.content_bytes,
+        }];
+        if let Some((hash, bytes)) = &self.own {
+            checkpoints.push(Envelope {
+                scope,
+                namespace: Namespace::Own,
+                seq: self.next,
+                hash: *hash,
+                previous: self.anchor_hash,
+                bytes,
+            });
+        }
+        tx.stage_history_recovery(&anchor, &checkpoints)
+    }
+}
+
+/// Keep the reply and 256 retained outcomes bounded independently of input size.
+pub(crate) const RECOVERY_OUTCOME_BYTES: usize = 128 * 1024;
+
+/// A local CLI edit that failed before the normal publisher froze any packets.
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecoveryIntent {
+    pub space: String,
+    pub page: String,
+    pub revision: String,
+    pub operation_id: String,
+    pub edit: RecoveryEdit,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
+pub enum RecoveryEdit {
+    Html {
+        source: String,
+        base: [u8; 32],
+        publisher: Option<String>,
+    },
+    Blocks {
+        ops: serde_json::Value,
+        agent: Option<serde_json::Value>,
+    },
+}
+
+impl RecoveryIntent {
+    pub(crate) fn canonical(&self) -> Result<Vec<u8>> {
+        use tmt_colab_model::values;
+        values::space_id(&self.space)?;
+        values::generated_id(&self.page)?;
+        values::generated_id(&self.operation_id)?;
+        if !crate::publication::valid_revision(&self.revision) {
+            return Err(Fault::Invalid.into());
+        }
+        match &self.edit {
+            RecoveryEdit::Html {
+                source, publisher, ..
+            } => {
+                if source.len() > crate::decoder::BASELINE_BYTES
+                    || publisher
+                        .as_deref()
+                        .is_some_and(|p| !crate::decoder::valid_publisher_agent(p))
+                {
+                    return Err(Fault::Invalid.into());
+                }
+            }
+            RecoveryEdit::Blocks { ops, agent } => {
+                super::blocks::validate(ops, None)?;
+                if agent.as_ref().is_some_and(|v| v.to_string().len() > 1024) {
+                    return Err(Fault::Invalid.into());
+                }
+            }
+        }
+        Ok(serde_json::to_vec(self)?)
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RecoveredEdit {
+    pub receipt: super::Receipt,
+    pub blocks: Option<serde_json::Value>,
+}
+
+pub fn compressed_capacity(error: &(dyn std::error::Error + 'static)) -> bool {
+    matches!(error.downcast_ref::<crate::store::owner::OwnerFault>(),
+        Some(crate::store::owner::OwnerFault::PageCapacity(capacity)) if capacity.compressed_limit)
+}
+
+fn prepare_recovery_edit(
+    request: &RecoveryIntent,
+    snap: &crate::fold::Snapshot,
+    key: &Keyring,
+    replacement: Option<RebuiltHistory>,
+    decoder: &mut Decoder,
+    now: u64,
+) -> Result<crate::decoder::PreparedContent> {
+    use crate::decoder::{ContentEdit, StructuredEdit, StructuredKind};
+    let page = &request.page;
+    match &request.edit {
+        RecoveryEdit::Html {
+            source,
+            base,
+            publisher,
+        } => {
+            let held = replacement.map(|r| super::PatchBase {
+                revision: request.revision.clone(),
+                source: r.candidate.source,
+                meta: r.candidate.meta,
+                input: r.input,
+            });
+            snap.prepare_content_batch(
+                key,
+                page,
+                ContentEdit {
+                    source,
+                    publisher_agent: publisher.as_deref(),
+                    layout: None,
+                    attachments: None,
+                },
+                Some(base),
+                crate::fold::Held {
+                    base: held.as_ref(),
+                    checked: None,
+                },
+                decoder,
+            )
+        }
+        RecoveryEdit::Blocks { ops, agent } => {
+            let mut attribution =
+                serde_json::json!({"writerId":key.local_writer()?.0,"timeMs":now});
+            if let Some(agent) = agent {
+                attribution["displayAgent"] = agent.clone();
+            }
+            crate::summary_lines::validate_attribution(&attribution).map_err(|_| Fault::Invalid)?;
+            let action = StructuredEdit {
+                kind: StructuredKind::Blocks,
+                action: super::blocks::ACTION.into(),
+                body: super::blocks::body(ops, None),
+                attribution,
+            };
+            match replacement {
+                Some(r) => snap.prepare_structured_from(
+                    key,
+                    page,
+                    &action,
+                    (&r.candidate, &r.input),
+                    decoder,
+                ),
+                None => snap.prepare_structured_batch(key, page, &action, decoder),
+            }
+        }
+    }
+}
+
+pub fn recovery_status(
+    store: &Store,
+    key: &Keyring,
+    request: &RecoveryIntent,
+    now: u64,
+) -> Result<Option<RecoveredEdit>> {
+    tmt_colab_model::values::time(now)?;
+    if request.space != key.space_id {
+        return Err(Fault::Denied.into());
+    }
+    let digest = crypto::digest(&request.canonical()?);
+    let outcome = store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+        tx.recovery_outcome(&request.operation_id, &digest, now)
+    })?;
+    outcome
+        .map(|bytes| Ok(serde_json::from_slice(&bytes)?))
+        .transpose()
+}
+
+/// Sole-writer entry shared by serve (sync exclusion) and the offline lifecycle lock.
+pub fn recover_edit(
+    store: &mut Store,
+    key: &Keyring,
+    request: &RecoveryIntent,
+    decoder: &mut Decoder,
+    now: u64,
+) -> Result<RecoveredEdit> {
+    if let Some(saved) = recovery_status(store, key, request, now)? {
+        return Ok(saved);
+    }
+    let page = &request.page;
+    let generation = store.write_generation()?;
+    let snap = snapshot(store, key, page, true)?;
+    if super::token(
+        &key.space_id,
+        page,
+        &snap.authority.head,
+        snap.epoch,
+        &snap.cuts,
+    )? != request.revision
+    {
+        return Err(Fault::StaleBase.into());
+    }
+    let policy = &snap.authority.policy;
+    let local = key.local_writer()?.0;
+    let scope = StreamScope {
+        page,
+        epoch: snap.epoch,
+        stream: &local,
+    };
+    if policy.public_mode
+        || policy.link_mode
+        || snap.epoch != 1
+        || store.history_cloud_bound(page)?
+        || store.pinned_content_checkpoint(page)?.is_some()
+        || snap
+            .authority
+            .recipients
+            .values()
+            .map(|issuer| &issuer.recipient)
+            .any(|r| {
+                r.id != snap.authority.head.owner_member.id
+                    && crate::fold::eligible(r, &snap.authority, page)
+            })
+        || store.owner_read(&key.space_id, &key.owner_public(), |tx| {
+            tx.has_other_page_device(scope)
+        })?
+    {
+        return Err(Fault::Capacity.into());
+    }
+    // The request is a trigger only. Re-run normal admission to prove this exact edit
+    // would cross the compressed limit without rewriting history.
+    let author = super::Author::of(key, &snap, now)?;
+    match prepare_recovery_edit(request, &snap, key, None, decoder, now) {
+        Err(error) if compressed_capacity(error.as_ref()) => (),
+        Err(error) => return Err(error),
+        Ok(_) => return Err(Fault::Capacity.into()),
+    }
+    let (before, _, bytes) = snap.measure_preview(key, page, decoder, &BTreeMap::new())?;
+    let rebuilt =
+        rebuild_history(&snap, key, page, &before, decoder)?.map_err(|_| Fault::Capacity)?;
+    if rebuilt.after >= bytes {
+        return Err(Fault::Capacity.into());
+    }
+    let staged = StagedRecovery::prepare(
+        key,
+        page,
+        &snap,
+        rebuilt.index,
+        rebuilt.merged.clone(),
+        (bytes, snap.authority.head.revision),
+        decoder,
+    )?;
+    let prepared = prepare_recovery_edit(request, &snap, key, Some(rebuilt), decoder, now)?;
+    let crate::decoder::ContentBatch::Updates(updates) = &prepared.batch else {
+        return Err(Fault::Invalid.into());
+    };
+    // A partial merge cannot justify discarding history, and the text it dropped must stay
+    // out of the bounded local outcome ledger.
+    if prepared.receipt.as_ref().is_some_and(|receipt| {
+        !receipt["droppedHunks"]
+            .as_array()
+            .is_some_and(Vec::is_empty)
+    }) {
+        return Err(Fault::StaleBase.into());
+    }
+    let reopened =
+        super::reopened_questions(store, key, page, &snap, &prepared.projection, decoder)?;
+    let issuer = snap.genesis_hash()?;
+    // The signed cut advances only this stream. The page's sharing and history policy stay put.
+    let membership_revision = snap.authority.head.revision;
+    let chain = match author.existing {
+        Some(chain) => chain,
+        None => super::writer_chain(key, &snap.authority.head, &issuer, now)?,
+    };
+    let mut seq = staged.next;
+    let mut previous = staged.anchor_hash;
+    let mut sealed = Vec::with_capacity(updates.len());
+    for update in updates {
+        seq = seq.checked_add(1).ok_or(Fault::Capacity)?;
+        let context = object::Context {
+            space: key.space_id.clone(),
+            page: page.clone(),
+            epoch: snap.epoch.to_string(),
+            kind: "update".into(),
+            namespace: "content".into(),
+            author_device: local.clone(),
+            membership_revision: membership_revision.to_string(),
+            stream_seq: seq.to_string(),
+            prev_hash: previous,
+        };
+        let envelope = key.seal_content(&context, &snap.secret, update)?;
+        let hash = envelope.hash()?;
+        sealed.push((seq, previous, hash, envelope.to_bytes()?));
+        previous = hash;
+    }
+    let digest = crypto::digest(&request.canonical()?);
+    let committed = store.device_transaction(&key.space_id, &key.owner_public(), |tx| {
+        if let Some(saved) = tx.recovery_outcome(&request.operation_id, &digest, now)? {
+            return Ok(saved);
+        }
+        if tx.write_generation()? != generation
+            || tx.head() != Some(&snap.authority.head)
+            || tx.cuts(page, snap.epoch)? != snap.cuts
+            || tx.has_other_page_device(scope)?
+        {
+            return Err(Fault::StaleBase.into());
+        }
+        tx.put_device(&crate::store::owner::Device {
+            chain,
+            revoked: false,
+        })?;
+        staged.commit(tx, page)?;
+        for (seq, previous, hash, bytes) in &sealed {
+            if tx.append_update(&Envelope {
+                scope,
+                namespace: Namespace::Content,
+                seq: *seq,
+                previous: *previous,
+                hash: *hash,
+                bytes,
+            })? != crate::store::Accepted::New
+            {
+                return Err(Fault::StaleBase.into());
+            }
+        }
+        if let Some(blocks) = prepared.projection.get("blocks") {
+            tx.allocate_todo_numbers(page, &super::todo_ids(Some(blocks)))?;
+        }
+        let mut receipt = super::Receipt::unchanged(
+            key,
+            page,
+            prepared.projection["html"].as_str().ok_or(Fault::Invalid)?,
+            snap.epoch.to_string(),
+            super::Head::from(tx.head().ok_or(Fault::Invalid)?),
+            super::current_token(tx, key, page)?,
+            prepared.memory_limit,
+        );
+        receipt.changed = true;
+        receipt.reopened_questions = reopened;
+        receipt.update = super::UpdateSize {
+            count: sealed.len(),
+            bytes: sealed.iter().map(|entry| entry.3.len()).sum(),
+            minimal: Some(true),
+        };
+        receipt.history_reclaimed_at_ms = Some(now);
+        let wire = serde_json::to_vec(&RecoveredEdit {
+            receipt,
+            blocks: prepared.receipt,
+        })?;
+        if wire.len() > RECOVERY_OUTCOME_BYTES {
+            return Err(Fault::Capacity.into());
+        }
+        tx.save_recovery_outcome(page, &request.operation_id, &digest, now, &wire)?;
+        Ok(wire)
+    })?;
+    Ok(serde_json::from_slice(&committed)?)
 }
 
 /// What a requested compaction did, for the person who asked: whose stream was combined into

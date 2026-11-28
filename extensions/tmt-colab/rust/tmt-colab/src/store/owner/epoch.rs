@@ -1,8 +1,11 @@
 //! Transaction-local reads, cut capture/pinning and immutable baseline storage.
 use super::*;
-use crate::store::{Envelope, Namespace};
+use crate::store::{Envelope, Namespace, StreamScope};
 use std::collections::HashMap;
 use tmt_colab_model::{object, stream_cut};
+
+const RECOVERY_RETENTION_MS: u64 = 24 * 60 * 60 * 1000;
+const RECOVERY_RECEIPTS: i64 = 256;
 
 /// The most fold hashes one `device.revoke` lists (colab-v1, "Owner fold").
 pub const MAX_REVOKE_FOLDS: usize = 512;
@@ -577,6 +580,60 @@ impl OwnerTransaction<'_> {
 
     /// Install a fresh, complete cut and discard just the covered content. The caller
     /// verifies the captured owner head, projection and policy before reaching this write.
+    pub(crate) fn has_other_page_device(&self, scope: StreamScope<'_>) -> Result<bool> {
+        Ok(self.tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM wraps WHERE page=?1 AND epoch=?2 AND kind='device' AND recipient<>?3)
+                 OR EXISTS(SELECT 1 FROM streams WHERE page=?1 AND epoch=?2 AND stream<>?3)",
+            params![scope.page, scope.epoch.to_string(), scope.stream], |row| row.get(0),
+        )?)
+    }
+    pub(crate) fn recovery_outcome(
+        &self,
+        id: &str,
+        digest: &[u8; 32],
+        now: u64,
+    ) -> Result<Option<Vec<u8>>> {
+        let saved: Option<(Vec<u8>, Vec<u8>)> = self
+            .tx
+            .query_row(
+                "SELECT digest,outcome FROM recovery_operations WHERE id=? AND at_ms>=?",
+                params![id, now.saturating_sub(RECOVERY_RETENTION_MS) as i64],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        match saved {
+            None => Ok(None),
+            Some((hash, outcome)) if hash == *digest => Ok(Some(outcome)),
+            Some(_) => Err(crate::page::Fault::Invalid.into()),
+        }
+    }
+    pub(crate) fn save_recovery_outcome(
+        &mut self,
+        page: &str,
+        id: &str,
+        digest: &[u8; 32],
+        now: u64,
+        outcome: &[u8],
+    ) -> Result<()> {
+        self.tx.execute(
+            "DELETE FROM recovery_operations WHERE at_ms<?",
+            [now.saturating_sub(RECOVERY_RETENTION_MS) as i64],
+        )?;
+        self.tx.execute(
+            "DELETE FROM recovery_operations WHERE id IN
+                (SELECT id FROM recovery_operations ORDER BY at_ms DESC,id DESC LIMIT -1 OFFSET ?)",
+            [RECOVERY_RECEIPTS - 1],
+        )?;
+        self.tx.execute(
+            "INSERT INTO recovery_operations VALUES (?,?,?,?)",
+            params![id, now as i64, digest.as_slice(), outcome],
+        )?;
+        self.tx.execute(
+            "UPDATE pages SET history_reclaimed_at_ms=? WHERE page=?",
+            params![now as i64, page],
+        )?;
+        Ok(())
+    }
     pub(crate) fn stage_history_recovery(
         &mut self,
         anchor: &Envelope<'_>,

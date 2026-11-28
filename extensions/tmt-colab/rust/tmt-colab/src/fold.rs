@@ -1083,10 +1083,20 @@ impl Snapshot {
         edit: &crate::decoder::StructuredEdit,
         decoder: &mut Decoder,
     ) -> Result<crate::decoder::PreparedContent> {
-        use crate::decoder::StructuredKind;
         let input =
             self.materialization_input(key, page, decoder, &BTreeMap::new(), None, Opening::Fresh)?;
         let base = input.materialize(page, decoder, None)?;
+        self.prepare_structured_from(key, page, edit, (&base, &input), decoder)
+    }
+    pub(crate) fn prepare_structured_from(
+        &self,
+        key: &Keyring,
+        page: &str,
+        edit: &crate::decoder::StructuredEdit,
+        (base, input): (&View, &MaterializationInput),
+        decoder: &mut Decoder,
+    ) -> Result<crate::decoder::PreparedContent> {
+        use crate::decoder::StructuredKind;
         let shell = base.meta["pageType"].as_str() == Some("shell");
         let ordinary = base.meta.get("pageType").is_none();
         // Validate the action before crossing the child boundary so callers retain the typed
@@ -1138,7 +1148,7 @@ impl Snapshot {
                     {
                         return Err(crate::page::Fault::Invalid.into());
                     }
-                    crate::attachments::creation_proof(&base, descriptor)?;
+                    crate::attachments::creation_proof(base, descriptor)?;
                 }
             }
             let mut receipt_value = applied.receipt;
@@ -1498,7 +1508,7 @@ impl MaterializationInput {
             return Err(if tail_full {
                 OwnerFault::tail_full(page, detail)
             } else {
-                OwnerFault::too_large_to_edit(page, detail)
+                OwnerFault::too_large_to_edit(page, detail, false)
             }
             .into());
         }
@@ -1517,7 +1527,7 @@ impl MaterializationInput {
         if after > crate::decoder::PAGE_BUDGET_GZIP_BYTES
             && let Some(compressed) = gzip_over_budget(parts)?
         {
-            return Err(OwnerFault::too_large_to_edit(page, format!("its content would be {} ({} compressed), more than the {} one page can hold compressed", size(after), size(compressed), size(crate::decoder::PAGE_BUDGET_GZIP_BYTES))).into());
+            return Err(OwnerFault::too_large_to_edit(page, format!("its content would be {} ({} compressed), more than the {} one page can hold compressed", size(after), size(compressed), size(crate::decoder::PAGE_BUDGET_GZIP_BYTES)), true).into());
         }
         Ok(())
     }

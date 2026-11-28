@@ -241,6 +241,9 @@ export const text = {
     colab: 'Colab',
     projectPages: (count: number) => `Project · ${count} ${count === 1 ? 'page' : 'pages'}`,
   },
+  historyReclaimed: 'Content history discarded',
+  historyReclaimedAt: (time: string) =>
+    `Old content history was discarded on ${time} to make room for an edit.`,
   archiveReadOnly: 'Archived · Read only',
   archiveReadOnlyHint: 'Archived pages can be read, not changed.',
   archivePosting: 'Archived page: read only. Nothing can be posted.',

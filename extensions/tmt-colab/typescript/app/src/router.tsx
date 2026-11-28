@@ -3704,6 +3704,17 @@ function OpenPage({
           />
         </div>
       )}
+      {transport.management && snapshot.historyReclaimedAtMs !== undefined && (
+        <div className="page-lifecycle-notice">
+          <BrowserNotice
+            tone="muted"
+            announcement="status"
+            stateLabel={text.historyReclaimed}
+            mark={<Archive aria-hidden="true" />}
+            body={text.historyReclaimedAt(new Date(snapshot.historyReclaimedAtMs).toLocaleString())}
+          />
+        </div>
+      )}
       <PagePinNotice failure={pin?.failure} close={() => requestPin('dismiss')} />
       {choosingParent && (
         <AddSubpageDialog

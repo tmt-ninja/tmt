@@ -224,7 +224,8 @@ Colab is an app on Remote, mounted through its owner-only socket. Remote owns th
 door, Host/Origin checks, pairing and grants; Colab owns content admission and
 sealing. Colab reaches Core and Remote only through their public interfaces, with
 no private Core or Remote crate or state dependency. The native architecture guard
-enforces these dependency and decoder boundaries.
+enforces these dependency and decoder boundaries. The sole native writer owns the
+capacity-triggered content cut, edit and bounded recovery receipt in one Colab store transaction.
 
 Trusted parent chrome admits discussion and sends. Author HTML runs in an opaque
 sandbox frame; its messages are cosmetic claims, never authority. Parent scripts

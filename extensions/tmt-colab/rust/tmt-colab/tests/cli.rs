@@ -13724,6 +13724,269 @@ fn verify_history_recovery(fill_to_capacity: bool) {
 }
 
 #[test]
+fn capacity_recovery_accepts_one_local_edit_and_replays_its_receipt() {
+    use tmt_colab::{
+        keyring::{Keyring, Layout},
+        page::{
+            compact::{RecoveryEdit, RecoveryIntent},
+            ipc,
+        },
+        store::Store,
+    };
+    for serving in [false, true] {
+        let mut pilot = Pilot::new(None);
+        let file = pilot.root.join("auto-reclaim.html");
+        fs::write(&file, "<p>First source</p>").unwrap();
+        let created = pilot.call(&[
+            "page",
+            "create",
+            "--html",
+            "--reason",
+            "Exercise HTML history recovery",
+            "--title",
+            "Automatic reclaim",
+            "--layout",
+            "column",
+            "--file",
+            file.to_str().unwrap(),
+            "--json",
+        ]);
+        let page = created["pageId"].as_str().unwrap();
+        let layout = Layout::existing(&pilot.root.join("selected"))
+            .unwrap()
+            .unwrap();
+        let key = Keyring::read(&layout).unwrap();
+        // Build a realistic compressed history near the cap with the ordinary offline CLI.
+        let mut random = 0x4567_89ab_cdef_0123_u64;
+        let mut source = String::new();
+        // The first 14 replacements are under 5,000,000 compressed bytes. The next one crosses it.
+        for _ in 0..14 {
+            source = format!("<p>{}</p>", recovery_fixture_text(&mut random, 450_000));
+            fs::write(&file, &source).unwrap();
+            let result = pilot.patch_call(page, &["--file", file.to_str().unwrap(), "--json"]);
+            assert!(
+                result["historyReclaimedAtMs"].is_null(),
+                "recovery ran early: {result}"
+            );
+        }
+        let next = format!("<p>{}</p>", recovery_fixture_text(&mut random, 450_000));
+        if serving {
+            // Startup can finish a pending lossless combine. Use the revision serve exposes.
+            pilot.start();
+        }
+        let before = pilot.call(&["page", "read", page, "--json"]);
+        let old_revision = before["revision"].as_str().unwrap();
+        let intent = || RecoveryIntent {
+            space: key.space_id.clone(),
+            page: page.to_owned(),
+            revision: old_revision.to_owned(),
+            operation_id: "30000000-0000-4000-8000-000000000069".into(),
+            edit: RecoveryEdit::Html {
+                source: next.clone(),
+                base: tmt_colab_model::crypto::digest(source.as_bytes()),
+                publisher: None,
+            },
+        };
+        if serving {
+            // Both forms of forwarding are refused by the same route fence, before intent parsing.
+            for header in ["tmt-device-context: {}", "tmt-device-event: {}"] {
+                let mut socket = UnixStream::connect(pilot.socket()).unwrap();
+                let body = r#"{"version":3}"#;
+                write!(socket, "POST /.tmt/colab/local/page-publish HTTP/1.1\r\nHost: localhost\r\n{header}\r\nContent-Length: {}\r\n\r\n{body}", body.len()).unwrap();
+                let mut reply = String::new();
+                socket.read_to_string(&mut reply).unwrap();
+                assert!(reply.starts_with("HTTP/1.1 403"), "{reply}");
+            }
+            let original = ipc::recover_edit(&layout, &key, &intent())
+                .unwrap()
+                .unwrap();
+            let original = serde_json::to_value(original).unwrap();
+            assert!(
+                original["receipt"]["historyReclaimedAtMs"].is_u64(),
+                "{original}"
+            );
+            let replay = ipc::recover_edit(&layout, &key, &intent())
+                .unwrap()
+                .unwrap();
+            assert_eq!(serde_json::to_value(replay).unwrap(), original);
+            let mut changed = intent();
+            changed.edit = RecoveryEdit::Html {
+                source: "<p>Different edit</p>".into(),
+                base: tmt_colab_model::crypto::digest(source.as_bytes()),
+                publisher: None,
+            };
+            assert!(ipc::recover_edit(&layout, &key, &changed).is_err());
+            pilot.stop();
+            let db = layout.directory.join("space.db");
+            let saved = fs::read(&db).unwrap();
+            let mut stale = intent();
+            stale.operation_id = "30000000-0000-4000-8000-000000000070".into();
+            let mut store = Store::write_existing(&layout).unwrap();
+            let mut decoder =
+                tmt_colab::decoder::Decoder::with_config(support::decoder_config(BINARY.into()))
+                    .unwrap();
+            let now = original["receipt"]["historyReclaimedAtMs"]
+                .as_u64()
+                .unwrap();
+            let error =
+                tmt_colab::page::compact::recover_edit(&mut store, &key, &stale, &mut decoder, now)
+                    .err()
+                    .expect("the original revision is stale");
+            assert!(matches!(
+                error.downcast_ref::<tmt_colab::page::Fault>(),
+                Some(tmt_colab::page::Fault::StaleBase)
+            ));
+            store.close().unwrap();
+            assert_eq!(fs::read(db).unwrap(), saved);
+        } else {
+            fs::write(&file, &next).unwrap();
+            let db = layout.directory.join("space.db");
+            let oracle = rusqlite::Connection::open(&db).unwrap();
+            oracle.execute_batch(
+                "CREATE TRIGGER recovery_rollback BEFORE UPDATE OF history_reclaimed_at_ms ON pages
+                 BEGIN SELECT RAISE(ABORT,'recovery rollback fixture'); END;",
+            ).unwrap();
+            let saved = fs::read(&db).unwrap();
+            let refused = pilot
+                .patch_command(page)
+                .args(["--file", file.to_str().unwrap(), "--json"])
+                .output()
+                .unwrap();
+            assert!(!refused.status.success());
+            assert_eq!(
+                serde_json::from_slice::<Value>(&refused.stdout).unwrap()["error"]["code"],
+                "COLAB_CAPACITY"
+            );
+            assert!(
+                fs::read(&db).unwrap() == saved,
+                "a failed audit rolled back the whole cut and edit"
+            );
+            oracle
+                .execute_batch("DROP TRIGGER recovery_rollback")
+                .unwrap();
+            drop(oracle);
+            let result = pilot.patch_call(page, &["--file", file.to_str().unwrap(), "--json"]);
+            assert!(result["historyReclaimedAtMs"].is_u64(), "{result}");
+        }
+        let after = pilot.call(&["page", "read", page, "--json"]);
+        assert_eq!(after["source"], next);
+        assert_eq!(
+            after["membershipHead"], before["membershipHead"],
+            "the signed page cut did not change policy"
+        );
+        assert_ne!(after["revision"], before["revision"]);
+        assert!(
+            after["usage"]["percent"].as_u64().unwrap() < 30,
+            "{}",
+            after["usage"]
+        );
+    }
+}
+
+fn recovery_fixture_text(random: &mut u64, length: usize) -> String {
+    const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    (0..length)
+        .map(|_| {
+            *random ^= *random << 13;
+            *random ^= *random >> 7;
+            *random ^= *random << 17;
+            char::from(ALPHABET[*random as usize % ALPHABET.len()])
+        })
+        .collect()
+}
+
+#[test]
+fn live_block_batch_recovers_capacity_and_keeps_the_surrounding_blocks() {
+    let mut pilot = Pilot::new(None);
+    let created = pilot.call(&["page", "create", "--title", "Capacity", "--json"]);
+    let page = created["pageId"].as_str().unwrap();
+    let ops_file = pilot.root.join("recovery-batch.json");
+    let block_ids: Vec<_> = (1..=8)
+        .map(|n| format!("31000000-0000-4000-8000-{n:012}"))
+        .collect();
+    let mut random = 0x6789_0123_4567_abcd;
+    let mut current: Vec<_> = block_ids
+        .iter()
+        .map(|_| recovery_fixture_text(&mut random, 26_000))
+        .collect();
+    let mut ops = block_ids
+        .iter()
+        .zip(&current)
+        .map(|(id, text)| {
+            json!({
+                "op":"insert", "id":id, "type":"paragraph", "text":text,
+            })
+        })
+        .collect::<Vec<_>>();
+    let marker = "31000000-0000-4000-8000-000000000021";
+    ops.push(json!({"op":"insert", "id":marker, "type":"heading", "text":"Keep this heading"}));
+    let batch = |pilot: &Pilot, ops: &[Value]| {
+        fs::write(&ops_file, serde_json::to_vec(ops).unwrap()).unwrap();
+        pilot.call(&[
+            "block",
+            "batch",
+            page,
+            "--file",
+            ops_file.to_str().unwrap(),
+            "--json",
+        ])
+    };
+    batch(&pilot, &ops);
+    pilot.start();
+    let mut recovered = false;
+    for revision in 1..=38 {
+        let next: Vec<_> = block_ids
+            .iter()
+            .map(|_| recovery_fixture_text(&mut random, 26_000))
+            .collect();
+        let ops = block_ids
+            .iter()
+            .zip(&current)
+            .zip(&next)
+            .map(|((id, base), set)| {
+                json!({
+                    "op":"text", "id":id, "base":base, "set":set,
+                })
+            })
+            .collect::<Vec<_>>();
+        let receipt = batch(&pilot, &ops);
+        assert_eq!(receipt["droppedHunks"], json!([]), "revision {revision}");
+        current = next;
+        if receipt["historyReclaimedAtMs"].is_u64() {
+            assert!(revision >= 28, "recovery ran well before capacity");
+            recovered = true;
+            break;
+        }
+    }
+    assert!(
+        recovered,
+        "the live CLI never recovered a compressed capacity refusal"
+    );
+    for (id, expected) in block_ids.iter().zip(&current) {
+        let shown = pilot.call(&["block", "get", page, id, "--json"]);
+        assert_eq!(shown["block"]["base"], *expected);
+    }
+    let heading = pilot.call(&["block", "get", page, marker, "--json"]);
+    assert_eq!(heading["block"]["base"], "Keep this heading");
+    pilot.call(&[
+        "block",
+        "text",
+        page,
+        marker,
+        "--find",
+        "Keep",
+        "--replace",
+        "Retain",
+        "--json",
+    ]);
+    assert_eq!(
+        pilot.call(&["block", "get", page, marker, "--json"])["block"]["base"],
+        "Retain this heading"
+    );
+    pilot.stop();
+}
+
+#[test]
 fn storage_reclaim_space_dry_run_reports_pages_without_mutating_them() {
     let pilot = Pilot::new(None);
     let created = pilot.call(&[

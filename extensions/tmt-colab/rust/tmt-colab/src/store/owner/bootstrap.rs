@@ -498,7 +498,7 @@ impl OwnerTransaction<'_> {
     }
     fn page_list_with(&self, space: Option<SpaceExpiry>) -> Result<serde_json::Value> {
         let mut query = self.tx.prepare(
-            "SELECT page,epoch,last_update_at_ms,last_activity_at_ms FROM pages ORDER BY page LIMIT 1001",
+            "SELECT page,epoch,last_update_at_ms,last_activity_at_ms,history_reclaimed_at_ms FROM pages ORDER BY page LIMIT 1001",
         )?;
         let rows = query.query_map([], |r| {
             Ok((
@@ -506,12 +506,13 @@ impl OwnerTransaction<'_> {
                 r.get::<_, String>(1)?,
                 r.get::<_, Option<i64>>(2)?,
                 r.get::<_, Option<i64>>(3)?,
+                r.get::<_, Option<i64>>(4)?,
             ))
         })?;
         let mut pages = std::collections::BTreeMap::new();
         let mut activity = std::collections::BTreeMap::new();
         for row in rows {
-            let (id, epoch, updated, active) = row?;
+            let (id, epoch, updated, active, reclaimed) = row?;
             let updated = updated
                 .map(u64::try_from)
                 .transpose()
@@ -526,7 +527,13 @@ impl OwnerTransaction<'_> {
             if pages.len() == 1000 {
                 return Err(OwnerFault::Capacity.into());
             }
-            pages.insert(id.clone(),serde_json::json!({"pageId":id,"epoch":epoch,"sharing":"private","history":"shared","archived":false,"retentionDays":30,"lastUpdateAtMs":updated}));
+            let mut page = serde_json::json!({"pageId":id,"epoch":epoch,"sharing":"private","history":"shared","archived":false,"retentionDays":30,"lastUpdateAtMs":updated});
+            if let Some(at) = reclaimed {
+                let at = u64::try_from(at).map_err(|_| OwnerFault::Invalid)?;
+                values::time(at)?;
+                page["historyReclaimedAtMs"] = serde_json::json!(at);
+            }
+            pages.insert(id, page);
         }
         let known_ids: Vec<String> = pages.keys().cloned().collect();
         let mut retention: std::collections::BTreeMap<String, PageRetention> = Default::default();
