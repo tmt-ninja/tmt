@@ -1172,7 +1172,7 @@ const root = createRootRouteWithContext<AppContext>()({
         />
         <main>
           {listFailure ? (
-            <section className="home tmt-ui-page" data-page-list>
+            <section className="home tmt-ui-page" data-page-list data-shell-content-column="padded">
               <ColdPageList theme={theme} canCreate>
                 <PageListError onRetry={() => void router.invalidate()} />
               </ColdPageList>
@@ -1256,7 +1256,7 @@ function HomePending() {
   }, [opening]);
   const theme = useSyncExternalStore(subscribeTheme, getTheme, () => 'light' as const);
   return (
-    <section className="home tmt-ui-page" data-page-list>
+    <section className="home tmt-ui-page" data-page-list data-shell-content-column="padded">
       <AppHeader workView={workView} remote={{}} />
       <ColdPageList theme={theme}>
         <PageListLoading />
@@ -4034,6 +4034,9 @@ function OpenPage({
                 collapsedRail={railCollapsed && htmlStripGutter}
               />
             </div>
+          )}
+          {!embedded && view.pageType !== 'blocks' && (
+            <span className="html-shell-column" data-shell-content-column="padded" aria-hidden />
           )}
           <div className="frame-host" ref={host} hidden={view.pageType === 'blocks'} />
           {view.pageType === 'blocks' && view.blocks && (

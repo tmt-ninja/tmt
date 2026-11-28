@@ -227,9 +227,9 @@ const railShortcut = (page: Page) =>
     .evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.platform))
     .then((command) => (command ? 'Meta+Backslash' : 'Control+Backslash'));
 
-// Without a usable gutter, the top-bar button is the wide screen's way back to the full rail.
+// A full-width route reserves the pill lane and keeps the collapsed choice on reload.
 for (const renderer of ['react', 'native', 'hosted'])
-  test(`${renderer}: the side menu falls back to the bar and is remembered`, async ({ page }) => {
+  test(`${renderer}: the side menu reserves a pill lane and is remembered`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto(`/?frame=topbar&renderer=${renderer}`);
@@ -237,7 +237,10 @@ for (const renderer of ['react', 'native', 'hosted'])
     const rail = page.locator('nav.tmt-ui-rail');
     const bar = page.locator('.tmt-ui-topbar');
     const collapse = rail.getByRole('button', { name: 'Collapse side menu', exact: true });
-    const expand = bar.getByRole('button', { name: 'Expand side menu', exact: true });
+    const expand = rail.getByRole('button', { name: 'Expand side menu', exact: true });
+    const opener = bar.getByRole('button', { name: 'Expand side menu', exact: true });
+    const main = shell.locator('.tmt-ui-shell-main');
+    const fullWidth = await shell.evaluate((node) => node.getBoundingClientRect().width);
     const goTo = bar.getByRole('button', { name: 'Go to', exact: true });
     await expect(collapse).toBeVisible();
     await expect(expand).toBeHidden();
@@ -249,12 +252,13 @@ for (const renderer of ['react', 'native', 'hosted'])
     expect(railPlaces).toContain('TMT settings');
     await collapse.click();
     await expect(shell).toHaveAttribute('data-rail', 'collapsed');
-    await expect(rail).toBeHidden();
-    // The control that collapsed it is gone, so focus moves to the one that brings it back.
+    await expect(shell).toHaveAttribute('data-rail-pill', '');
+    await expect(rail).toBeVisible();
     await expect(expand).toBeFocused();
-    await expect(expand).toHaveAttribute('aria-expanded', 'false');
+    await expect(opener).toBeHidden();
+    expect((await main.boundingBox())!.width).toBe(fullWidth - 80);
     expect(await page.evaluate(() => localStorage.getItem('tmt-shell-rail'))).toBe('collapsed');
-    // The bar takes the shell's whole width, » first, and Go to leads the common controls.
+    // The bar keeps the shell's whole width, and Go to leads the common controls.
     const shellBox = (await shell.boundingBox())!;
     expect((await bar.boundingBox())!.x).toBe(shellBox.x);
     const [expandBox, goToBox, themeBox] = await Promise.all([
@@ -262,7 +266,7 @@ for (const renderer of ['react', 'native', 'hosted'])
       goTo.boundingBox(),
       bar.getByRole('button', { name: /^Theme:/ }).boundingBox(),
     ]);
-    expect(expandBox!.x - shellBox.x).toBeLessThanOrEqual(40);
+    expect(expandBox!.x + expandBox!.width + 16).toBeLessThanOrEqual((await main.boundingBox())!.x);
     expect(goToBox!.x + goToBox!.width).toBeLessThanOrEqual(themeBox!.x);
     await goTo.click();
     const places = page.getByRole('menu', { name: 'Go to' }).getByRole('menuitem');
@@ -291,12 +295,7 @@ for (const renderer of ['react', 'native', 'hosted'])
       new Set(
         await page.evaluate(() => (window as unknown as { railWidths: number[] }).railWidths),
       ),
-    ).toEqual(new Set([0]));
-
-    // A collapsed rail cannot cover content when there is no gutter for the pill.
-    await page.mouse.move(2, 450);
-    await expect(rail).toBeHidden();
-    await expect(expand).toBeVisible();
+    ).toEqual(new Set([48]));
 
     // Cmd/Ctrl+\ expands it with focus on «, and collapses it again; Alt or Shift does nothing.
     const keys = await railShortcut(page);
@@ -347,13 +346,18 @@ test('the rail moves with a stable content width and leaves its pill in a wide g
     const before = await measure();
     await shell.evaluate((node) => {
       const pause = (event: Event) => {
-        if ((event as TransitionEvent).propertyName !== '--tmt-ui-rail-progress') return;
+        if (
+          event.target !== node ||
+          (event as TransitionEvent).propertyName !== '--tmt-ui-rail-progress'
+        )
+          return;
         const motion = node
           .getAnimations()
           .find(
             (animation) =>
               (animation as CSSTransition).transitionProperty === '--tmt-ui-rail-progress',
-          )!;
+          );
+        if (!motion) return;
         motion.pause();
         motion.currentTime = 90;
         node.removeEventListener('transitionrun', pause);
@@ -413,7 +417,15 @@ test('the rail moves with a stable content width and leaves its pill in a wide g
   expect(await measure()).toEqual({ left: 0, width: expanded.left + expanded.width });
   expect(await shell.evaluate((node) => node.getAnimations().length)).toBe(0);
   await page.setViewportSize({ width: 1000, height: 900 });
-  await expect(fallback).toBeFocused();
+  await expect(expand).toBeFocused();
+  await expect(fallback).toBeHidden();
+  const compactWidth = (await shell.boundingBox())!.width;
+  await expect.poll(measure).toEqual({ left: 80, width: compactWidth - 80 });
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await animate(() => expand.press('Enter'), 232);
+  await animate(() => collapse.press('Enter'), 80);
+  await page.setViewportSize({ width: 900, height: 900 });
+  await expect(bar.getByRole('button', { name: 'Open navigation', exact: true })).toBeVisible();
   await expect(rail).toBeHidden();
 });
 
@@ -439,16 +451,15 @@ test('a phone keeps its drawer whatever the side menu remembers; another tab fol
   // Wide again, the remembered choice applies at once.
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(shell).toHaveAttribute('data-rail', 'collapsed');
-  await expect(bar.getByRole('button', { name: 'Expand side menu', exact: true })).toBeVisible();
+  await expect(
+    shell.locator('nav').getByRole('button', { name: 'Expand side menu', exact: true }),
+  ).toBeVisible();
   // Another tab of the same origin expands it; this one follows.
   const other = await context.newPage();
   await other.setViewportSize({ width: 1440, height: 900 });
   await other.goto('/?frame=topbar&renderer=native');
-  // A new page's pointer starts wherever the platform puts it; at the left edge (Linux) it floats
-  // the rail. Over the page, the rail is closed and » is the one way to expand.
-  await other.mouse.move(720, 450);
   await other
-    .locator('.tmt-ui-topbar')
+    .locator('nav.tmt-ui-rail')
     .getByRole('button', { name: 'Expand side menu', exact: true })
     .click();
   await expect(shell).toHaveAttribute('data-rail', 'expanded');

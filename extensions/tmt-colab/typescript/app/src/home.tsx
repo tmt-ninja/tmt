@@ -1211,6 +1211,7 @@ export function Home({ routeId }: { routeId: '/' | '/work/list' }) {
     <section
       className="home tmt-ui-page"
       data-page-list
+      data-shell-content-column="padded"
       data-compact={compact ? '' : undefined}
       ref={section}
     >

@@ -934,13 +934,15 @@ nav.tmt-ui-rail .tmt-ui-rail-group-action:disabled {
     overflow-x: clip;
   }
   .tmt-ui-shell[data-rail='collapsed'] {
-    --tmt-ui-rail-target: 0px;
+    --tmt-ui-rail-target: var(--tmt-ui-rail-lane, 0px);
     --tmt-ui-rail-progress: 0;
   }
   .tmt-ui-shell > .tmt-ui-shell-content > .tmt-ui-shell-main {
     grid-column: 1 / -1;
     width: calc(100% - var(--tmt-ui-rail-target));
-    margin-inline-start: var(--tmt-ui-rail-space);
+    margin-inline-start: calc(
+      var(--tmt-ui-rail-space) + var(--tmt-ui-rail-lane, 0px) * (1 - var(--tmt-ui-rail-progress))
+    );
   }
   .tmt-ui-shell > .tmt-ui-rail {
     clip-path: inset(0 max(0px, var(--tmt-ui-rail-width) - var(--tmt-ui-rail-space)) 0 0);

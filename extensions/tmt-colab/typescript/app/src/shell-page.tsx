@@ -42,7 +42,7 @@ export function ShellPage({
   return shell ? (
     <ShellContent shell={shell} embed={embed} />
   ) : (
-    <div className="shell-page tmt-ui-page">
+    <div className="shell-page tmt-ui-page" data-shell-content-column="padded">
       <p className="shell-state" role="status">
         {t.notShown}
       </p>
@@ -65,7 +65,7 @@ function ShellContent({ shell, embed }: { shell: Shell; embed: EmbedPage | undef
   }, [transport]);
   if (home === undefined)
     return (
-      <div className="shell-page tmt-ui-page">
+      <div className="shell-page tmt-ui-page" data-shell-content-column="padded">
         <p className="shell-state" role="status">
           {t.loading}
         </p>
@@ -210,7 +210,7 @@ function ShellBody({
 
   const empty = cells.length === 0;
   return (
-    <div className="shell-page tmt-ui-page" ref={root}>
+    <div className="shell-page tmt-ui-page" data-shell-content-column="padded" ref={root}>
       <ShellHead model={model} />
       <section className="tmt-ui-card shell-glance" aria-labelledby="shell-glance-heading">
         <h2 id="shell-glance-heading" className="tmt-ui-card-title">

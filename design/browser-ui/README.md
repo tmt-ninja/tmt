@@ -155,10 +155,11 @@ Input autocomplete remains a host-owned listbox. No native select or new font lo
 
 The wide shell remembers whether the rail is expanded. The full rail is 232px wide and owns
 one scroll column. Its brand stays sticky, and Settings follows navigation in normal flow.
-The collapsed rail reuses the same controls as an icon pill when the host's
-`data-shell-content-column` leaves a gutter for the pill and 16px on each side.
-The pill sits below the sticky bar and leaves the content column in place. When the gutter is
-too narrow or the host has no column marker, the bar's first button expands the rail.
+On wide app shells the collapsed rail reuses the same controls as an icon pill below the sticky
+bar. The host marks its leading content edge with `data-shell-content-column`; the value
+`padded` uses the marked element's inner edge. If the natural gutter cannot fit the pill and
+16px on each side, the shell reserves an 80px lane. Centered columns keep their width when they
+fit in the remaining main area. Below the wide breakpoint the top bar opens the drawer.
 Toggling the rail shifts the content with the shared motion token and respects reduced motion.
 The phone menu and drawer keep their own behavior and scroll owner.
 The shell and heading metrics follow the concept website: 232px rail, 45px module

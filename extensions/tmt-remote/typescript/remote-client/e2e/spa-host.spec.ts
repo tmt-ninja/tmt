@@ -1186,6 +1186,52 @@ test.describe('the Digest route on the owner reads', () => {
     return reads;
   }
 
+  test('the collapsed lane leaves populated Digest tables usable at 1280', async () => {
+    const info = test.info();
+    const { page } = await openApp('/digest', async (page) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+      await stub(page);
+    });
+    try {
+      const shell = page.locator('.tmt-ui-shell[data-rail]');
+      const main = shell.locator('.tmt-ui-shell-main');
+      await expect(shell).toHaveAttribute('data-rail-pill', '');
+      await expect.poll(async () => (await main.boundingBox())?.x).toBe(80);
+      const messages = page.locator('#digest-exchange-scroll');
+      const ranking = page.locator('#digest-ranking-rows table');
+      const chart = page
+        .locator('#digest-tokens-chart')
+        .getByRole('img', { name: /Tokens by seat/ });
+      await expect(chart).toBeVisible();
+      await expect(messages.locator('tbody tr').first()).toBeVisible();
+      await expect(ranking.locator('tbody tr').first()).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1280);
+      const measures = await messages.evaluate((element) => {
+        const clip = element.scrollWidth - element.clientWidth;
+        element.scrollLeft = clip;
+        return { clip, reached: element.scrollLeft };
+      });
+      expect(measures.reached).toBe(measures.clip);
+      for (const theme of ['light', 'dark'] as const) {
+        await page.emulateMedia({ colorScheme: theme });
+        await chart.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: info.outputPath(`digest-chart-1280-${theme}.png`) });
+
+        await messages.evaluate((element) => {
+          element.scrollLeft = 0;
+        });
+        await messages.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: info.outputPath(`digest-messages-1280-${theme}.png`) });
+        await ranking.scrollIntoViewIfNeeded();
+        await page.screenshot({ path: info.outputPath(`digest-ranking-1280-${theme}.png`) });
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
   test('range switches reuse one allowance read and the minute tick obtains the next snapshot', async () => {
     let reads: string[] = [];
     const { page } = await openApp('/digest', async (page) => {
@@ -1289,6 +1335,40 @@ test.describe('the Digest route on the owner reads', () => {
       );
       await page.close();
     });
+});
+
+test('Remote, Digest and TMT settings leave the pill clear when navigating collapsed', async () => {
+  const { page } = await openApp('/remote/', async (page) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+  });
+  try {
+    const shell = page.locator('.tmt-ui-shell[data-rail]');
+    const rail = shell.locator('nav.tmt-ui-rail');
+    const main = shell.locator('.tmt-ui-shell-main');
+    for (const [route, marker] of [
+      ['/remote/', 'main.settings-page'],
+      ['/remote/members', '.remote-context'],
+      ['/digest', 'main.digest'],
+      ['/settings#general', '#tmt-settings-page'],
+      ['/settings#identities', '#tmt-settings-page'],
+    ]) {
+      await page.evaluate((route) => {
+        history.pushState(null, '', route);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      }, route);
+      await expect(main.locator(`${marker}[data-shell-content-column]:visible`)).toHaveCount(1);
+      await expect(shell).toHaveAttribute('data-rail-pill', '');
+      await expect(rail.getByRole('button', { name: 'Expand side menu' })).toBeVisible();
+      await expect(shell.locator('.tmt-ui-shell-open')).toBeHidden();
+      await expect.poll(async () => (await main.boundingBox())?.x).toBe(80);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(1280);
+    }
+  } finally {
+    await page.close();
+  }
 });
 
 test.describe('Settings General website presentation', () => {
