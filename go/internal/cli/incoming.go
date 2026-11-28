@@ -144,18 +144,14 @@ func answerOperands(inv invocation) answerArguments {
 }
 
 func (app application) incoming(ctx context.Context, inv invocation) output.Report {
-	if !inv.has("identity") {
-		// NOT PORTED (#6938): select the implicit caller using a verified live binding.
-		return identityRequired()
-	}
-	selector := inv.options["identity"]
+
 	if inv.path[0] == "answer" {
 		args := answerOperands(inv)
 		body, failure := responseBody(app.stdin, inv, args.text)
 		if failure != nil {
 			return failure
 		}
-		me, from, failure := app.requestIdentities(ctx, selector, args.from)
+		me, from, failure := app.requestIdentities(ctx, inv, args.from)
 		if failure != nil {
 			return failure
 		}
@@ -166,7 +162,7 @@ func (app application) incoming(ctx context.Context, inv invocation) output.Repo
 		name := inv.options["from"]
 		sender = &name
 	}
-	me, from, failure := app.requestIdentities(ctx, selector, sender)
+	me, from, failure := app.requestIdentities(ctx, inv, sender)
 	if failure != nil {
 		return failure
 	}
@@ -174,10 +170,24 @@ func (app application) incoming(ctx context.Context, inv invocation) output.Repo
 	return app.inbox(ctx, me, from, limit)
 }
 
-func (app application) requestIdentities(ctx context.Context, selector string, sender *string) (me, from *core.Identity, failure *output.Failure) {
+func (app application) requestIdentities(ctx context.Context, inv invocation, sender *string) (me, from *core.Identity, failure *output.Failure) {
+	var claim callerClaim
+	var probe core.EndpointProbe
+	if !inv.has("identity") {
+		var failure *output.Failure
+		claim, probe, failure = app.caller.observe(ctx)
+		if failure != nil {
+			return nil, nil, failure
+		}
+	}
+	selector := inv.options["identity"]
 	err := app.store.Read(ctx, func(tx ports.StoreTx) error {
 		var err error
-		me, err = core.ResolveIdentity(tx.Identities(), selector)
+		if inv.has("identity") {
+			me, err = core.ResolveIdentity(tx.Identities(), selector)
+		} else {
+			me, err = verifiedCaller(tx, claim, probe)
+		}
 		if err != nil || me == nil || sender == nil {
 			return err
 		}
@@ -188,6 +198,9 @@ func (app application) requestIdentities(ctx context.Context, selector string, s
 	case err != nil:
 		return nil, nil, &output.Failure{Code: "IDENTITY_ERROR", Message: "Could not read identity storage.", Status: 1}
 	case me == nil:
+		if !inv.has("identity") {
+			return nil, nil, identityRequired()
+		}
 		return nil, nil, identityMissing(selector)
 	case sender != nil && from == nil:
 		return nil, nil, identityMissing(*sender)

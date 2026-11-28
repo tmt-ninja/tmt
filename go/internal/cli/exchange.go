@@ -163,11 +163,7 @@ func (app application) exchange(ctx context.Context, inv invocation) output.Repo
 		// NOT PORTED (#6938): content-free flow and inbox listen are outside the initial service.
 		return &output.Failure{Code: "NOT_PORTED", Message: fmt.Sprintf("Command 'x %s' is not yet ported.", action), Status: 2}
 	}
-	if !inv.has("identity") {
-		// NOT PORTED (#6938): implicit verified caller selection for X.
-		return identityRequired()
-	}
-	me, _, failure := app.requestIdentities(ctx, inv.options["identity"], nil)
+	me, _, failure := app.requestIdentities(ctx, inv, nil)
 	if failure != nil {
 		return failure
 	}

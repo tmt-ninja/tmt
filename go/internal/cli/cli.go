@@ -27,6 +27,7 @@ type application struct {
 	stdin    *os.File
 	requests ports.RequestService
 	store    ports.Store
+	caller   callerSelector
 }
 
 func (app application) run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
