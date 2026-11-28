@@ -30,10 +30,27 @@ pub struct ExternalCaller {
 
 /// What the approved drivers proved about the caller. `conclusive` is false
 /// when a driver failed or refused, or the ancestry could not be read: a
-/// pane it did not report may still be the nearest.
+/// pane it did not report may still be the nearest. `timed_out` names the
+/// first host whose `caller` call, or the ancestry read its answer needed,
+/// ran out of its bound, and which one: for that host the pane was neither
+/// found nor ruled out (#6926).
 pub(crate) struct Callers {
     pub found: Vec<ExternalCaller>,
     pub conclusive: bool,
+    pub timed_out: Option<(HostName, RanOut)>,
+}
+
+/// Which bound a caller check ran out of.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RanOut {
+    /// The driver's `caller` call, bounded by the protocol itself.
+    DriverCall,
+    /// Core's own read of the caller's ancestry, bounded by the caller's deadline.
+    Ancestry,
+}
+
+fn ran_out(error: &crate::process::CommandError) -> bool {
+    error.kind == crate::process::CommandFailure::Timeout
 }
 
 impl<R: CommandRunner> Drivers<R> {
@@ -51,6 +68,7 @@ impl<R: CommandRunner> Drivers<R> {
         let mut chain = None;
         let mut found = Vec::new();
         let mut conclusive = true;
+        let mut timed_out = None;
         for record in self.records() {
             let Some(capabilities) = record.capabilities.host() else {
                 continue;
@@ -81,6 +99,11 @@ impl<R: CommandRunner> Drivers<R> {
                 Ok(Ok(CallerResponse { pane: Some(pane) })) => pane,
                 Ok(Ok(CallerResponse { pane: None })) => continue,
                 Err(error) => {
+                    if let super::CallError::Process { error, .. } = &error
+                        && ran_out(error)
+                    {
+                        timed_out.get_or_insert((host, RanOut::DriverCall));
+                    }
                     unless_cleanup_failed(error)?;
                     conclusive = false;
                     continue;
@@ -96,10 +119,15 @@ impl<R: CommandRunner> Drivers<R> {
                     Err(ancestry::AncestryError::Command(error)) if error.cleanup_failed() => {
                         return Err(driver_process(&process, error));
                     }
-                    Err(_) => {
+                    Err(error) => {
+                        let ran_out = matches!(
+                            &error,
+                            ancestry::AncestryError::Command(error) if ran_out(error)
+                        );
                         return Ok(Callers {
                             found: Vec::new(),
                             conclusive: false,
+                            timed_out: timed_out.or(ran_out.then_some((host, RanOut::Ancestry))),
                         });
                     }
                 };
@@ -135,7 +163,11 @@ impl<R: CommandRunner> Drivers<R> {
             }
         }
         found.sort_by_key(|caller| caller.depth);
-        Ok(Callers { found, conclusive })
+        Ok(Callers {
+            found,
+            conclusive,
+            timed_out,
+        })
     }
 
     /// An explicit target's pane ID on the caller's server of `host`, or on

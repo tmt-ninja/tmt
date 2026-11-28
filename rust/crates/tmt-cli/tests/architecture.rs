@@ -273,6 +273,10 @@ fn workspace_obeys_native_architecture() {
         &sources,
         required_caller::CALLERS,
     ));
+    violations.extend(required_caller::selector_violations(
+        &sources,
+        required_caller::SELECTORS,
+    ));
     // The extensions outside the workspace draw too; they obey the same rule.
     let mut drawn = sources;
     for (package, root) in [
