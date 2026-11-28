@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -39,7 +40,7 @@ func TestDigestSendUsesLastBoundaryBindingCheck(t *testing.T) {
 		Panes: []core.PaneObservation{{ID: binding.PaneID, PID: binding.PanePID, Incarnation: &incarnation, Marker: &marker}}}}
 	send := guardedDigestSend(root, host, nil)
 	launch := core.DigestLaunchFence{Expected: binding, Driver: core.DriverCodex}
-	const text = "you have 3 messages, 1 urgent: tmt-go inbox"
+	const text = "you have 3 messages, 1 urgent: " + flavor.Binary + " inbox"
 	outcome, started, err := send(t.Context(), launch, text)
 	if err != nil || outcome != ports.DeliveryDelivered || started || host.calls != 1 ||
 		host.pane != (ports.PaneRef{Server: server.Socket, PaneID: binding.PaneID}) ||

@@ -5,17 +5,19 @@ import (
 	"io/fs"
 	"slices"
 	"strings"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 // Names returns the bundled guide names in publication order.
 func Names() []string { return slices.Clone(names[:]) }
 
-// ReadGuide returns the exact embedded entry for a bundled skill.
+// ReadGuide renders the embedded entry for a bundled skill.
 func ReadGuide(name string) ([]byte, error) {
 	if !slices.Contains(names[:], name) {
 		return nil, fs.ErrNotExist
 	}
-	return guides.ReadFile("guides/" + name + "/SKILL.md")
+	return readGuideAsset("guides/" + name + "/SKILL.md")
 }
 
 // Topics returns the bundled references for a skill in filename order.
@@ -37,15 +39,25 @@ func Topics(name string) ([]string, error) {
 	return topics, nil
 }
 
-// ReadTopic returns the exact embedded reference. References are served
+// ReadTopic renders the embedded reference. References are served
 // directly from the binary and do not become part of the installed bundle.
 func ReadTopic(name, topic string) ([]byte, error) {
 	if !slices.Contains(names[:], name) || !validTopic(topic) {
 		return nil, fs.ErrNotExist
 	}
-	return guides.ReadFile("guides/" + name + "/references/" + topic + ".md")
+	return readGuideAsset("guides/" + name + "/references/" + topic + ".md")
 }
 
 func validTopic(topic string) bool {
 	return topic != "." && fs.ValidPath(topic) && !strings.ContainsAny(topic, "/\\")
+}
+
+var guideNames = strings.NewReplacer("{{binary}}", flavor.Binary, "{{homeEnv}}", flavor.EnvHome)
+
+func readGuideAsset(path string) ([]byte, error) {
+	data, err := guides.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(guideNames.Replace(string(data))), nil
 }

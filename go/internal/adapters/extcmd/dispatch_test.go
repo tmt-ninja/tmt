@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/invoke"
 )
@@ -95,7 +96,7 @@ IFS= read -r input
 printf 'stdin=%s\n' "$input"
 printf 'core=%s\n' "$TMT_EXECUTABLE"
 printf 'home=%s\n' "$TMT_HOME"
-printf 'go-home=%s\n' "$TMT_GO_HOME"
+printf 'go-home=%s\n' "${TMT_GO_HOME-}"
 printf 'companion stderr\n' >&2
 TMT_GO_EXTCMD_TEST=callback "$TMT_EXECUTABLE" -test.run '^TestCompanionSubprocess$'
 printf %s "go companion" > "$TMT_HOME/companion-evidence"
@@ -107,8 +108,11 @@ exit 23
 	}
 	cmd := exec.CommandContext(t.Context(), core, "-test.run", "^TestCompanionSubprocess$")
 	cmd.Env = []string{
-		"HOME=" + userHome, "TMT_HOME=" + native, "TMT_GO_HOME=" + goHome,
+		"HOME=" + userHome, home.EnvHome + "=" + goHome,
 		"PATH=" + bin, "TMT_GO_EXTCMD_TEST=dispatch", "TMT_EXECUTABLE=/inherited/native/tmt",
+	}
+	if !flavor.NativeCompatible {
+		cmd.Env = append(cmd.Env, "TMT_HOME="+native)
 	}
 	cmd.Stdin = strings.NewReader("from caller\n")
 	var out, errOut bytes.Buffer
@@ -120,8 +124,12 @@ exit 23
 	if !ok || exit.ExitCode() != 23 {
 		t.Fatalf("exit = %v, out = %q, stderr = %q", exit, out.String(), errOut.String())
 	}
+	goVariable := goHome
+	if flavor.NativeCompatible {
+		goVariable = ""
+	}
 	want := fmt.Sprintf("pid=%d\narg=--json\narg=space ; literal\nstdin=from caller\ncore=%s\nhome=%s\ngo-home=%s\ncallback=%s\n",
-		cmd.Process.Pid, core, goHome, goHome, goHome)
+		cmd.Process.Pid, core, goHome, goVariable, goHome)
 	if out.String() != want || errOut.String() != "companion stderr\n" {
 		t.Fatalf("stdout = %q, stderr = %q; want %q and companion stderr", out.String(), errOut.String(), want)
 	}
@@ -163,7 +171,7 @@ func TestCompanionSubprocess(t *testing.T) {
 
 func TestCompleteForwardsLiteralWordsAndIsolatesCompanion(t *testing.T) {
 	path := fixture(t, t.TempDir(), "tmt-example", 0700, `#!/bin/sh
-printf '%s\n' "$@" "$TMT_HOME" "$TMT_GO_HOME" "$TMT_EXECUTABLE"
+printf '%s\n' "$@" "$TMT_HOME" "${TMT_GO_HOME-}" "$TMT_EXECUTABLE"
 `)
 	root := home.Root{Dir: t.TempDir()}
 	t.Setenv("TMT_HOME", "/inherited/native/home")
@@ -174,7 +182,11 @@ printf '%s\n' "$@" "$TMT_HOME" "$TMT_GO_HOME" "$TMT_EXECUTABLE"
 		t.Fatal(err)
 	}
 	got := Complete(t.Context(), process.Runner{}, path, []string{"space ; literal"}, root)
-	want := []string{"__complete", "--", "space ; literal", root.Dir, root.Dir, core}
+	goVariable := root.Dir
+	if flavor.NativeCompatible {
+		goVariable = "/inherited/go/home"
+	}
+	want := []string{"__complete", "--", "space ; literal", root.Dir, goVariable, core}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("completion = %q; want %q", got, want)
 	}

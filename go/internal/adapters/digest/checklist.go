@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -116,7 +117,7 @@ func SettleClaim(ctx context.Context, store ports.DigestStore, batch core.Digest
 }
 
 func summaryText(counts core.DigestSummaryCounts) string {
-	return fmt.Sprintf("you have %d messages, %d urgent: tmt-go inbox", counts.IncomingCount, counts.UrgentCount)
+	return fmt.Sprintf("you have %d messages, %d urgent: %s inbox", counts.IncomingCount, counts.UrgentCount, flavor.Binary)
 }
 
 func checklistBlock(item core.DigestItem) string {
@@ -125,7 +126,7 @@ func checklistBlock(item core.DigestItem) string {
 	safeID := prefixed && core.ValidUUID(suffix)
 	inspect := "inspect retained request"
 	if safeID {
-		inspect = "tmt-go result " + id + " --json"
+		inspect = flavor.Binary + " result " + id + " --json"
 	}
 	unavailable := "content unavailable\n" + inspect
 	plain := "unknown"
@@ -159,7 +160,7 @@ func checklistReply(name, id string, prompt *string, response string) string {
 	if prompt != nil {
 		text.WriteString(" · " + strings.ReplaceAll(digestLine(*prompt, 48, true), id, "…"))
 	}
-	text.WriteString(" · tmt-go result " + id)
+	text.WriteString(" · " + flavor.Binary + " result " + id)
 	body := strings.TrimSpace(strings.Map(func(c rune) rune {
 		switch c {
 		case '\r', '\n', '\u2028', '\u2029':

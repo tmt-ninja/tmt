@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -79,7 +80,7 @@ func TestWakeSpendsOneAdmissionAndSettlesExactClaim(t *testing.T) {
 				}
 				return &PreparedDelivery{Send: func(_ context.Context, text string) (ports.DeliveryOutcome, bool, error) {
 					sent++
-					if text != "you have 8 messages, 2 urgent: tmt-go inbox" {
+					if text != "you have 8 messages, 2 urgent: "+flavor.Binary+" inbox" {
 						t.Fatalf("notification = %q", text)
 					}
 					if test.outcome == ports.DeliveryDelivered {

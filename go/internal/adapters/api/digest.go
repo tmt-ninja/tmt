@@ -8,6 +8,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/digest"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -276,9 +277,9 @@ func digestItemDocument(item core.DigestItem) map[string]any {
 		doc["contextTokensAtArrival"], doc["contextObservedAtMs"] = item.ContextTokensAtArrival, item.ContextObservedAtMs
 	}
 	if suffix, ok := strings.CutPrefix(id, "req_"); ok && core.ValidUUID(suffix) {
-		doc["inspectCommand"] = "tmt-go result " + id + " --json"
+		doc["inspectCommand"] = flavor.Binary + " result " + id + " --json"
 		if item.Source == core.DigestSourceIncoming && item.Reply != nil {
-			doc["replyCommand"] = "tmt-go reply " + id + " --receipt " + string(item.Reply.Receipt) + " --message <text>"
+			doc["replyCommand"] = flavor.Binary + " reply " + id + " --receipt " + string(item.Reply.Receipt) + " --message <text>"
 		}
 	}
 	if item.Source == core.DigestSourceResult {

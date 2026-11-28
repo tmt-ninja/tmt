@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/invoke"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -127,14 +128,14 @@ func Complete(ctx context.Context, process ports.Process, executable string, wor
 
 func childEnv(root home.Root) ([]string, error) {
 	if !filepath.IsAbs(root.Dir) {
-		return nil, fmt.Errorf("extension dispatch requires a resolved tmt-go home")
+		return nil, fmt.Errorf("extension dispatch requires a resolved %s home", flavor.Binary)
 	}
 	core, err := os.Executable()
 	if err != nil {
-		return nil, fmt.Errorf("resolve tmt-go executable: %w", err)
+		return nil, fmt.Errorf("resolve %s executable: %w", flavor.Binary, err)
 	}
 	if !filepath.IsAbs(core) {
-		return nil, fmt.Errorf("tmt-go executable path must be absolute: %q", core)
+		return nil, fmt.Errorf("%s executable path must be absolute: %q", flavor.Binary, core)
 	}
 	return invoke.OverlayEnv(home.CompanionEnv(os.Environ(), root), []string{"TMT_EXECUTABLE=" + core}), nil
 }

@@ -85,7 +85,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-11` Implement `ls --room` membership filtering.
 - [ ] `CLI-12` Implement `ls --detected` with host and socket selection.
 - [ ] `CLI-13` Implement bounded `whoami --context` output.
-- [ ] `CLI-14` Implement direct-pane `talk` with verified driver routing.
+- [ ] `CLI-14` High priority: implement direct-pane `talk` with verified driver routing. The existing TypeScript durable-talk and smoke request cases depend on this route.
 - [ ] `CLI-15` Implement `talk --remote` through Remote delivery.
 - [ ] `CLI-16` Implement `talk --room` and its membership rules.
 - [ ] `CLI-17` Implement `talk --passthrough` through guarded raw paste.
@@ -134,9 +134,9 @@ in the initial dual-runtime native slice (3 passed on each runtime):
 - `typescript/test/native/extension-command.test.ts` checks exact external argv,
   stdin, stdout, stderr, exit status, and the callback executable.
 
-The TypeScript run used a temporary Go fixture profile for private Go roots and
-oracle paths. The reviewed CI harness change and first CI E2E measurement are
-pending.
+The same three TypeScript assertions also passed with `nativecompat` and the
+unmodified TypeScript harness. The dispatch-only CI job and first CI E2E
+measurement are pending.
 
 - [ ] Finish local API v1 operation admission, response parity, lazy schema fencing,
   lifecycle delivery, and CLI composition. Qualify MCP identity pinning and all

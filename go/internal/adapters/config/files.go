@@ -14,11 +14,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/sys"
 )
-
-const workspaceName = "tmt-go.json"
 
 type Scope uint8
 
@@ -42,15 +41,15 @@ type Files struct {
 
 func Resolve(root home.Root, workspace string) (Files, error) {
 	if !filepath.IsAbs(root.Dir) || root.Config != filepath.Join(root.Dir, "config.json") {
-		return Files{}, errors.New("configuration requires a resolved tmt-go home")
+		return Files{}, errors.New("configuration requires a resolved " + flavor.Binary + " home")
 	}
 	dir, err := filepath.Abs(workspace)
 	if err != nil {
 		return Files{}, err
 	}
-	local := filepath.Join(dir, workspaceName)
+	local := filepath.Join(dir, flavor.WorkspaceFile)
 	for {
-		candidate := filepath.Join(dir, workspaceName)
+		candidate := filepath.Join(dir, flavor.WorkspaceFile)
 		if _, err := os.Lstat(candidate); err == nil {
 			local = candidate
 			break

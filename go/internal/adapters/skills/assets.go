@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
 
@@ -29,7 +30,7 @@ const assets = "skill-assets"
 // NOT PORTED (#6938): provider-global skill installation and owned skill registry.
 func Install(root home.Root) (string, error) {
 	if !filepath.IsAbs(root.Dir) {
-		return "", errors.New("managed skills require a resolved tmt-go home")
+		return "", errors.New("managed skills require a resolved " + flavor.Binary + " home")
 	}
 	if err := os.MkdirAll(root.Dir, 0700); err != nil {
 		return "", err

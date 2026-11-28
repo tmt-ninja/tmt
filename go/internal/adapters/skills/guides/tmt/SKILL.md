@@ -1,17 +1,17 @@
 ---
 name: tmt
-description: Coordinate local agents launched through tmt-go using identity-aware requests and replies.
+description: Coordinate local agents launched through {{binary}} using identity-aware requests and replies.
 ---
 
 # TMT Go
 
-Use the `tmt-go` executable in this session. It uses the private state selected
-by `TMT_GO_HOME`. Use `tmt-go --help` for commands available in this build.
+Use the `{{binary}}` executable in this session. It uses the private state selected
+by `{{homeEnv}}`. Use `{{binary}} --help` for commands available in this build.
 Keep the native `tmt` executable and its state separate from this session.
 
 When the user authorizes contact with another local agent, address that agent
 by its saved name and use your verified identity when the command requires it.
-A detached `tmt-go talk` returns a request ID. Use `tmt-go result <request-id>`
+A detached `{{binary}} talk` returns a request ID. Use `{{binary}} result <request-id>`
 for the eventual response. Recording a request does not prove the recipient
 acted on it. After uncertain delivery, establish whether work started before
 sending another request.

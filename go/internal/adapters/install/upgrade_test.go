@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -23,8 +24,12 @@ func (f fakeRelease) Fetch(context.Context, ports.Artifact) ([]byte, error) { re
 
 func TestReplaceExecutableVerifiesBeforeAtomicReplacement(t *testing.T) {
 	dir := t.TempDir()
-	target := filepath.Join(dir, "tmt-go")
-	native := filepath.Join(dir, "tmt")
+	target := filepath.Join(dir, flavor.Binary)
+	other := "tmt"
+	if flavor.NativeCompatible {
+		other = "tmt-go"
+	}
+	native := filepath.Join(dir, other)
 	for _, path := range []string{target, native} {
 		if err := os.WriteFile(path, []byte("original"), 0755); err != nil {
 			t.Fatal(err)
@@ -44,6 +49,10 @@ func TestReplaceExecutableVerifiesBeforeAtomicReplacement(t *testing.T) {
 		t.Fatal("accepted a corrupt artifact")
 	}
 	assertFile(t, target, "original")
+	if err := replaceExecutable(t.Context(), binary, artifact, "0.0.0-go-dev", native); err == nil {
+		t.Fatal("accepted the other flavor's executable name")
+	}
+	assertFile(t, native, "original")
 	if err := replaceExecutable(t.Context(), binary, artifact, "0.0.0-go.9+bbbbbbbbbb", target); err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +77,7 @@ func assertFile(t *testing.T, path, want string) {
 }
 
 func TestReplaceExecutableRejectsOlderAndSameWorkflowRuns(t *testing.T) {
-	target := filepath.Join(t.TempDir(), "tmt-go")
+	target := filepath.Join(t.TempDir(), flavor.Binary)
 	if err := os.WriteFile(target, []byte("original"), 0755); err != nil {
 		t.Fatal(err)
 	}

@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
 
@@ -37,8 +38,8 @@ func TestRustDigestCompanionIsolation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	binary := filepath.Join(bin, "tmt-go")
-	build := exec.CommandContext(ctx, "go", "build", "-o", binary, "../../cmd/tmt-go")
+	binary := filepath.Join(bin, flavor.Binary)
+	build := fixtureBuild(ctx, binary, "../../cmd/tmt-go")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build tmt-go: %v\n%s", err, output)
 	}
@@ -56,8 +57,11 @@ func TestRustDigestCompanionIsolation(t *testing.T) {
 		cmd := exec.CommandContext(ctx, binary, args...)
 		cmd.Dir = work
 		cmd.Env = []string{
-			"HOME=" + userHome, "PATH=" + bin, "TMT_HOME=" + native, home.EnvHome + "=" + goHome,
+			"HOME=" + userHome, "PATH=" + bin, home.EnvHome + "=" + goHome,
 			"TMT_EXECUTABLE=" + filepath.Join(native, "forbidden-native-tmt"),
+		}
+		if !flavor.NativeCompatible {
+			cmd.Env = append(cmd.Env, "TMT_HOME="+native)
 		}
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -105,8 +109,10 @@ func TestRustDigestCompanionIsolation(t *testing.T) {
 			t.Fatalf("read-only companion changed %s: %v", path, err)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(native, home.DatabaseName)); !os.IsNotExist(err) {
-		t.Fatalf("Go database appeared in the private native fixture: %v", err)
+	if goStore := filepath.Join(native, home.DatabaseName); goStore != nativeStore {
+		if _, err := os.Stat(goStore); !os.IsNotExist(err) {
+			t.Fatalf("Go database appeared in the private native fixture: %v", err)
+		}
 	}
 }
 

@@ -21,6 +21,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
 )
 
@@ -65,7 +66,7 @@ func TestRequestRoundTripAndAttention(t *testing.T) {
 	t.Setenv("TMT_HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 	t.Setenv("TMT_GO_COMPANION_ROOT", "")
-	t.Setenv("TMT_GO_HOME", dataDir)
+	t.Setenv(flavor.EnvHome, dataDir)
 	t.Setenv("TMT_EXECUTABLE", binary)
 
 	server := tmuxtest.Start(t)
@@ -119,9 +120,9 @@ func TestRequestRoundTripAndAttention(t *testing.T) {
 		return workerID != "" && state == "running" && socket == server.Socket, err
 	})
 
-	assertNoNativeOptions(t, server, senderPane, workerPane)
-	if server.Run("show-options", "-sqv", "@tmt-go.server-id") == "" ||
-		server.Run("show-options", "-pqv", "-t", workerPane, "@tmt-go.agent") == "" {
+	assertNoOtherFlavorOptions(t, server, senderPane, workerPane)
+	if server.Run("show-options", "-sqv", flavor.OptionNamespace+"server-id") == "" ||
+		server.Run("show-options", "-pqv", "-t", workerPane, flavor.OptionNamespace+"agent") == "" {
 		t.Fatal("run did not publish Go binding metadata")
 	}
 
@@ -211,7 +212,7 @@ func TestRequestRoundTripAndAttention(t *testing.T) {
 		t.Fatalf("acknowledged request still on page: %+v", exchanges)
 	}
 
-	assertNoNativeOptions(t, server, senderPane, workerPane)
+	assertNoOtherFlavorOptions(t, server, senderPane, workerPane)
 	waitForExit(t, ctx, exitFile, "foreground run")
 	run.failure(t, 5, "CONFIRMATION_REQUIRED", "rm", "Worker")
 	var removed struct {
@@ -230,10 +231,10 @@ func TestRequestRoundTripAndAttention(t *testing.T) {
 	if err != nil || retiredAt == 0 || bindings != 0 {
 		t.Fatalf("retirement = %d, bindings = %d, error = %v", retiredAt, bindings, err)
 	}
-	if marker := server.Run("show-options", "-pqv", "-t", workerPane, "@tmt-go.agent"); marker != "" {
+	if marker := server.Run("show-options", "-pqv", "-t", workerPane, flavor.OptionNamespace+"agent"); marker != "" {
 		t.Fatalf("retired worker pane still has a Go marker: %q", marker)
 	}
-	assertNoNativeOptions(t, server, senderPane, workerPane)
+	assertNoOtherFlavorOptions(t, server, senderPane, workerPane)
 	var retained finalReply
 	run.json(t, &retained, "result", talk.RequestID)
 	assertFinal(t, retained, talk.RequestID, expectedReply)
@@ -308,12 +309,12 @@ func (c cli) invoke(t *testing.T, status int, destination any, args ...string) {
 
 func buildPrograms(t *testing.T, ctx context.Context) (binary, fake string) {
 	t.Helper()
-	binary, fake = filepath.Join(t.TempDir(), "tmt-go"), filepath.Join(t.TempDir(), "codex")
+	binary, fake = filepath.Join(t.TempDir(), flavor.Binary), filepath.Join(t.TempDir(), "codex")
 	for _, build := range []struct{ path, source string }{
 		{binary, "../../cmd/tmt-go"},
 		{fake, "../fixtures/fakeprovider"},
 	} {
-		cmd := exec.CommandContext(ctx, "go", "build", "-o", build.path, build.source)
+		cmd := fixtureBuild(ctx, build.path, build.source)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("build %s: %v\n%s", build.source, err, out)
 		}
@@ -321,9 +322,17 @@ func buildPrograms(t *testing.T, ctx context.Context) (binary, fake string) {
 	return binary, fake
 }
 
+func fixtureBuild(ctx context.Context, target, source string) *exec.Cmd {
+	args := []string{"build", "-o", target}
+	if flavor.NativeCompatible {
+		args = append(args, "-tags", "nativecompat")
+	}
+	return exec.CommandContext(ctx, "go", append(args, source)...)
+}
+
 func readOnlyDB(t *testing.T, dir string) *sql.DB {
 	t.Helper()
-	dsn := (&url.URL{Scheme: "file", Path: filepath.Join(dir, "tmt-go.db"), RawQuery: "mode=ro"}).String()
+	dsn := (&url.URL{Scheme: "file", Path: filepath.Join(dir, flavor.DatabaseName), RawQuery: "mode=ro"}).String()
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		t.Fatal(err)
@@ -368,8 +377,12 @@ func await(t *testing.T, ctx context.Context, description string, probe func() (
 	}
 }
 
-func assertNoNativeOptions(t *testing.T, server *tmuxtest.Server, panes ...string) {
+func assertNoOtherFlavorOptions(t *testing.T, server *tmuxtest.Server, panes ...string) {
 	t.Helper()
+	other := "@tmt."
+	if flavor.NativeCompatible {
+		other = "@tmt-go."
+	}
 	scopes := [][]string{{"-s"}, {"-g"}, {"-t", "t:"}, {"-gw"}}
 	for _, pane := range panes {
 		scopes = append(scopes, []string{"-w", "-t", pane}, []string{"-p", "-t", pane})
@@ -377,7 +390,7 @@ func assertNoNativeOptions(t *testing.T, server *tmuxtest.Server, panes ...strin
 	for _, scope := range scopes {
 		options := server.Run(append([]string{"show-options"}, scope...)...)
 		for line := range strings.SplitSeq(options, "\n") {
-			if strings.HasPrefix(strings.TrimSpace(line), "@tmt.") {
+			if strings.HasPrefix(strings.TrimSpace(line), other) {
 				t.Fatalf("native tmux metadata appeared in scope %v: %q", scope, line)
 			}
 		}

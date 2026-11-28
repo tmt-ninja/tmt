@@ -5,7 +5,10 @@ import (
 	"errors"
 	"io/fs"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 func TestReadBundledGuides(t *testing.T) {
@@ -19,7 +22,8 @@ func TestReadBundledGuides(t *testing.T) {
 			t.Fatal(err)
 		}
 		got, err := ReadGuide(name)
-		if err != nil || !bytes.Equal(got, want) || len(got) == 0 {
+		expected := strings.NewReplacer("{{binary}}", flavor.Binary, "{{homeEnv}}", flavor.EnvHome).Replace(string(want))
+		if err != nil || !bytes.Equal(got, []byte(expected)) || len(got) == 0 {
 			t.Fatalf("guide %s was not read exactly: %v", name, err)
 		}
 		topics, err := Topics(name)

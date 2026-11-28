@@ -8,6 +8,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
 
@@ -17,9 +18,13 @@ func TestWorkspaceConfigUsesNearestGoDocument(t *testing.T) {
 	if err := os.Mkdir(child, 0700); err != nil {
 		t.Fatal(err)
 	}
-	native := filepath.Join(child, "tmt.json")
+	alternate := "tmt.json"
+	if flavor.NativeCompatible {
+		alternate = "tmt-go.json"
+	}
+	native := filepath.Join(child, alternate)
 	write(t, native, `{"untouched":true}`)
-	path := filepath.Join(workspace, workspaceName)
+	path := filepath.Join(workspace, flavor.WorkspaceFile)
 	write(t, path, `{"$config":{"preambleMode":"always"},"opaque":{"integer":9007199254740993}}`)
 	files, err := Resolve(privateRoot(t), child)
 	if err != nil {
@@ -103,9 +108,9 @@ func TestCompetingPreviewsOnlyPublishOneChange(t *testing.T) {
 
 func TestWorkspaceConfigDoesNotFollowSymlink(t *testing.T) {
 	workspace := t.TempDir()
-	native := filepath.Join(workspace, "tmt.json")
+	native := filepath.Join(workspace, "other-settings.json")
 	write(t, native, `{}`)
-	if err := os.Symlink(native, filepath.Join(workspace, workspaceName)); err != nil {
+	if err := os.Symlink(native, filepath.Join(workspace, flavor.WorkspaceFile)); err != nil {
 		t.Fatal(err)
 	}
 	files, err := Resolve(privateRoot(t), workspace)

@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -56,7 +57,7 @@ func TestClaimMeasuresPrefixAndReleasesFailedExactRead(t *testing.T) {
 	if err != nil || claim == nil || fixture.claim.ThroughLimit == nil || *fixture.claim.ThroughLimit != first.Sequence ||
 		claim.Batch.ThroughSequence != first.Sequence || len(claim.Page.Items) != 1 || len(fixture.settled) != 0 ||
 		!strings.HasPrefix(claim.Text, checklistHeader+"▚ fyi · unknown\n"+msg+"\n\n<tmt-reply from=\"unknown\">") ||
-		!strings.Contains(claim.Text, "tmt-go reply "+string(id)+" --receipt v2_fixture --message <text>") {
+		!strings.Contains(claim.Text, flavor.Binary+" reply "+string(id)+" --receipt v2_fixture --message <text>") {
 		t.Fatalf("claim = %v, through %v, err %v, settled %d", claim != nil, fixture.claim.ThroughLimit, err, len(fixture.settled))
 	}
 	fixture.readErr = errors.New("read failed")

@@ -12,13 +12,14 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 // ErrNoNewerBuild means the selected CI run is no newer than the running build.
 var ErrNoNewerBuild = errors.New("no newer Go workflow build")
 
-// ReplaceExecutable applies an approved, newer artifact to the running tmt-go.
+// ReplaceExecutable applies an approved, newer artifact to the running executable.
 func ReplaceExecutable(ctx context.Context, source ports.ReleaseSource, artifact ports.Artifact, currentVersion string) error {
 	path, err := os.Executable()
 	if err != nil {
@@ -43,10 +44,10 @@ func replaceExecutable(ctx context.Context, source ports.ReleaseSource, artifact
 		return fmt.Errorf("%w: running %s, selected %s", ErrNoNewerBuild, currentVersion, artifact.Version)
 	}
 	if artifact.OS != runtime.GOOS || artifact.Arch != runtime.GOARCH {
-		return fmt.Errorf("artifact %s/%s does not match the running tmt-go", artifact.OS, artifact.Arch)
+		return fmt.Errorf("artifact %s/%s does not match the running %s", artifact.OS, artifact.Arch, flavor.Binary)
 	}
 	name := filepath.Base(path)
-	if !filepath.IsAbs(path) || (name != "tmt-go" && name != "tmt-go-"+runtime.GOOS+"-"+runtime.GOARCH) {
+	if !filepath.IsAbs(path) || (name != flavor.Binary && name != flavor.Binary+"-"+runtime.GOOS+"-"+runtime.GOARCH) {
 		return fmt.Errorf("refusing to replace unexpected executable %s", path)
 	}
 	original, err := os.Lstat(path)
@@ -64,7 +65,7 @@ func replaceExecutable(ctx context.Context, source ports.ReleaseSource, artifact
 		return fmt.Errorf("Go artifact SHA256 verification failed")
 	}
 
-	stage, err := os.CreateTemp(filepath.Dir(path), ".tmt-go-upgrade-")
+	stage, err := os.CreateTemp(filepath.Dir(path), "."+flavor.Binary+"-upgrade-")
 	if err != nil {
 		return err
 	}

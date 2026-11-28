@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
 
@@ -28,7 +29,7 @@ func TestAdapterCommandEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"fixture", "identity", "list", "api"} {
-		body := "#!/bin/sh\nprintf '%s\\n' \"$TMT_HOME\" \"$TMT_GO_HOME\" \"$TMT_GO_COMPANION_ROOT\" \"$TMT_EXECUTABLE\" \"$@\"\nexit 23\n"
+		body := "#!/bin/sh\nprintf '%s\\n' \"$TMT_HOME\" \"$TMT_GO_COMPANION_ROOT\" \"$TMT_EXECUTABLE\" \"$@\"\nexit 23\n"
 		if err := os.WriteFile(filepath.Join(bin, "tmt-"+name), []byte(body), 0700); err != nil {
 			t.Fatal(err)
 		}
@@ -41,7 +42,10 @@ func TestAdapterCommandEntry(t *testing.T) {
 		t.Helper()
 		cmd := exec.CommandContext(t.Context(), self, append([]string{"-test.run=^TestAdapterCommandEntry$", "--"}, args...)...)
 		cmd.Env = []string{"TMT_GO_CLI_TEST_ADAPTER=1", "PATH=" + bin, "HOME=" + root,
-			"TMT_HOME=" + native, home.EnvHome + "=" + goHome, "TMT_EXECUTABLE=" + filepath.Join(bin, "wrong")}
+			home.EnvHome + "=" + goHome, "TMT_EXECUTABLE=" + filepath.Join(bin, "wrong")}
+		if !flavor.NativeCompatible {
+			cmd.Env = append(cmd.Env, "TMT_HOME="+native)
+		}
 		cmd.Stdin = strings.NewReader(input)
 		var stderr bytes.Buffer
 		cmd.Stderr = &stderr
@@ -55,13 +59,17 @@ func TestAdapterCommandEntry(t *testing.T) {
 		return out, stderr.String(), code
 	}
 	out, stderr, code := call("", "fixture", "--json", "space ; literal")
-	want := strings.Join([]string{goHome, goHome, goHome, self, "--json", "space ; literal", ""}, "\n")
+	marker := goHome
+	if flavor.NativeCompatible {
+		marker = ""
+	}
+	want := strings.Join([]string{goHome, marker, self, "--json", "space ; literal", ""}, "\n")
 	if code != 23 || string(out) != want || stderr != "" {
 		t.Fatalf("external dispatch = %d, %q, %q; want 23, %q", code, out, stderr, want)
 	}
 	for _, tc := range []struct{ name, usage string }{{"identity", "identity"}, {"list", "ls"}} {
 		out, stderr, code := call("", tc.name, "--help")
-		if code != 0 || !bytes.Contains(out, []byte("tmt-go "+tc.usage)) || stderr != "" {
+		if code != 0 || !bytes.Contains(out, []byte(flavor.Binary+" "+tc.usage)) || stderr != "" {
 			t.Fatalf("core route %q: %d %q %q", tc.name, code, out, stderr)
 		}
 	}

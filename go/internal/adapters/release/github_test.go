@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -36,7 +37,7 @@ func TestLatestVerifiesPinnedWorkflowArtifact(t *testing.T) {
 						}
 						return ports.Bounded{Stdout: []byte(`[{"databaseId":123,"headSha":"abcdef0123456789abcdef0123456789abcdef01","number":5}]`)}, nil
 					}
-					want := strings.Fields("run download 123 --name tmt-go --dir")
+					want := []string{"run", "download", "123", "--name", "tmt-go", "--dir"}
 					if calls != 2 || len(spec.Args) != 9 || !reflect.DeepEqual(spec.Args[:6], want) || !reflect.DeepEqual(spec.Args[7:], []string{"--repo", repository}) {
 						t.Fatalf("download argv = %v", spec.Args)
 					}
@@ -44,9 +45,15 @@ func TestLatestVerifiesPinnedWorkflowArtifact(t *testing.T) {
 					if corrupt {
 						actual = []byte("different bytes")
 					}
+					chosen := flavor.Binary + "-darwin-arm64"
+					other := "tmt-darwin-arm64"
+					if flavor.NativeCompatible {
+						other = "tmt-go-darwin-arm64"
+					}
+					otherBytes := []byte("other build flavor")
+					manifest := fmt.Sprintf("%s  %s\n%x  %s\n", digest, chosen, sha256.Sum256(otherBytes), other)
 					for name, content := range map[string][]byte{
-						"tmt-go-darwin-arm64": actual,
-						"SHA256SUMS":          []byte(digest + "  tmt-go-darwin-arm64\n"),
+						chosen: actual, other: otherBytes, "SHA256SUMS": []byte(manifest),
 					} {
 						if err := os.WriteFile(filepath.Join(spec.Args[6], name), content, 0600); err != nil {
 							t.Fatal(err)

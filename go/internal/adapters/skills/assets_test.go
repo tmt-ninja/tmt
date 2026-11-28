@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
 
@@ -22,7 +23,7 @@ func TestInstallPublishesPrivateGuidesAndRefusesChanges(t *testing.T) {
 	for _, name := range names {
 		entry := filepath.Join(generation, name, "SKILL.md")
 		bytes, err := os.ReadFile(entry)
-		if err != nil || !strings.Contains(string(bytes), "tmt-go") {
+		if err != nil || !strings.Contains(string(bytes), "`"+flavor.Binary+" ") {
 			t.Fatalf("read %s: expected isolated CLI guidance (%v)", entry, err)
 		}
 		info, err := os.Stat(entry)

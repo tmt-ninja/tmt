@@ -17,11 +17,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 const (
-	repository       = "tmt-ninja/tmt"
+	repository = "tmt-ninja/tmt"
+	// The workflow uploads both executable flavors in one artifact.
+	workflowArtifact = "tmt-go"
 	runURL           = "https://github.com/" + repository + "/actions/runs/"
 	maxManifestBytes = 16 << 10
 	maxBinaryBytes   = 64 << 20
@@ -166,13 +169,13 @@ func (s *Source) run(ctx context.Context, timeout time.Duration, args ...string)
 }
 
 func (s *Source) download(ctx context.Context, runID int64, name string) ([]byte, []byte, error) {
-	dir, err := os.MkdirTemp("", "tmt-go-release-")
+	dir, err := os.MkdirTemp("", flavor.Binary+"-release-")
 	if err != nil {
 		return nil, nil, err
 	}
 	defer os.RemoveAll(dir)
 	_, err = s.run(ctx, 2*time.Minute, "run", "download", strconv.FormatInt(runID, 10),
-		"--name", "tmt-go", "--dir", dir)
+		"--name", workflowArtifact, "--dir", dir)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -212,7 +215,7 @@ func binaryName(osName, arch string) (string, error) {
 	if (osName != "darwin" && osName != "linux") || (arch != "amd64" && arch != "arm64") {
 		return "", fmt.Errorf("no Go workflow build for %s/%s", osName, arch)
 	}
-	return "tmt-go-" + osName + "-" + arch, nil
+	return flavor.Binary + "-" + osName + "-" + arch, nil
 }
 
 func checksum(manifest []byte, name string) (string, error) {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -116,8 +117,8 @@ func TestDigestChecklistReadKeepsSummaryCountsOnly(t *testing.T) {
 	wire, err = json.Marshal(checklistPageDocument(query, page))
 	if err != nil || !strings.Contains(string(wire), `"nextAfter":4`) || !strings.Contains(string(wire), `"remaining":1`) ||
 		!strings.Contains(string(wire), `"preview":"first second  line"`) ||
-		!strings.Contains(string(wire), `"inspectCommand":"tmt-go result `+string(request)+` --json"`) ||
-		!strings.Contains(string(wire), `"replyCommand":"tmt-go reply `+string(request)+` --receipt v2_fixture --message \u003ctext\u003e"`) {
+		!strings.Contains(string(wire), `"inspectCommand":"`+flavor.Binary+` result `+string(request)+` --json"`) ||
+		!strings.Contains(string(wire), `"replyCommand":"`+flavor.Binary+` reply `+string(request)+` --receipt v2_fixture --message \u003ctext\u003e"`) {
 		t.Fatalf("ordinary page = %s, %v", wire, err)
 	}
 	long := strings.Repeat("界", 161)
