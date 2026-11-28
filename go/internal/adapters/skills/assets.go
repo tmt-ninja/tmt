@@ -16,7 +16,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
 
-//go:embed guides/*/SKILL.md
+//go:embed guides
 var guides embed.FS
 
 var names = [...]string{"tmt", "tmt-inbox"}
@@ -58,7 +58,7 @@ func Install(root home.Root) (string, error) {
 	digest := sha256.New()
 	var content [len(names)][]byte
 	for i, name := range names {
-		content[i], err = guides.ReadFile("guides/" + name + "/SKILL.md")
+		content[i], err = ReadGuide(name)
 		if err != nil {
 			return "", err
 		}
