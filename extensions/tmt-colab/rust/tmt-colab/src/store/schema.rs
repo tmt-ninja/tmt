@@ -236,6 +236,13 @@ const MIGRATIONS: &[&str] = &[
         actor_kind TEXT NOT NULL CHECK(actor_kind IN ('device','cli')), actor TEXT,
         FOREIGN KEY(page) REFERENCES pages(page)) WITHOUT ROWID;
     "#,
+    // Schema 30: bounded replay receipts and the independent owner-visible page audit.
+    r#"
+    ALTER TABLE pages ADD COLUMN history_reclaimed_at_ms INTEGER;
+    CREATE TABLE recovery_operations(id TEXT PRIMARY KEY, at_ms INTEGER NOT NULL,
+        digest BLOB NOT NULL CHECK(length(digest)=32), outcome BLOB NOT NULL) WITHOUT ROWID;
+    CREATE INDEX recovery_operations_age ON recovery_operations(at_ms,id);
+    "#,
 ];
 /// Whether schema step `version` creates `table`.
 #[cfg(test)]

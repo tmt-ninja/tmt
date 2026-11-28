@@ -734,17 +734,46 @@ fn write_blocks_once(
         }
         value
     });
+    let recovery_revision = if attachments.is_none() {
+        Some(page::revision(&store, &key, &page_id)?)
+    } else {
+        None
+    };
     let body = page::blocks::body(ops, attachments);
-    let prepared = page::prepare_blocks_publication(
-        &store,
-        &key,
-        &page_id,
-        page::blocks::action(&body, display_agent, None),
-        &mut decoder,
-        &now,
-    );
+    let mut action = page::blocks::action(&body, display_agent.clone(), None);
+    action.expected_revision = recovery_revision.as_deref();
+    let prepared =
+        page::prepare_blocks_publication(&store, &key, &page_id, action, &mut decoder, &now);
     let closed = store.close();
-    let (prepared, receipt) = prepared?;
+    let (prepared, receipt) = match prepared {
+        Err(original)
+            if page::compact::compressed_capacity(original.as_ref())
+                && recovery_revision.is_some() =>
+        {
+            closed?;
+            let intent = page::compact::RecoveryIntent {
+                space: key.space_id.clone(),
+                page: page_id,
+                revision: recovery_revision.ok_or(Fault::Invalid)?,
+                operation_id: page::fresh_id()?,
+                edit: page::compact::RecoveryEdit::Blocks {
+                    ops: ops.clone(),
+                    agent: display_agent,
+                },
+            };
+            let saved = crate::recover_content_owned(
+                &layout,
+                &key,
+                &intent,
+                &mut decoder,
+                now()?,
+                lock.as_ref(),
+                original,
+            )?;
+            return Ok((saved.receipt, saved.blocks.ok_or(Fault::Invalid)?));
+        }
+        settled => settled?,
+    };
     closed?;
     let published = crate::publish_structured_owned(
         &layout,
@@ -855,6 +884,12 @@ pub fn run(root: &Path, args: &ArgMatches) -> Result<()> {
     ];
     if let Some(message) = crate::reopened_question_hint(&receipt) {
         rows.push(("questions", message));
+    }
+    if receipt.history_reclaimed_at_ms.is_some() {
+        rows.push((
+            "history",
+            "Old content history was discarded to fit this edit.".into(),
+        ));
     }
     if !inserted.is_empty() {
         rows.push(("block", inserted.join(" ")));

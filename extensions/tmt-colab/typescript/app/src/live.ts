@@ -918,6 +918,7 @@ export class Live implements PageBinding {
     this.signal?.throwIfAborted();
     return {
       id: this.page.pageId,
+      historyReclaimedAtMs: this.page.historyReclaimedAtMs,
       workNumber: this.page.workNumber,
       ...(this.canMetadata() && this.page.ticketRepository
         ? { ticketRepository: this.page.ticketRepository }

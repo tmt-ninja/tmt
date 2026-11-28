@@ -4048,7 +4048,7 @@ fn root_local_page_publish_broadcasts_each_entry_in_order_and_replays_without_fa
     }
     // A body that names another write version, or a later shape of one, is refused by name
     // before it is read as this build's: another build wrote it, and nothing changes.
-    for version in [1, 3] {
+    for version in [1, 4] {
         let mut other: Value = serde_json::from_str(&body).unwrap();
         other["version"] = json!(version);
         other["fieldOfALaterBuild"] = json!(true);

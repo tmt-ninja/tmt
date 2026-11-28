@@ -635,6 +635,11 @@ fn serve(
             if request.method != "POST" || request.upgrade {
                 return Err(crate::page::Fault::Invalid.into());
             }
+            if crate::page::ipc::recovery_version(&request.body) {
+                return sync
+                    .ok_or(crate::page::Fault::Unavailable)?
+                    .recover_edit(&request.body, registration::now_ms()?);
+            }
             let published = sync.ok_or(crate::page::Fault::Unavailable)?.publish(
                 &request.body,
                 registration::now_ms()?,

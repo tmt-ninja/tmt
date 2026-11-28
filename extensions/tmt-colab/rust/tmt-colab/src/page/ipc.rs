@@ -10,6 +10,96 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use tmt_colab_model::values;
 pub const PATH: &str = "/.tmt/colab/local/page-publish";
+/// Version three identifies the bounded semantic intent on the version-two publish route.
+pub(crate) const RECOVERY_VERSION: u32 = 3;
+const RECOVERY_BYTES: usize = crate::publication::LOCAL_WRITE_BYTES;
+const RECOVERY_REPLY: std::time::Duration =
+    limits::PUBLISH_REPLY.saturating_add(crate::decoder::DEADLINE.saturating_mul(8));
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RecoveryWrite {
+    version: u32,
+    intent: super::compact::RecoveryIntent,
+    signature: String,
+}
+
+fn recovery_signature_input(intent: &super::compact::RecoveryIntent) -> Result<Vec<u8>> {
+    Ok(tmt_colab_model::framing::frame(&[
+        b"tmt-colab-local-recovery-intent-v3",
+        &intent.canonical()?,
+    ])?)
+}
+
+pub(crate) fn recovery_version(body: &[u8]) -> bool {
+    #[derive(Deserialize)]
+    struct Version {
+        version: u32,
+    }
+    serde_json::from_slice::<Version>(body).is_ok_and(|header| header.version == RECOVERY_VERSION)
+}
+
+impl RecoveryWrite {
+    pub(crate) fn parse(
+        body: &[u8],
+        local_author: &[u8; 32],
+    ) -> Result<super::compact::RecoveryIntent> {
+        if body.len() > RECOVERY_BYTES {
+            return Err(Fault::Capacity.into());
+        }
+        let write: Self = serde_json::from_slice(body).map_err(|_| Fault::Invalid)?;
+        if write.version != RECOVERY_VERSION {
+            return Err(Fault::ServerMismatch.into());
+        }
+        let signature = values::binary(&write.signature, 64).map_err(|_| Fault::Denied)?;
+        let input = recovery_signature_input(&write.intent)?;
+        tmt_colab_model::crypto::verify_signature(local_author, &input, &signature)
+            .map_err(|_| Fault::Denied)?;
+        Ok(write.intent)
+    }
+}
+
+/// Send once. A missing or unrecognized reply can be resolved only through local status.
+pub fn recover_edit(
+    layout: &Layout,
+    key: &Keyring,
+    intent: &super::compact::RecoveryIntent,
+) -> Result<Option<super::compact::RecoveredEdit>> {
+    let signature =
+        values::encode_binary(&key.sign_recovery_intent(&recovery_signature_input(intent)?)?);
+    let body = serde_json::to_vec(
+        &serde_json::json!({"version":RECOVERY_VERSION,"intent":intent,"signature":signature}),
+    )?;
+    if body.len() > RECOVERY_BYTES {
+        return Err(Fault::Capacity.into());
+    }
+    let socket = match crate::ipc::send(layout, PATH, &body) {
+        Ok(socket) => socket,
+        Err(error) => {
+            return Err(match error.downcast_ref::<crate::ipc::EarlyReply>() {
+                Some(early) => {
+                    refusal(early.code, &early.body).unwrap_or(Fault::Unavailable.into())
+                }
+                None => Fault::Unavailable.into(),
+            });
+        }
+    };
+    let Ok(reply) = crate::ipc::receive_up_to(
+        socket,
+        RECOVERY_REPLY,
+        super::compact::RECOVERY_OUTCOME_BYTES,
+    ) else {
+        return Ok(None);
+    };
+    if reply.code != 200 {
+        return match refusal(reply.code, &reply.body) {
+            Some(error) => Err(error),
+            None => Ok(None),
+        };
+    }
+    Ok(serde_json::from_slice(&reply.body).ok())
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WriteError {

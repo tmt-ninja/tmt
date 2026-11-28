@@ -37,7 +37,7 @@ impl Drop for Fixture {
 }
 
 /// A store left at the schema before the current one, as an older Colab saved it: the current
-/// step adds the page deletion record (#6739), so removing it recreates that store.
+/// step adds the recovery ledger and per-page audit timestamp.
 fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     let store = layout.directory.join("space.db");
     Store::open(layout).unwrap().close().unwrap();
@@ -45,7 +45,7 @@ fn previous_schema(layout: &Layout) -> (PathBuf, u32) {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE page_deletions; PRAGMA user_version={previous}"
+            "DROP TABLE recovery_operations; ALTER TABLE pages DROP COLUMN history_reclaimed_at_ms; PRAGMA user_version={previous}"
         ))
         .unwrap();
     (store, previous)
@@ -62,11 +62,11 @@ fn names(layout: &Layout) -> Vec<String> {
 }
 
 #[test]
-fn schema_29_commit_failure_rolls_back_table_and_version_before_reopen() {
+fn schema_30_commit_failure_rolls_back_ledger_audit_and_version_before_reopen() {
     let fixture = Fixture::new();
     let layout = fixture.layout();
     let (store, previous) = previous_schema(&layout);
-    assert_eq!(previous, 28);
+    assert_eq!(previous, 29);
     let reader = Connection::open(&store).unwrap();
     // With a rollback journal a reader permits BEGIN IMMEDIATE and schema writes,
     // but prevents the writer from acquiring the exclusive lock needed to commit.
@@ -82,14 +82,22 @@ fn schema_29_commit_failure_rolls_back_table_and_version_before_reopen() {
     let has_table = || {
         Connection::open(&store)
             .unwrap()
-            .table_exists(None, "page_deletions")
+            .table_exists(None, "recovery_operations")
             .unwrap()
     };
-    assert_eq!(version(&store), 28);
-    assert!(!has_table());
-    Store::open(&layout).unwrap().close().unwrap();
+    let has_audit = || {
+        Connection::open(&store)
+            .unwrap()
+            .prepare("SELECT history_reclaimed_at_ms FROM pages")
+            .is_ok()
+    };
     assert_eq!(version(&store), 29);
+    assert!(!has_table());
+    assert!(!has_audit());
+    Store::open(&layout).unwrap().close().unwrap();
+    assert_eq!(version(&store), 30);
     assert!(has_table());
+    assert!(has_audit());
 }
 
 fn version(store: &Path) -> u32 {
@@ -267,7 +275,7 @@ fn a_second_upgrade_from_the_same_schema_replaces_the_copy() {
     Connection::open(&store)
         .unwrap()
         .execute_batch(&format!(
-            "DROP TABLE page_deletions; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
+            "DROP TABLE recovery_operations; ALTER TABLE pages DROP COLUMN history_reclaimed_at_ms; PRAGMA user_version={previous}; CREATE TABLE marker(x); VACUUM"
         ))
         .unwrap();
     let second = fs::read(&store).unwrap();
@@ -312,13 +320,12 @@ fn a_migration_that_fails_partway_keeps_its_copy_and_every_older_one() {
     let fixture = Fixture::new();
     let layout = fixture.layout();
     let (store, _) = previous_schema(&layout);
-    // Keep exercising the two-statement migration 18, even while the newest step is a
-    // single ALTER. Its second statement fails after its first one has executed.
+    // Keep exercising the two-statement migration 18, even while the newest schema is later. Its second statement fails after its first one has executed.
     let previous = 17;
     Connection::open(&store)
         .unwrap()
         .execute_batch(
-            "DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version=17",
+            "DROP TABLE page_deletions; DROP TABLE page_auto_cleaned; DROP TABLE project_pin_choice; DROP TABLE project_pins; PRAGMA user_version=17",
         )
         .unwrap();
     for old in [3, 7] {

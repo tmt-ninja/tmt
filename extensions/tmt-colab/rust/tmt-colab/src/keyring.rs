@@ -342,6 +342,10 @@ impl Keyring {
         job.to_json()?;
         Ok(job)
     }
+    pub(crate) fn sign_recovery_intent(&self, input: &[u8]) -> tmt_colab_model::Result<[u8; 64]> {
+        use ed25519_dalek::Signer;
+        Ok(self.local_signer()?.sign(input).to_bytes())
+    }
     pub fn owner_public(&self) -> [u8; 32] {
         self.owner.verifying_key().to_bytes()
     }

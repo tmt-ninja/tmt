@@ -782,6 +782,17 @@ fn broadcasts(
     ))
 }
 impl Server<crate::registration::OwnerAdmission> {
+    pub(crate) fn recover_edit(&self, body: &[u8], now: u64) -> crate::Result<Vec<u8>> {
+        // Eligibility excludes any non-local page device; no old-base packet is replayed.
+        let state = self.0.lock().map_err(|_| crate::page::Fault::Unavailable)?;
+        let saved = state
+            .admission
+            .0
+            .lock()
+            .map_err(|_| crate::page::Fault::Unavailable)?
+            .recover_edit(body, now)?;
+        Ok(serde_json::to_vec(&saved)?)
+    }
     /// Prepare transport before committing. The opaque server never opens source.
     pub(crate) fn publish(
         &self,

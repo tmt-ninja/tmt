@@ -206,6 +206,7 @@ export function MobileWorkTitle({
   workNumber,
   onSize,
   rename,
+  notice,
   children,
 }: {
   title: string;
@@ -213,6 +214,7 @@ export function MobileWorkTitle({
   onSize(height: number): void;
   /** The owner renames the page here (#6709). */
   rename?: TitleRename;
+  notice?: ReactNode;
   /** The reader's work band; the owner's page has its details in the top bar (#6652). */
   children?: ReactNode;
 }) {
@@ -232,6 +234,7 @@ export function MobileWorkTitle({
   return (
     <div className="page-mobile-title" ref={element}>
       <TitleRow title={title} workNumber={workNumber} rename={rename} />
+      {notice}
       {children && <div className="page-mobile-title-chips">{children}</div>}
     </div>
   );
