@@ -411,9 +411,7 @@ export function StructuredPage(props: StructuredPageProps) {
     };
   }, [focus]);
   if (!props.selectionFocus) focus.applied = undefined;
-  const commentSlots = useRef(
-    new Map<HTMLSpanElement, { block: HTMLElement; markers: Element | null }>(),
-  );
+  const commentSlots = useRef(new Map<HTMLSpanElement, Element | null>());
   const commentObserver = useRef<ResizeObserver>(undefined);
   const observeComment = useCallback((node: HTMLSpanElement | null) => {
     if (!node) return;
@@ -423,34 +421,22 @@ export function StructuredPage(props: StructuredPageProps) {
     if (!block || !column || !canvas) return;
     const markers = block.querySelector(':scope > .structured-annotation-markers');
     const slots = commentSlots.current;
-    slots.set(node, { block, markers });
+    slots.set(node, markers);
     const observer = (commentObserver.current ??= new ResizeObserver(() => {
-      const edge = column.getBoundingClientRect();
       const available = canvas.getBoundingClientRect();
-      const rtl = getComputedStyle(column).direction === 'rtl';
-      // The outer block box can extend 8px beyond the content column's negative margins.
-      const start = rtl ? edge.left - 10 : edge.right + 10;
-      const layout = [...slots].map(([slot, { block, markers }]) => {
-        const box = block.getBoundingClientRect();
+      const layout = [...slots].map(([slot, markers]) => {
+        const { left, right, width } = slot.getBoundingClientRect();
         const marker = markers?.getBoundingClientRect();
-        const width = slot.getBoundingClientRect().width;
-        const left = rtl ? start - width : start;
-        const right = left + width;
         return {
           slot,
-          offset: rtl ? box.right - start : start - box.left,
           fits:
             width > 0 &&
             left >= available.left &&
             right <= available.right &&
-            (rtl ? right <= box.left : left >= box.right) &&
             (!marker || marker.width === 0 || right <= marker.left || left >= marker.right),
         };
       });
-      for (const { slot, offset, fits } of layout) {
-        slot.style.insetInlineStart = `${offset}px`;
-        slot.toggleAttribute('data-fits', fits);
-      }
+      for (const { slot, fits } of layout) slot.toggleAttribute('data-fits', fits);
     }));
     observer.observe(column);
     observer.observe(canvas);

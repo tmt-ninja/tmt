@@ -1985,6 +1985,98 @@ test('a comment on a structured block survives reopening', async () => {
   });
 });
 
+for (const width of [1440, 1280]) {
+  for (const collapsed of [false, true]) {
+    test(`the Comment gutter accepts a real pointer crossing at ${width} with the rail ${collapsed ? 'collapsed' : 'expanded'}`, async () => {
+      await withWorld(async (world) => {
+        const door = await startDoor(world, await freePort());
+        const cli = (args: string[], input?: string) =>
+          JSON.parse(run(world, world.binaries.colab, [...args, '--json'], input));
+        const created = cli([
+          'page',
+          'create',
+          '--title',
+          'Comment pointer crossing',
+          '--structured',
+          '--no-open',
+        ]);
+        const id = crypto.randomUUID();
+        const sentence = 'Review the release checklist.';
+        cli(
+          ['block', 'batch', created.pageId, '--file', '-'],
+          JSON.stringify([
+            {
+              op: 'insert',
+              type: 'heading',
+              id: crypto.randomUUID(),
+              text: 'First heading',
+              props: { level: 2 },
+            },
+            { op: 'insert', type: 'todo', id, text: sentence },
+            {
+              op: 'insert',
+              type: 'todo',
+              id: crypto.randomUUID(),
+              text: 'Update the release notes.',
+            },
+          ]),
+        );
+        const owner = await pairBrowser(world, 'comment-pointer-owner');
+        const page = await owner.context.newPage();
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ reducedMotion: 'reduce' });
+        if (collapsed)
+          await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+        await page.goto(new URL(created.path, door.origin).href);
+        await expect(page.locator('.tmt-ui-shell[data-rail]')).toHaveAttribute(
+          'data-rail',
+          collapsed ? 'collapsed' : 'expanded',
+        );
+        const block = page.locator(`[data-block-id="${id}"]`);
+        const label = block.locator('.tmt-block-todo-text');
+        await expect(label).toContainText(sentence);
+        const origin = await label.evaluate((node, sentence) => {
+          const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+          for (let run = walker.nextNode(); run; run = walker.nextNode()) {
+            if (run.textContent?.trim() !== sentence) continue;
+            const range = document.createRange();
+            range.selectNodeContents(run);
+            const first = range.getClientRects()[0]!;
+            return { x: first.x + Math.min(10, first.width / 2), y: first.y + first.height / 2 };
+          }
+          throw new Error('To-do text has no rendered run');
+        }, sentence);
+        await page.mouse.move(origin.x, origin.y);
+        const action = block.getByRole('button', { name: 'Comment on block', exact: true });
+        const slot = block.locator('.structured-comment-action');
+        await expect(slot).toHaveCSS('opacity', '1');
+        const target = (await action.boundingBox())!;
+        const row = (await block.boundingBox())!;
+        const gap = target.x - row.x - row.width;
+        expect.soft(gap, 'Comment button clears the highlighted row').toBeGreaterThanOrEqual(0);
+        expect.soft(gap, 'Comment button stays beside the highlighted row').toBeLessThanOrEqual(16);
+        if (process.env.COLAB_CAPTURE_DIR)
+          await page.screenshot({
+            path: capturePath(`6952-todo-${width}-${collapsed ? 'collapsed' : 'expanded'}.png`),
+          });
+        const destination = { x: target.x + target.width / 2, y: target.y + target.height / 2 };
+        // Sample the last 55 px at pixel resolution so a narrow dead gap cannot be skipped.
+        const approach = destination.x - 55;
+        const approachY =
+          origin.y +
+          (destination.y - origin.y) * ((approach - origin.x) / (destination.x - origin.x));
+        await page.mouse.move(approach, approachY, { steps: 20 });
+        await page.mouse.move(destination.x, destination.y, { steps: 55 });
+        await page.mouse.down();
+        await page.mouse.up();
+        await expect(
+          page.locator('.annotation-popover').getByText('Annotate the block', { exact: true }),
+        ).toBeVisible();
+      });
+    });
+  }
+}
+
 test('whole-block comments open from the gutter and grip without selecting text', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());
@@ -2020,6 +2112,8 @@ test('whole-block comments open from the gutter and grip without selecting text'
       ]),
     );
     const page = await browser.context.newPage();
+    // The full-width image needs a clear gutter beside the 1280 px stage.
+    await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
     await page.setViewportSize({ width: 1440, height: 960 });
     await page.goto(new URL(created.path, door.origin).href);
     await expect(page.getByText('Review the release checklist.')).toBeVisible();
@@ -2058,7 +2152,6 @@ test('whole-block comments open from the gutter and grip without selecting text'
       if (process.env.COLAB_CAPTURE_DIR)
         await page.screenshot({ path: capturePath(name), animations: 'disabled' });
     };
-    const gutterPositions: number[] = [];
     for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme });
       await page.mouse.move(0, 0);
@@ -2086,12 +2179,7 @@ test('whole-block comments open from the gutter and grip without selecting text'
         }
         const [body, control] = await Promise.all([block(id).boundingBox(), button.boundingBox()]);
         expect(body?.width).toBe(before?.width);
-        expect(control!.x).toBeGreaterThanOrEqual(body!.x + body!.width - 1);
-        gutterPositions.push(control!.x);
-        if (kind === 'table') {
-          const cardSurface = await block(card).locator('[data-slot="card-block"]').boundingBox();
-          expect(control!.x).toBeGreaterThanOrEqual(cardSurface!.x + cardSurface!.width - 1);
-        }
+        expect(control!.x - body!.x - body!.width).toBeCloseTo(10, 0);
         await shot(`6917-${kind}-1440-${colorScheme}.png`);
         if (kind === 'paragraph' && colorScheme === 'light') {
           await button.hover();
@@ -2103,7 +2191,21 @@ test('whole-block comments open from the gutter and grip without selecting text'
         }
       }
     }
-    expect(Math.max(...gutterPositions) - Math.min(...gutterPositions)).toBeLessThan(1);
+    // The full-width block takes the pointer beyond the document edge on its way to the button.
+    await block(image).hover();
+    const [imageBox, imageAction] = await Promise.all([
+      block(image).boundingBox(),
+      action(image).boundingBox(),
+    ]);
+    const crossingY = imageAction!.y + imageAction!.height / 2;
+    const crossingX = imageAction!.x + imageAction!.width / 2;
+    await page.mouse.move(imageBox!.x + imageBox!.width - 20, crossingY);
+    await page.mouse.move(crossingX, crossingY, { steps: 42 });
+    await page.mouse.down();
+    await page.mouse.up();
+    await expect(composer.getByText('Annotate the block', { exact: true })).toBeVisible();
+    await composer.getByRole('button', { name: text.threadCollapse, exact: true }).click();
+    await expect(composer).toHaveCount(0);
     async function send(body: string, id: string, ordinal: number) {
       await expect(composer.getByText('Annotate the block', { exact: true })).toBeVisible();
       await composer.getByRole('combobox', { name: 'Message' }).fill(body);
