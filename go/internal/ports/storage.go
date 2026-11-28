@@ -11,6 +11,13 @@ type IdentityRepo interface {
 	Promote(id core.IdentityID, nowMs uint64) error
 	Rename(expected core.Identity, next core.ValidatedName, nowMs uint64) (*core.Identity, error)
 	Retire(expected core.Identity, expectedBinding *core.Binding, removeContent bool, nowMs uint64) (bool, error)
+	ReadMetadata(core.IdentityID) (map[string]string, error)
+	ListMatchingMetadata([]core.MetadataFilter) ([]core.Identity, error)
+	ApplyMetadata(core.IdentityID, []core.MetadataChange) (core.MetadataApplyResult, error)
+	ReadStatus(core.IdentityID) (*core.IdentityStatus, error)
+	PutStatus(core.IdentityID, core.IdentityStatus) error
+	RemoveStatus(core.IdentityID) (bool, error)
+	IsRetired(core.IdentityID) (bool, error)
 }
 
 // BindingRepo reads recorded bindings. Presence requires separate evidence.
