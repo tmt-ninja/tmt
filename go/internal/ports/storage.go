@@ -27,6 +27,8 @@ type BindingRepo interface {
 	ReleaseReservation(expected core.BindingReservation) (bool, error)
 	Touch(expected core.Binding, nowMs uint64) (bool, error)
 	Detach(expected core.Binding) (bool, error)
+	CreateLaunchIntent(LaunchIntent) (bool, error)
+	AdmitLaunch(LaunchAdmission) (*core.Binding, error)
 	ObserveLaunchActivity(LaunchActivityObservation) (bool, error)
 }
 
@@ -52,4 +54,22 @@ type RequestRepo interface {
 type ResponseRepo interface {
 	FindByRequest(core.RequestID) (*core.FinalResponse, error)
 	Insert(core.FinalResponse) error
+}
+
+// LaunchIntent fences one existing binding and the invocation that may launch
+// its next foreground runtime. Creating it does not establish runtime state.
+type LaunchIntent struct {
+	Expected    core.Binding
+	Owner       core.ProcessIncarnation
+	Driver      core.DriverName
+	CreatedAtMs uint64
+	ExpiresAtMs uint64
+}
+
+// LaunchAdmission supplies live foreground runtime evidence obtained outside
+// the write transaction for the exact intent.
+type LaunchAdmission struct {
+	Intent       LaunchIntent
+	Runtime      core.ProcessIncarnation
+	ObservedAtMs uint64
 }

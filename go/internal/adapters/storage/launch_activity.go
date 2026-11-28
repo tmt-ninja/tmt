@@ -11,8 +11,6 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
-const claudeHarness = "claude"
-
 func (r bindingRows) ObserveLaunchActivity(observation ports.LaunchActivityObservation) (bool, error) {
 	if !validLaunchObservation(observation) {
 		return false, nil
@@ -49,7 +47,7 @@ func (r bindingRows) stageLaunchActivity(observation ports.LaunchActivityObserva
 	var storedDigest string
 	err := r.one(`SELECT preferences_fingerprint FROM launch_observations
 		WHERE binding_id = ?1 AND owner_pid = ?2 AND owner_start = ?3 AND driver = ?4 AND status = 'intent'
-			AND created_at_ms <= ?5 AND expires_at_ms > ?5`, binding, owner.PID, owner.StartIdentity, claudeHarness, now).
+			AND created_at_ms <= ?5 AND expires_at_ms > ?5`, binding, owner.PID, owner.StartIdentity, core.DriverClaude, now).
 		Scan(&storedDigest)
 	if isNoRows(err) {
 		return false, nil
@@ -71,7 +69,7 @@ func (r bindingRows) stageLaunchActivity(observation ports.LaunchActivityObserva
 		WHERE binding_id = ?8 AND owner_pid = ?9 AND owner_start = ?10 AND driver = ?11 AND status = 'intent'
 			AND preferences_fingerprint = ?12 AND created_at_ms <= ?4 AND expires_at_ms > ?4`,
 		observation.Runtime.PID, observation.Runtime.StartIdentity, observation.ProviderSession, now,
-		observation.Transition, encoded, version, binding, owner.PID, owner.StartIdentity, claudeHarness, digest))
+		observation.Transition, encoded, version, binding, owner.PID, owner.StartIdentity, core.DriverClaude, digest))
 }
 
 // The fingerprint matches the native ordered JSON arrays of stored preference
@@ -183,7 +181,7 @@ func (r bindingRows) observeAdmitted(observation ports.LaunchActivityObservation
 	var version *uint16
 	err := r.one(`SELECT driver_state, driver_state_version FROM identity_session_preferences
 		WHERE identity_id = ? AND remembered_harness = ? AND provider_session_id = ?`,
-		observation.Expected.IdentityID, claudeHarness, observation.ProviderSession).Scan(&old, &version)
+		observation.Expected.IdentityID, core.DriverClaude, observation.ProviderSession).Scan(&old, &version)
 	if isNoRows(err) {
 		return false, nil
 	}
@@ -215,5 +213,5 @@ func (r bindingRows) observeAdmitted(observation ports.LaunchActivityObservation
 	return affectedOne(r.exec(`UPDATE identity_session_preferences SET driver_state = ?1, driver_state_version = ?2
 		WHERE identity_id = ?3 AND remembered_harness = ?4 AND provider_session_id = ?5
 			AND driver_state IS ?6 AND driver_state_version IS ?7`,
-		encoded, next, observation.Expected.IdentityID, claudeHarness, observation.ProviderSession, old, version))
+		encoded, next, observation.Expected.IdentityID, core.DriverClaude, observation.ProviderSession, old, version))
 }
