@@ -95,21 +95,34 @@ func TestPrivateSocketLaunchCaptureAndDeliver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	panes, err := c.Panes(t.Context(), server.Socket)
-	if err != nil {
-		t.Fatal(err)
-	}
-	index := slices.IndexFunc(panes, func(item ports.PaneEvidence) bool { return item.Pane == pane })
-	if index < 0 || panes[index].Session != "t" || panes[index].Window != "1" ||
-		panes[index].PID <= 0 || panes[index].CurrentDir != physicalDir || !panes[index].Active {
-		t.Fatalf("launch evidence: %+v", panes)
-	}
 	await(t, func(ctx context.Context) bool {
 		screen, err := c.Capture(ctx, pane, ports.CaptureOpts{Escape: true})
 		if err != nil {
 			t.Fatal(err)
 		}
-		return screen.Pane == pane && screen.Lines > 0 && screen.Cols == 120 && strings.Contains(screen.Text, "ready")
+		if !strings.Contains(screen.Text, "ready") {
+			return false
+		}
+		if screen.Pane != pane || screen.Lines <= 0 || screen.Cols != 120 {
+			t.Fatalf("fixture screen geometry: %+v", screen)
+		}
+		// Launch can return before the child changes directory or execs.
+		// The fixture prints readiness after the shell starts in its cwd.
+		panes, err := c.Panes(ctx, server.Socket)
+		if err != nil {
+			t.Fatal(err)
+		}
+		index := slices.IndexFunc(panes, func(item ports.PaneEvidence) bool { return item.Pane == pane })
+		if index == -1 {
+			t.Fatalf("launch pane %v not found in evidence: %+v", pane, panes)
+		}
+		got := panes[index]
+		if got.Session != "t" || got.Window != "1" || got.PID <= 0 ||
+			got.CurrentDir != physicalDir || !got.Active ||
+			!slices.Contains([]string{"sh", "dash", "bash"}, got.Command) {
+			t.Fatalf("launch evidence after fixture readiness: %+v", got)
+		}
+		return true
 	})
 	if outcome, err := c.Deliver(t.Context(), pane, ports.DeliveryInput{
 		Text: "literal '! $HOME", Submit: []ports.KeyStep{{Literal: ";"}, {Key: "Enter"}},
