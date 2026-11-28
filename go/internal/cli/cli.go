@@ -120,6 +120,8 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return publish(stdout, stderr, app.runRequest(ctx, root, invocation), invocation.json)
 	case "check":
 		return publish(stdout, stderr, app.check(ctx, root, invocation), invocation.json)
+	case "focus":
+		return publish(stdout, stderr, app.runFocus(ctx, root, invocation), invocation.json)
 	case "stop":
 		return publish(stdout, stderr, app.runStop(ctx, root, invocation), invocation.json)
 	case "unbind":
@@ -133,7 +135,7 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 	case "__hook":
 		return publish(stdout, stderr, app.runHook(ctx, root, invocation), invocation.json)
 	}
-	// NOT PORTED (CLI-03, CLI-04, CLI-06, CLI-07, CLI-24,
+	// NOT PORTED (CLI-04, CLI-06, CLI-07, CLI-24,
 	// CLI-30, CLI-31, CLI-32, CLI-33, CLI-34, CLI-35, CLI-36, CLI-37, CLI-38,
 	// CLI-39, CLI-41, CLI-42, CLI-47, CLI-48, CLI-49):
 	// Remaining public commands and internal entry points.

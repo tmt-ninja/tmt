@@ -81,7 +81,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 
 - [ ] `CLI-01` Complete resume with provider session presence checks, preset replay, Gemini, forget, retry, move, fresh start and driver switching.
 - [ ] `CLI-02` Extend send-now to verified provider-channel delivery and built-in and external hosts.
-- [ ] `CLI-03` Implement `focus`, `focus --client` and `focus --into` with verified client and pane evidence.
+- [ ] `CLI-03` Focus built-in and external hosts. Go tmux focus is covered by the focus parser cases from Rust parser/tests/identity.rs and the private Go equivalents of typescript/test/e2e/focus.e2e.test.ts: cross-session focus and back, unique/ambiguous key jobs, four-direction swap and already-beside, zoom and absent/stale/foreign refusals.
 - [ ] `CLI-04` Implement `discover` with bounded candidate evidence, classification and discovery digests.
 - [ ] `CLI-05` Implement discovery-guarded `add --expect` and `--identity` against fresh evidence.
 - [ ] `CLI-06` Implement `marked` with a frozen mark and an exact binding check.

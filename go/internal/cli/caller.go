@@ -92,26 +92,37 @@ func (s callerSelector) observe(ctx context.Context) (callerClaim, core.Endpoint
 }
 
 func parseCallerClaim(tmux, pane string) (callerClaim, bool) {
-	// The socket path may itself contain commas. Parse the two trailing
-	// fields from the right and never fall back to the default server.
+	if !strings.HasPrefix(pane, "%") || !decimalText(pane[1:]) {
+		return callerClaim{}, false
+	}
+	socket, pid, _, ok := parseTmuxClaim(tmux)
+	if !ok {
+		return callerClaim{}, false
+	}
+	return callerClaim{pane: ports.PaneRef{Server: socket, PaneID: pane}, serverPID: pid}, true
+}
+
+func parseTmuxClaim(tmux string) (socket string, pid uint64, session string, ok bool) {
+	// The socket itself may contain commas. Parse the two fields after it
+	// from the right and never fall back to the default server.
 	last := strings.LastIndexByte(tmux, ',')
 	if last < 0 || !decimalText(tmux[last+1:]) {
-		return callerClaim{}, false
+		return "", 0, "", false
 	}
-	server := tmux[:last]
+	server, session := tmux[:last], tmux[last+1:]
 	first := strings.LastIndexByte(server, ',')
-	if first < 0 || !strings.HasPrefix(pane, "%") || !decimalText(pane[1:]) {
-		return callerClaim{}, false
+	if first < 0 {
+		return "", 0, "", false
 	}
-	socket, pid := server[:first], server[first+1:]
-	if !filepath.IsAbs(socket) || !utf8.ValidString(socket) || strings.ContainsRune(socket, 0) || !decimalText(pid) {
-		return callerClaim{}, false
+	socket, rawPID := server[:first], server[first+1:]
+	if !filepath.IsAbs(socket) || !utf8.ValidString(socket) || strings.ContainsRune(socket, 0) || !decimalText(rawPID) {
+		return "", 0, "", false
 	}
-	number, err := strconv.ParseUint(pid, 10, 31)
-	if err != nil || number == 0 {
-		return callerClaim{}, false
+	pid, err := strconv.ParseUint(rawPID, 10, 31)
+	if err != nil || pid == 0 {
+		return "", 0, "", false
 	}
-	return callerClaim{pane: ports.PaneRef{Server: socket, PaneID: pane}, serverPID: number}, true
+	return socket, pid, session, true
 }
 
 func decimalText(value string) bool {

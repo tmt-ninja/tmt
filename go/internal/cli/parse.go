@@ -25,6 +25,7 @@ type invocation struct {
 type argumentScan struct {
 	invocation
 	helpPath  []string
+	focusArgs []string
 	helpFound bool
 	problem   string
 }
@@ -101,6 +102,9 @@ func scanArguments(args []string) (argumentScan, *commandSpec) {
 		token := args[i]
 		switch {
 		case token == "--":
+			if command.name == "focus" && len(scan.operands) == 0 && i+1 < len(args) {
+				scan.focusArgs = append(scan.focusArgs, "target")
+			}
 			scan.operands = append(scan.operands, args[i+1:]...)
 			i = len(args)
 		case strings.HasPrefix(token, "--"):
@@ -109,6 +113,10 @@ func scanArguments(args []string) (argumentScan, *commandSpec) {
 			if opt == nil {
 				scan.reject("Unexpected argument '%s' found.", token)
 				continue
+			}
+			if command == &grammar && opt.name == "json" ||
+				command.name == "focus" && (opt.name == "json" || opt.name == "client" || opt.name == "into") {
+				scan.focusArgs = append(scan.focusArgs, opt.name)
 			}
 			i += scan.option(chain, opt, value, supplied, args[i+1:])
 		case strings.HasPrefix(token, "-") && token != "-":
@@ -137,6 +145,9 @@ func scanArguments(args []string) (argumentScan, *commandSpec) {
 				if command == &grammar || len(command.children) > 0 && len(command.operands) == 0 {
 					scan.reject("Unrecognized subcommand '%s'.", token)
 				}
+			}
+			if command.name == "focus" && len(scan.operands) == 0 {
+				scan.focusArgs = append(scan.focusArgs, "target")
 			}
 			scan.operands = append(scan.operands, token)
 			if command.trailing && command.name != "help" {
@@ -194,6 +205,11 @@ func parse(args []string) (invocation, *output.Failure) {
 	if !parsed.help && !parsed.version {
 		if problem := validateCommand(command, parsed); problem != "" {
 			return fail("USAGE_ERROR", problem)
+		}
+		if command.name == "focus" {
+			if problem := focusUsage(parsed, scan.focusArgs); problem != "" {
+				return fail("USAGE_ERROR", problem)
+			}
 		}
 	}
 	if parsed.json && command.name == "resume" {

@@ -132,6 +132,8 @@ var options = []optionSpec{
 	{name: "topics"},
 	{name: "check"},
 	{name: "global"},
+	{name: "client"},
+	{name: "into", value: true},
 	{name: "activity-only", hidden: true},
 }
 
@@ -209,6 +211,7 @@ var grammar = commandSpec{
 			options:  []string{"force", "delay", "detach", "timeout", "no-preamble", "identity", "room", "remote", "expect-name", "urgent", "passthrough", "kind"}},
 		{name: "check", visibleAlias: "read", summary: "Capture diagnostic pane output",
 			operands: []operandSpec{required("target"), optional("capture-lines")}, options: []string{"lines", "capture-only", "expect-name"}},
+		{name: "focus", summary: "Show an identity or pane in this client", operands: []operandSpec{optional("target")}, options: []string{"client", "into"}},
 		{name: "stop", summary: "Stop an agent safely, keeping its identity, binding and session",
 			operands: []operandSpec{required("name")}, options: []string{"close"}},
 		{name: "unbind", summary: "Detach this pane; retire temporary identity"},
