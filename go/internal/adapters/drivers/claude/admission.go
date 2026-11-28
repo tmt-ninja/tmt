@@ -43,8 +43,8 @@ func admitStartup(ctx context.Context, payload []byte, capture StartupCapture, o
 	recorded := binding.Session
 	switch recorded.RuntimeState {
 	case "running":
-		if recorded.LaunchOwner == nil || *recorded.LaunchOwner != capture.Owner ||
-			recorded.ProviderSessionID == nil || *recorded.ProviderSessionID != event.session ||
+		if recorded.LaunchOwner == nil || *recorded.LaunchOwner != capture.Owner || recorded.PlainProgram != nil ||
+			recorded.ProviderSessionID != nil && *recorded.ProviderSessionID != event.session ||
 			!recordedIncarnation(recorded.Runtime).Valid() {
 			return false, nil
 		}

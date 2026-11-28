@@ -102,6 +102,14 @@ func TestAdmitStartupUsesOneExactCAS(t *testing.T) {
 			session := "exact-session"
 			c.Binding.Session = core.BindingSessionState{RuntimeState: "running", Runtime: &child, LaunchOwner: &owner, ProviderSessionID: &session}
 		}},
+		{name: "late startup of exact sessionless runtime", body: payload, pid: "20", write: true, storeOK: true, idle: true, change: func(c *StartupCapture) {
+			c.Binding.Session = core.BindingSessionState{RuntimeState: "running", Runtime: &child, LaunchOwner: &owner}
+		}},
+		{name: "late startup of different runtime", body: payload, pid: "20", change: func(c *StartupCapture) {
+			other := child
+			other.PID++
+			c.Binding.Session = core.BindingSessionState{RuntimeState: "running", Runtime: &other, LaunchOwner: &owner}
+		}},
 		{name: "already admitted different session", body: payload, pid: "20", change: func(c *StartupCapture) {
 			session := "different"
 			c.Binding.Session = core.BindingSessionState{RuntimeState: "running", Runtime: &child, LaunchOwner: &owner, ProviderSessionID: &session}

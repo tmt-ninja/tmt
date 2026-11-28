@@ -57,7 +57,7 @@ func TestPrepareHookLaunchScopesHooksAndRecordsIntentBeforeSpawn(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := hookStart
-	binding := core.Binding{ID: "binding", IdentityID: "identity", PaneIncarnation: &start}
+	binding := core.Binding{ID: "6c57fcc9-96b1-4022-b071-870b81288814", IdentityID: "04de7153-8b12-4665-8fba-718e358fa68c", PaneIncarnation: &start}
 	owner := core.ProcessIncarnation{PID: 52, StartIdentity: start}
 	now := time.Unix(1700000000, 0)
 	for _, tc := range []struct {
@@ -77,7 +77,7 @@ func TestPrepareHookLaunchScopesHooksAndRecordsIntentBeforeSpawn(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			store := &fakeHookLaunchStore{repo: fakeHookLaunchRepo{accept: tc.accept}}
 			c := hookLaunchCoordinator{store: store, now: func() time.Time { return now }}
-			input := ports.ProcessSpec{Path: "/bin/sh", Args: tc.args, Env: []string{hookLaunchEnv + "=old", "TMT_EXECUTABLE=/old/tmt"}}
+			input := ports.ProcessSpec{Path: "/bin/sh", Args: tc.args, Env: []string{hookLaunchEnv + "=old", "TMT_EXECUTABLE=/old/tmt", "CLAUDE_CONFIG_DIR=" + root.Dir}}
 			command, intent, err := c.prepare(t.Context(), root, binding, tc.provider, input, owner, executable, true, nil)
 			if len(store.repo.creates) != 1 || store.repo.creates[0].Expected.ID != binding.ID ||
 				store.repo.creates[0].Resume != nil || store.repo.creates[0].Owner != owner || store.repo.creates[0].Driver != tc.provider ||
@@ -187,7 +187,7 @@ func TestHookLaunchCoordinatorPersistsExactRuntime(t *testing.T) {
 
 			now := time.UnixMilli(2200)
 			c := hookLaunchCoordinator{store: store, now: func() time.Time { return now }}
-			_, intent, err := c.prepare(ctx, root, *binding, provider, ports.ProcessSpec{Path: "/bin/sh"}, owner, exe, true, nil)
+			_, intent, err := c.prepare(ctx, root, *binding, provider, ports.ProcessSpec{Path: "/bin/sh", Env: []string{"CLAUDE_CONFIG_DIR=" + dir}}, owner, exe, true, nil)
 			if err != nil || intent == nil {
 				t.Fatalf("prepare intent = %+v, %v", intent, err)
 			}

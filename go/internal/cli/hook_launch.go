@@ -96,7 +96,10 @@ func (c hookLaunchCoordinator) prepare(ctx context.Context, root home.Root, bind
 		if err != nil {
 			return ports.ProcessSpec{}, nil, err
 		}
-		command, err = claude.AddLaunchHooks(command, executable)
+		command, err = claude.AddDigestLaunchHooks(command, executable, core.HookCaptureLaunch{
+			IdentityID: launch.IdentityID, BindingID: launch.BindingID, OwnerPID: owner.PID,
+			OwnerStart: owner.StartIdentity, StartupInput: launch.StartupInput,
+		})
 		if err != nil {
 			return ports.ProcessSpec{}, nil, err
 		}

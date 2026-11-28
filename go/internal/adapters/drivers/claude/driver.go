@@ -43,7 +43,7 @@ func (d Driver) LaunchCommand(launch ports.AgentLaunch) (ports.ProcessSpec, erro
 			return ports.ProcessSpec{}, err
 		}
 	}
-	// NOT PORTED (GO2-04, GO2-06): Digest continuation and native channel
+	// NOT PORTED (GO2-06): Native channel
 	// enrollment with a verified binding and launch owner.
 	return drivers.Command(d.Name(), d.Executable, launch, args)
 }
