@@ -590,7 +590,7 @@ pane ([list detected panes](../../../../contracts/identity-status-v1.md#list-det
 - `storage::consumption_history` keeps five-second buckets for two hours (at most 1,440 closed
   plus one open per identity), stores no transcript content or absolute path, and commits cursor,
   counter and history in one transaction. The same transaction folds every accepted read into
-  `consumption_tier5m`, a 30-day rollup of five-minute buckets that serves windows above an
+  `consumption_tier5m`, a 32-day rollup of five-minute buckets that serves windows above an
   hour. One `Bucket::absorb` rule feeds both tiers, so a rollup bucket is the sum of its fine
   buckets; it keeps no per-read observation and only the rate limits and credits observed inside
   the bucket plus the service tier of its newest token-moving read.

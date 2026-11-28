@@ -24,9 +24,10 @@ use tmt_core::{
 
 pub const BUCKET_MS: u64 = 5_000;
 pub const HISTORY_MS: u64 = 2 * 60 * 60 * 1_000;
-/// The rollup keeps 5-minute sums of the 5-second buckets for 30 days (#3248).
+/// The rollup keeps 5-minute sums of the 5-second buckets for 32 days (#3248), so a
+/// window from the start of a 31-day month is still whole (#4283).
 pub const ROLLUP_BUCKET_MS: u64 = 300_000;
-pub const ROLLUP_MS: u64 = 30 * 24 * 60 * 60 * 1_000;
+pub const ROLLUP_MS: u64 = 32 * 24 * 60 * 60 * 1_000;
 /// The longest window read from the 5-second buckets; a longer one reads the rollup.
 pub const FINE_WINDOW_MS: u64 = 3_600_000;
 pub const MAX_BUCKETS: u64 = 720;
@@ -35,7 +36,7 @@ pub const MAX_RESPONSE_BUCKETS: u64 = 23_040;
 
 /// The resolution that serves `window_ms`, or none when it is not a valid window:
 /// 5-second multiples up to an hour read the 5-second buckets, 5-minute multiples
-/// above an hour up to 30 days read the rollup.
+/// above an hour up to 32 days read the rollup.
 pub fn window_resolution_ms(window_ms: u64) -> Option<u64> {
     if (BUCKET_MS..=FINE_WINDOW_MS).contains(&window_ms) && window_ms.is_multiple_of(BUCKET_MS) {
         Some(BUCKET_MS)

@@ -350,7 +350,7 @@ mod tests {
             ("maxBuckets", json!(0)),
             ("maxBuckets", json!(721)),
             ("windowsMs", json!([3_650_000])),
-            ("windowsMs", json!([DAYS_30 + 300_000])),
+            ("windowsMs", json!([DAYS_32 + 300_000])),
             ("includeRetired", json!("yes")),
             ("extra", json!(true)),
             // A cut is a non-negative integer; an explicit null is not one.
@@ -415,7 +415,7 @@ mod tests {
         }
     }
 
-    const DAYS_30: u64 = 2_592_000_000;
+    const DAYS_32: u64 = 2_764_800_000;
 
     fn ids(count: usize) -> Vec<String> {
         (0..count)
@@ -433,8 +433,8 @@ mod tests {
                 .as_bytes(),
             )
         };
-        // Five-minute multiples above an hour, up to 30 days.
-        for window in [3_900_000u64, 86_400_000, 604_800_000, DAYS_30] {
+        // Five-minute multiples above an hour, up to 32 days.
+        for window in [3_900_000u64, 86_400_000, 604_800_000, DAYS_32] {
             assert!(ask(1, json!([window]), 120).is_ok(), "{window}");
         }
         assert!(matches!(
@@ -447,9 +447,9 @@ mod tests {
         ));
         // 32 identities x 720 buckets is exactly the response bound; one more
         // window or one more identity-bucket is refused.
-        assert!(ask(32, json!([DAYS_30]), 720).is_ok());
-        assert!(ask(32, json!([DAYS_30, 604_800_000]), 720).is_err());
-        assert!(ask(32, json!([86_400_000, 604_800_000, DAYS_30]), 720).is_err());
+        assert!(ask(32, json!([DAYS_32]), 720).is_ok());
+        assert!(ask(32, json!([DAYS_32, 604_800_000]), 720).is_err());
+        assert!(ask(32, json!([86_400_000, 604_800_000, DAYS_32]), 720).is_err());
         // Today's largest valid request still passes: 32 x 3 x 120.
         assert!(ask(32, json!([60_000, 300_000, 3_600_000]), 120).is_ok());
         // A short window has fewer slots than buckets and counts only its slots.

@@ -280,7 +280,7 @@
     "cachedInputTokens": 1
   },
   "rollup": {
-    "description": "The same observations after the first 5-minute bucket closes. A window above 3,600,000 ms reads the 30-day rollup: one bucket holding the sum of the fine buckets, the newest rate limits and credits observed inside it, the service tier of its newest token-moving read, and the window-level resolutionMs, availableFromMs and retainedFromMs. The 21000 ms sample belongs to this bucket, which is closed at asOfMs.",
+    "description": "The same observations after the first 5-minute bucket closes. A window above 3,600,000 ms reads the 32-day rollup: one bucket holding the sum of the fine buckets, the newest rate limits and credits observed inside it, the service tier of its newest token-moving read, and the window-level resolutionMs, availableFromMs and retainedFromMs. The 21000 ms sample belongs to this bucket, which is closed at asOfMs.",
     "asOfMs": 322500,
     "request": {
       "version": 1,

@@ -179,7 +179,7 @@ remain independent of storage access.
 | `skills.remove`          | `owner`, `consent: true`, optional `skills` (names)                                                                                                                           | `owner`, `removed` and `kept` targets                                                                                                                                                                                                                                                  |
 | `skills.list`            | `identityId` (canonical UUID), optional `ifStamp`                                                                                                                             | The skills that member's agent can invoke: `syntax`, `driver`, `skills`, `truncated`, `rootsStamp`, `observedAtMs`; or `unchanged` (see [agent skills](#agent-skills))                                                                                                                 |
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                                                                                                     | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                                                                                                                                     |
-| `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs`                                                                           | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 30-day rollup (see below)                                                                                                                                                   |
+| `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs`                                                                           | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 32-day rollup (see below)                                                                                                                                                   |
 | `consumption.changes`    | `since` (a `usage` cursor), optional `windowsMs` (0–3) and `maxBuckets`                                                                                                       | `usage`, `reset`, `identities`: the identities whose usage changed since `since` (see [below](#consumption-changes))                                                                                                                                                                   |
 | `consumption.limits`     | `{}`                                                                                                                                                                          | `observedAtMs` and `accounts`: one entry per provider account Core can read without an agent, with the account's newest current limits or `null` and a reason (see [account limits](#account-limits))                                                                                  |
 | `drivers.models`         | `{}`                                                                                                                                                                          | `drivers`: one entry per AI tool TMT launches, with `source`, `models` and `efforts`, all best effort (see [launch choices](#launch-choices))                                                                                                                                          |
@@ -1028,8 +1028,8 @@ for sessions already authenticated as the machine's owner.
 
 `consumption.history` v1 is a storage-only batch read. It accepts 1–32 distinct
 canonical `identityIds`, 1–3 distinct `windowsMs` (multiples of 5,000 from 5,000
-through 3,600,000, or multiples of 300,000 above that through 2,592,000,000, which
-read the [30-day rollup](#thirty-day-rollup)), `maxBuckets` (1–720, default 120) and
+through 3,600,000, or multiples of 300,000 above that through 2,764,800,000, which
+read the [32-day rollup](#five-minute-rollup)), `maxBuckets` (1–720, default 120) and
 `includeRetired` (default false) and an optional pinned cut `throughMs`. Other values
 or fields return `API_INPUT_INVALID`.
 One response carries at most 23,040 buckets: per identity, each window contributes
@@ -1252,7 +1252,7 @@ cacheWriteTokens?}`. It preserves model changes within a single read; it is
 - `credits` and `serviceTier` are optional evidence omitted before `rateLimits` under
   the existing opaque-state size bound. `latest.consumption` and `resume.consumption`
   carry them; the 5-second history buckets never do, and a rollup bucket carries the
-  [per-bucket](#thirty-day-rollup) values.
+  [per-bucket](#five-minute-rollup) values.
 - History buckets optionally add `cacheWriteTokens` and `byModel` with the same
   entry shape, containing **deltas for that bucket**, including all accepted
   model changes. The rows sum to **at most** the bucket's tokens: an unknown
@@ -1293,7 +1293,7 @@ cachedInputTokens}` rows in ascending `driver` order, holding **deltas for that
   unchanged; a family that is lost starts a new baseline like any decreasing counter.
 
 Core retains 5-second buckets for two hours: at most 1,440 closed buckets plus
-one open bucket per identity; the [rollup](#thirty-day-rollup) keeps coarser sums for 30 days. Expired history is excluded immediately on reads;
+one open bucket per identity; the [rollup](#five-minute-rollup) keeps coarser sums for 32 days. Expired history is excluded immediately on reads;
 accepted writes prune the identity and opportunistically prune expired inactive
 rows. Reads never renew history. Migration does not backfill history and core
 never replays old transcript prefixes. Provider formats are unofficial; missing
@@ -1335,14 +1335,14 @@ the latest 1 MiB is rebaselined at EOF with a gap rather than scanning the old
 prefix. Extensions never access private source locators, provider files or
 opaque driver state.
 
-### Thirty-day rollup
+### Five-minute rollup
 
-A `windowsMs` above 3,600,000 (a multiple of 300,000 through 30 days) reads the
+A `windowsMs` above 3,600,000 (a multiple of 300,000 through 32 days) reads the
 rollup instead of the 5-second buckets; shorter windows are unchanged byte for byte.
 Core folds every accepted read into 5-minute buckets in the same transaction that
 writes the 5-second bucket, with one rule for both, so a rollup bucket is the sum of
 the fine buckets it covers: tokens, per-model and per-driver attribution, covered time and the
-`gap`, `discontinuous` and incomplete flags. Retention is 30 days by time alone
+`gap`, `discontinuous` and incomplete flags. Retention is 32 days by time alone, so a window from the start of a 31-day month is still whole
 (a write prunes its identity's expired rows and a few of anyone's, so a retired
 identity ages out too); there is no row cap. Recording starts at the migration, with
 no backfill, and a gap in sampling is a gap, never a measured zero.
@@ -1352,7 +1352,7 @@ differences. `toMs` is the last closed 5-minute boundary, so up to five minutes 
 the newest activity is not yet in it. `bucketMs` is
 `ceil((windowMs/300000)/maxBuckets)*300000`. The window adds `resolutionMs` (300,000),
 `availableFromMs` (start of the identity's first rollup bucket with a successful read,
-or null) and `retainedFromMs` (`max(toMs - 30 days, availableFromMs)`; earlier intervals
+or null) and `retainedFromMs` (`max(toMs - 32 days, availableFromMs)`; earlier intervals
 are uncovered). A bucket adds `rateLimits` (the public `resume.consumption` shape): the
 newest limits **observed inside the bucket**, absent when no source timestamp falls
 in it. Cached allowance fetched before every retained bucket is available only in

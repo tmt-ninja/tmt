@@ -253,7 +253,7 @@ fn the_rollup_ages_out_by_time_for_active_and_idle_identities() {
             .unwrap()
     };
     assert_eq!(count(connection), 1);
-    // A second identity writing just inside 30 days leaves the first bucket alone;
+    // A second identity writing just inside 32 days leaves the first bucket alone;
     // one more five-minute slot past it expires the idle identity's bucket too.
     let other = "22222222-2222-4222-8222-222222222222";
     connection.execute("INSERT INTO identities(id,name,canonical_name,created_at,updated_at,lifetime) VALUES(?,'Other','other','t','t','saved')",[other]).unwrap();
@@ -261,7 +261,7 @@ fn the_rollup_ages_out_by_time_for_active_and_idle_identities() {
     connection.execute("INSERT INTO consumption_sources(identity_id,binding_id,driver,session) VALUES(?,'other-binding','claude','fixture-session')",[other]).unwrap();
     let inside = ROLLUP_MS + 6000;
     record_sample(connection, other, Some(latest(1, 1, 1, inside)), inside).unwrap();
-    assert_eq!(count(connection), 2, "still inside the 30 days");
+    assert_eq!(count(connection), 2, "still inside the 32 days");
     let past = ROLLUP_MS + ROLLUP_BUCKET_MS + 6000;
     record_sample(connection, other, Some(latest(2, 2, 2, past)), past).unwrap();
     let remaining: Vec<String> = {
@@ -377,12 +377,12 @@ fn the_window_boundaries_and_corrupt_rollup_rows_are_refused() {
 }
 
 /// The size of the rollup on a synthetic full fleet, so growth stays visible: 32
-/// identities for 30 days of 5-minute buckets, half Claude-shaped (one model, one
+/// identities for 32 days of 5-minute buckets, half Claude-shaped (one model, one
 /// driver, no limits) and half Codex-shaped (one model, one driver, both limit windows
 /// on a quarter of the buckets). The ceiling is the tier's budget, with a margin over
 /// the measured size: 281 bytes per row before `byDriver` (#3751), 392 after.
 #[test]
-fn the_rollup_fits_its_budget_on_a_full_thirty_day_fleet() {
+fn the_rollup_fits_its_budget_on_a_full_retention_fleet() {
     let directory = crate::test_support::TestDirectory::new();
     let storage = Storage::open(directory.path.join("budget.sqlite")).unwrap();
     let connection = storage.connection().unwrap();
@@ -424,7 +424,7 @@ fn the_rollup_fits_its_budget_on_a_full_thirty_day_fleet() {
             |row| Ok((row.get(0)?, row.get(1)?)),
         )
         .unwrap();
-    assert_eq!(rows, 32 * 8640);
+    assert_eq!(rows, 32 * 9216);
     eprintln!(
         "rollup: {rows} rows, {bytes} bytes, {} bytes per row",
         bytes / rows

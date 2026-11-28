@@ -21,7 +21,7 @@ with Core's usual 15 seconds and 1 MiB per call:
    name then UUID, in batches of 16, as two reads of `windowsMs:[W]` with
    `includeRetired:true`: `maxBuckets:1` for totals with attribution and
    `maxBuckets` 24 (`24h`, hourly) or 7 / 30 (`7d` / `30d`, daily) for the series.
-   Windows above an hour read Core's [30-day rollup](../../../contracts/extension-api.md#thirty-day-rollup),
+   Windows above an hour read Core's [32-day rollup](../../../contracts/extension-api.md#five-minute-rollup),
    so `window.toMs` is the last completed five-minute boundary and up to five minutes
    of the newest activity are not in it. Totals are Core's, never a sum of buckets.
 5. `storage.root` locates Digest's optional validated price cache. This read never

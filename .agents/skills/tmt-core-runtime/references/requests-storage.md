@@ -575,7 +575,7 @@ Ops owns rendering, with no inferred time/text grouping. The
 owns paging, retention, explicit unavailable states and wire shapes. Retirement removes captured
 history independently of exchange retention. Captured output never submits a request reply.
 
-Schema 54 adds `consumption_tier5m`, the 30-day five-minute consumption rollup
+Schema 54 adds `consumption_tier5m`, the five-minute consumption rollup (kept 32 days since #4283)
 (see [identity bindings](identity-bindings.md)), with the usual change-cursor triggers.
 Schema 56 adds its nullable `credits` and `service_tier` columns (the newest credits
 observed in the bucket and the tier of its newest token-moving read); no row is rewritten.

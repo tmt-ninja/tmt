@@ -51,7 +51,7 @@ already belongs to input. Foreground `tmt run`/`resume` observes accepted
 completed-request evidence every five seconds during a turn. Listing never reads
 provider files. `consumption.history` in `tmt api` returns bounded closed history (fine
 buckets retained two hours and queried up to one hour; longer windows read the
-[rollup](https://github.com/tmt-ninja/tmt/blob/main/contracts/extension-api.md#thirty-day-rollup);
+[rollup](https://github.com/tmt-ninja/tmt/blob/main/contracts/extension-api.md#five-minute-rollup);
 32 UUIDs per batch) with an included cumulative seed watermark. Follow [the history contract](https://github.com/tmt-ninja/tmt/blob/main/contracts/extension-api.md#consumption-history)
 for coverage, partial windows and avoiding overlap with live observations.
 Use its epoch/sequence and completeness/gap evidence, never context-size
