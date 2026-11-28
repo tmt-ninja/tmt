@@ -72,3 +72,16 @@ func (o Observer) InProcessTree(ctx context.Context, child, ancestor int) (bool,
 	}
 	return false, nil
 }
+
+// IsProcessParent verifies the immediate parent in one bounded observation.
+func (o Observer) IsProcessParent(ctx context.Context, child, parent int) (bool, error) {
+	if !validPID(child) || !validPID(parent) || child == parent {
+		return false, nil
+	}
+	got, err := o.queryPS(ctx, probeLimit, "-p", strconv.Itoa(child), "-o", "pid=,ppid=")
+	if err != nil || got.ExitCode != 0 {
+		return false, err
+	}
+	fields := strings.Fields(string(got.Stdout))
+	return len(fields) == 2 && fields[0] == strconv.Itoa(child) && fields[1] == strconv.Itoa(parent), nil
+}
