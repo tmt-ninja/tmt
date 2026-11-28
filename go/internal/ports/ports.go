@@ -35,15 +35,6 @@ type StoreTx interface {
 	Responses() ResponseRepo
 }
 
-// The repository method sets are filled in by go-1 in ports/storage.go
-// (lead review on each change). They start empty so the skeleton compiles.
-type (
-	IdentityRepo interface{}
-	BindingRepo  interface{}
-	RequestRepo  interface{}
-	ResponseRepo interface{}
-)
-
 // ---------- process (go-2) ----------
 
 // ProcessSpec is one bounded child process.
