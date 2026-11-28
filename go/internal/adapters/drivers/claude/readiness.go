@@ -124,3 +124,21 @@ func recordedIncarnation(value *core.ProcessIncarnation) runtime.Incarnation {
 	}
 	return runtime.Incarnation{PID: int(value.PID), Start: value.StartIdentity}
 }
+
+func proveAdmittedHook(ctx context.Context, session string, capture StartupCapture, observer readinessObserver,
+	hookPID int, reportedPID string, hasReportedPID bool,
+) (core.ProcessIncarnation, error) {
+	recorded := capture.Binding.Session
+	expected := recordedIncarnation(recorded.Runtime)
+	if session == "" || recorded.RuntimeState != "running" || recorded.PlainProgram != nil || !expected.Valid() ||
+		recorded.LaunchOwner == nil || *recorded.LaunchOwner != capture.Owner ||
+		recorded.ProviderSessionID == nil || *recorded.ProviderSessionID != session {
+		return core.ProcessIncarnation{}, nil
+	}
+	main, err := proveManagedHook(ctx, capture.Identity, capture.Binding, capture.Probe,
+		recordedIncarnation(&capture.Owner), observer, hookPID, reportedPID, hasReportedPID)
+	if err != nil || main != expected {
+		return core.ProcessIncarnation{}, err
+	}
+	return *recorded.Runtime, nil
+}

@@ -44,17 +44,11 @@ func admitDigestPrompt(ctx context.Context, payload []byte, capture StartupCaptu
 	store ports.Store, hookPID int, reportedPID string, hasReportedPID bool,
 ) (bool, error) {
 	session := PromptSession(payload)
-	recorded := capture.Binding.Session
-	expected := recordedIncarnation(recorded.Runtime)
-	if session == "" || capture.ObservedAtMs == 0 || capture.ObservedAtMs > 9007199254740991 ||
-		recorded.RuntimeState != "running" || recorded.PlainProgram != nil || !expected.Valid() ||
-		recorded.LaunchOwner == nil || *recorded.LaunchOwner != capture.Owner ||
-		recorded.ProviderSessionID == nil || *recorded.ProviderSessionID != session {
+	if capture.ObservedAtMs == 0 || capture.ObservedAtMs > 9007199254740991 {
 		return false, nil
 	}
-	main, err := proveManagedHook(ctx, capture.Identity, capture.Binding, capture.Probe,
-		recordedIncarnation(&capture.Owner), observer, hookPID, reportedPID, hasReportedPID)
-	if err != nil || main != expected {
+	main, err := proveAdmittedHook(ctx, session, capture, observer, hookPID, reportedPID, hasReportedPID)
+	if err != nil || main.PID == 0 {
 		return false, err
 	}
 	if store == nil {
@@ -64,7 +58,7 @@ func admitDigestPrompt(ctx context.Context, payload []byte, capture StartupCaptu
 		return false, err
 	}
 	observation := ports.DigestPromptObservation{
-		Expected: capture.Binding, Owner: capture.Owner, Runtime: *recorded.Runtime,
+		Expected: capture.Binding, Owner: capture.Owner, Runtime: main,
 		ProviderSession: session, ObservedAtMs: capture.ObservedAtMs,
 	}
 	var accepted bool
