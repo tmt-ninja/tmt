@@ -205,6 +205,9 @@ function chart(props: Json): string {
   return `${out}</tbody></table></figure>\n`;
 }
 
+/** What an exported diagram says under its source. */
+const DIAGRAM_NOTE = 'Open this page in Colab to see the diagram drawn.';
+
 type Surface = 'export' | 'reader';
 
 const readerPlaceholders: Readonly<Record<string, string>> = {
@@ -337,6 +340,14 @@ function render1(all: Json, id: string, block: Json, surface: Surface): string {
     }
     case 'chart':
       return chart(props);
+    case 'diagram': {
+      // The source and a note: the export is the same bytes from every renderer, so the drawn
+      // diagram, which depends on the browser and the theme, stays in Colab (#6746).
+      const title = str(props.title);
+      const caption = title === undefined ? '' : `<figcaption>${escape(title)}</figcaption>`;
+      const body = escape(str(obj(block.text).s) ?? '');
+      return `<figure data-diagram>${caption}<pre><code class="language-mermaid">${body}</code></pre><p>${DIAGRAM_NOTE}</p></figure>\n`;
+    }
     case 'page-view': {
       let out = '<section class="tmt-ui-section" data-page-view>';
       const label = str(props.label);

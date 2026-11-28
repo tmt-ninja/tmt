@@ -139,6 +139,16 @@
               }
             ]
           }
+        },
+        "10000000-0000-4000-8000-000000000015": {
+          "type": "diagram",
+          "parent": "root",
+          "pos": "j",
+          "props": {},
+          "text": {
+            "s": "flowchart LR\n  A --> B",
+            "marks": []
+          }
         }
       }
     },
@@ -973,6 +983,43 @@
               }
             ],
             "max": 2
+          }
+        }
+      }
+    },
+    {
+      "name": "diagrams with a title at its edge, any source and none",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "diagram",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "title": "tttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+          },
+          "text": {
+            "s": "flowchart TD\n  A{Ok?} -->|yes| B",
+            "marks": []
+          }
+        },
+        "10000000-0000-4000-8000-000000000002": {
+          "type": "diagram",
+          "parent": "root",
+          "pos": "W",
+          "props": {},
+          "text": {
+            "s": "sequenceDiagram\n  A->>B: hi",
+            "marks": []
+          }
+        },
+        "10000000-0000-4000-8000-000000000003": {
+          "type": "diagram",
+          "parent": "root",
+          "pos": "X",
+          "props": {},
+          "text": {
+            "s": "",
+            "marks": []
           }
         }
       }
@@ -3263,6 +3310,89 @@
           },
           "text": {
             "s": "x",
+            "marks": []
+          }
+        }
+      }
+    },
+    {
+      "name": "a diagram without text",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "diagram",
+          "parent": "root",
+          "pos": "V",
+          "props": {}
+        }
+      }
+    },
+    {
+      "name": "marks on a diagram",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "diagram",
+          "parent": "root",
+          "pos": "V",
+          "props": {},
+          "text": {
+            "s": "abc",
+            "marks": [
+              {
+                "from": 0,
+                "to": 1,
+                "mark": "bold"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "a diagram title over 128 bytes",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "diagram",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "title": "ttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttttt"
+          },
+          "text": {
+            "s": "graph TD",
+            "marks": []
+          }
+        }
+      }
+    },
+    {
+      "name": "a diagram title over one line",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "diagram",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "title": "a\nb"
+          },
+          "text": {
+            "s": "graph TD",
+            "marks": []
+          }
+        }
+      }
+    },
+    {
+      "name": "a diagram with an unknown prop",
+      "blocks": {
+        "10000000-0000-4000-8000-000000000001": {
+          "type": "diagram",
+          "parent": "root",
+          "pos": "V",
+          "props": {
+            "theme": "dark"
+          },
+          "text": {
+            "s": "graph TD",
             "marks": []
           }
         }

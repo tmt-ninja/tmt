@@ -2,7 +2,13 @@
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, sync::LazyLock};
 
-pub const APP_BYTES: usize = 16 * 1024 * 1024;
+/// The app's total bytes. It bounds what the native binary embeds (`build.rs` refuses a larger
+/// build) and what the server reads and holds in memory when it starts from an app directory, not
+/// what a page loads: the files a shell loads on first paint have their own, smaller budget in
+/// `extensions/tmt-colab/scripts/verify-runtime.mjs`. 24 MiB since the diagram drawer (#6746): the
+/// build with its five diagram kinds measured 17,103,540 bytes in 138 files; the packaging proof
+/// (`typescript/scripts/colab-runtime-proof.mjs`) holds the same bound.
+pub const APP_BYTES: usize = 24 * 1024 * 1024;
 /// A packaging sanity cap on the app's file count, not a product limit; the packaging proof
 /// (`typescript/scripts/colab-runtime-proof.mjs`) holds the same bound.
 pub const APP_FILES: usize = 160;

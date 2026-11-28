@@ -7,7 +7,8 @@ import { spawn } from 'node:child_process';
 import { runPackedCommand } from './packed-command.mjs';
 import { writeExecutable } from '../test/support/executable-fixture.mjs';
 
-const APP_BYTES = 16 * 1024 * 1024;
+// The app's total bytes, the native inventory's APP_BYTES (app_inventory.rs).
+const APP_BYTES = 24 * 1024 * 1024;
 // A packaging sanity cap on the app's file count, the native inventory's APP_FILES (app_inventory.rs).
 const APP_FILES = 160;
 const context = JSON.stringify({ owner: true, deviceId: 'packaging-proof', name: 'Packaging' });

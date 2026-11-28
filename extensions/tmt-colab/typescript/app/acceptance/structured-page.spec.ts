@@ -511,6 +511,63 @@ test('open --block scrolls the loopback door to the exact heading and to-do', as
   });
 });
 
+// Only the built app leaves Mermaid's other diagrams, layouts and KaTeX out and groups the five
+// kinds into one chunk (#6746): the component specs run Mermaid whole, so this case reads the app
+// the binary serves.
+test('the served app draws the five kinds from its slimmed Mermaid and refuses the rest', async () => {
+  await withWorld(async (world) => {
+    await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'diagram-reader');
+    const colab = world.binaries.colab;
+    world.linkExtensions();
+    const { pageId } = JSON.parse(
+      run(world, colab, ['page', 'create', '--title', 'Diagrams', '--no-open', '--json']),
+    ) as { pageId: string };
+    const insert = (title: string, source: string) =>
+      (
+        JSON.parse(
+          run(world, colab, [
+            'block',
+            'insert',
+            pageId,
+            '--type',
+            'diagram',
+            '--props',
+            JSON.stringify({ title }),
+            '--text',
+            source,
+            '--json',
+          ]),
+        ) as { blockIds: string[] }
+      ).blockIds[0]!;
+    const across = insert('Across', 'flowchart LR\n  A[Build] --> B{Green?}\n  B -->|yes| C[Ship]');
+    const down = insert('Down', 'graph TD\n  A[Plan] --> B[Review]');
+    const sequence = insert('Sequence', 'sequenceDiagram\n  Agent->>Colab: write');
+    const state = insert('State', 'stateDiagram-v2\n  [*] --> Draft\n  Draft --> Published');
+    const gantt = insert('Gantt', 'gantt\n  dateFormat YYYY-MM-DD\n  Design :a1, 2026-12-01, 3d');
+    const classes = insert('Classes', 'classDiagram\n  Animal <|-- Duck');
+    const pie = insert('Pie', 'pie\n  "A": 1');
+    const math = insert('Math', 'flowchart LR\n  A["$$x^2$$"] --> B[Done]');
+    const page = await browser.context.newPage();
+    const { link } = JSON.parse(run(world, colab, ['open', pageId, '--json'])) as { link: string };
+    await page.goto(link);
+    const drawing = (id: string) =>
+      page.locator(`[data-block-id="${id}"] .structured-diagram-drawing svg`);
+    await expect(drawing(across)).toContainText('Ship', { timeout: 30_000 });
+    await expect(drawing(down)).toContainText('Review');
+    // The four other kinds draw from the one lazy diagram chunk the build keeps.
+    await expect(drawing(sequence)).toContainText('Colab', { timeout: 30_000 });
+    await expect(drawing(state)).toContainText('Published');
+    await expect(drawing(gantt)).toContainText('Design');
+    await expect(drawing(classes)).toContainText('Duck');
+    // Labels are SVG text, so a math label shows as typed and never needs the KaTeX the build leaves
+    // out; another diagram type is refused before Mermaid is asked.
+    await expect(drawing(math)).toContainText('$$x^2$$');
+    await expect(page.locator(`[data-block-id="${pie}"]`)).toContainText(text.diagram.kind);
+    await expect(drawing(pie)).toHaveCount(0);
+  });
+});
+
 test('a replacement owner pairing offers the old device’s kept typing without sending it', async () => {
   test.setTimeout(240_000);
   await withWorld(async (world) => {

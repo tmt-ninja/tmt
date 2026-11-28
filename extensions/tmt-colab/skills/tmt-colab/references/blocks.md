@@ -1,7 +1,7 @@
 # Structured pages (blocks)
 
 A structured page is made of blocks, not HTML: paragraphs, headings, lists, todos, tables, cards,
-questions, callouts, code, images, mockups, work bundles, page views and charts. People edit it in the
+questions, callouts, code, images, mockups, work bundles, page views, charts and diagrams. People edit it in the
 browser; you edit it with `tmt colab block`. `page create` creates one by default;
 `page write` and `page patch` refuse it (`COLAB_STRUCTURED_PAGE`), and `block` refuses an ordinary
 page (`COLAB_NOT_STRUCTURED`). A page converted from HTML keeps its old HTML as a frozen legacy
@@ -85,6 +85,20 @@ value per category: a whole number from 0, or `null` for no value (no bar, never
 `"values":[625,980],"decimals":1`, shown as 62.5 and 98.0 everywhere. A meter writes each category's percent of `max` (100 when absent) after the series name, so
 name the series for what the value is, such as `Left`. To change the data, set `categories` and
 `series` together in one `block props` op so their lengths agree.
+
+## Diagrams
+
+A diagram's text is its Mermaid source, drawn in the design system's look:
+`block insert PAGE --type diagram --props '{"title":"Release"}' --text $'flowchart LR\n  A[Build] --> B{Green?}\n  B -->|yes| C[Ship]'`.
+Five kinds are drawn, named by the first line: `flowchart` (or `graph`), `sequenceDiagram`,
+`stateDiagram-v2`, `gantt` and `classDiagram`. Up to 16 KiB; a flowchart up to 400 edges, a sequence
+or Gantt chart up to 400 lines, a state or class diagram up to 300. No `%%{…}%%` directive. Styling and links are left out: `style`, `classDef`,
+`class` (except a class diagram's `class Name`), `linkStyle`, `cssClass`, `click`, `link`, `links`,
+`callback`, `properties`, `details` and `:::class`; in a Gantt chart also `tickInterval`,
+`todayMarker` and `excludes` (so no weekends skipped). A sequence's `rect` and `box` group in the page's
+own colour. A source the page cannot draw shows why, or Mermaid's line and message, above the source.
+A drawing never shrinks its text below 11px: a left-to-right flowchart wider than the page column
+scrolls sideways. Beyond four steps, prefer `flowchart TD`, which fits a column.
 
 ## Ops file
 

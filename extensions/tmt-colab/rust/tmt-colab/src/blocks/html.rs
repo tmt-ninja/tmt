@@ -414,6 +414,18 @@ fn block(out: &mut String, all: &Map<String, Value>, id: &str, block: &Value) {
             out.push_str("</section>\n");
         }
         "chart" => chart(out, props),
+        // The source and a note: the export is the same bytes from every renderer, so the drawn
+        // diagram, which depends on the browser and the theme, stays in Colab (#6746).
+        "diagram" => {
+            out.push_str("<figure data-diagram>");
+            if let Some(title) = str_of(props, "title") {
+                out.push_str(&format!("<figcaption>{}</figcaption>", escape(title)));
+            }
+            let body = escape(str_of(&block["text"], "s").unwrap_or_default());
+            out.push_str(&format!(
+                "<pre><code class=\"language-mermaid\">{body}</code></pre><p>{DIAGRAM_NOTE}</p></figure>\n"
+            ));
+        }
         _ => {}
     }
 }
@@ -434,6 +446,9 @@ fn shown(value: u64, decimals: u32) -> String {
 
 /// A chart exports as its data: the title, then one row per series with a value per category
 /// (`—` where it has none), so it reads offline with nothing to run (#6746).
+/// What an exported diagram says under its source.
+const DIAGRAM_NOTE: &str = "Open this page in Colab to see the diagram drawn.";
+
 fn chart(out: &mut String, props: &Value) {
     let decimals = props["decimals"].as_u64().unwrap_or(0).min(3) as u32;
     let list = |key: &str| -> &[Value] {
@@ -870,6 +885,28 @@ mod tests {
                         "decimals": 1, "series": [{"name": "Left", "values": [1105, 7]}]}),
                             None,
                         ),
+                    ),
+                ]),
+            ),
+            (
+                "diagrams as their source, with and without a title",
+                doc(vec![
+                    (
+                        1,
+                        block(
+                            "diagram",
+                            root,
+                            "V",
+                            json!({"title": "Delete <a page>"}),
+                            Some(rich(
+                                "flowchart LR\n  A[Delete] --> B{Version & key?}\n  B -->|yes| C[\"<b>log</b>\"]",
+                                json!([]),
+                            )),
+                        ),
+                    ),
+                    (
+                        2,
+                        block("diagram", root, "W", json!({}), Some(rich("", json!([])))),
                     ),
                 ]),
             ),

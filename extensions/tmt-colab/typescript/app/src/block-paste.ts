@@ -1,5 +1,5 @@
 import { linkHref } from '@tmt/browser-ui/blocks';
-import type { Mark } from './blocks.js';
+import { richType, type Mark } from './blocks.js';
 import type { BlockType } from './block-model.js';
 
 /** How many blocks one paste may make; a larger paste goes in as plain text (#6742). */
@@ -51,11 +51,11 @@ const clean = (text: string) =>
  * inert document (nothing in it loads or runs): headings, list items, paragraphs and preformatted
  * text become blocks; bold, italic, code and http(s)/mailto links stay as marks; anything else pastes
  * as its text, and an element with a `src` (an image, a frame) is dropped. Plain text splits into
- * paragraphs at blank lines; a single line feed stays inside its block. A code block, one paragraph
- * of plain text, or a lone link is left to the editor's own paste.
+ * paragraphs at blank lines; a single line feed stays inside its block. A plain block (code, a
+ * diagram's source), one paragraph of plain text, or a lone link is left to the editor's own paste.
  */
 export function pasted(into: BlockType, html: string, text: string): Paste {
-  if (into === 'code') return undefined;
+  if (!richType(into)) return undefined;
   const plain = text.trim();
   if (!html.trim() && (!plain || linkHref(plain))) return undefined;
   const blocks = html.trim() ? fromHtml(html) : fromText(text);

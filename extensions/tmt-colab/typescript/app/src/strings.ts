@@ -91,6 +91,24 @@ export const text = {
     recipientNoAgents: 'No agents are available to choose from.',
     recipientOwnerOnly: 'Only the page owner or an editor can choose the recipient.',
   },
+  /** A diagram block (#6746). */
+  diagram: {
+    label: 'Diagram',
+    showSource: 'Show source',
+    details: 'Details',
+    scrolls: (label: string) => `${label}, scrolls sideways`,
+    wide: 'Wider than the page: scrolls sideways. A top-down flowchart fits better.',
+    drawing: 'Drawing the diagram…',
+    empty: 'This diagram has no source yet.',
+    kind: 'Start the source with flowchart, sequenceDiagram, stateDiagram, gantt or classDiagram: the page draws those five kinds.',
+    size: 'This source is over 16 KB, too large to draw.',
+    lines: (limit: number) => `This diagram has over ${limit} lines, too many to draw.`,
+    directive: 'The page draws every diagram in its own theme: remove the %%{…}%% directive.',
+    unavailable: 'The diagram could not be drawn. Reload the page to try again.',
+    unreadable: (line?: number) =>
+      line === undefined ? 'The source cannot be read.' : `Line ${line} cannot be read.`,
+    fix: 'The diagram is not drawn; fix the source and it draws.',
+  },
   blockText: {
     paragraph: 'Type / for blocks',
     heading: 'Heading',

@@ -1603,6 +1603,492 @@ for (const width of [1440, 390])
       });
     });
 
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a diagram block draws its flowchart in the page's theme, the source a disclosure away, at ${width} ${theme} (#6746)`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      const host = await mountFixture(page, 'diagrams');
+      const flow = host.locator('[data-block-id="flow"] .structured-diagram');
+      // Shrunk to its column while its text stays at least 11px (Mermaid draws 16px); narrower than
+      // that it keeps its size and scrolls sideways, a tab stop that says so. A phone always scrolls.
+      await expect(flow.locator('.structured-diagram-drawing svg')).toBeVisible({
+        timeout: 30_000,
+      });
+      const sizes = await flow.locator('.structured-diagram-drawing').evaluate((node) => ({
+        column: node.clientWidth,
+        natural: node.querySelector('svg')!.viewBox.baseVal.width,
+      }));
+      const scrolls = sizes.natural * (11 / 16) > sizes.column;
+      if (width === 390) expect(scrolls, JSON.stringify(sizes)).toBe(true);
+      const drawing = flow.getByRole('img', {
+        name: scrolls ? '刪除頁面時發生什麼, scrolls sideways' : '刪除頁面時發生什麼',
+        exact: true,
+      });
+      await expect(drawing.locator('svg')).toBeVisible({ timeout: 30_000 });
+      if (!scrolls)
+        expect(await drawing.evaluate((node) => node.querySelector('svg')!.clientWidth)).toBe(
+          sizes.column,
+        );
+      if (scrolls) {
+        await expect(drawing).toHaveAttribute('tabindex', '0');
+        await drawing.focus();
+        await page.keyboard.press('ArrowRight');
+        await expect.poll(() => drawing.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
+        await drawing.evaluate((node) => (node.scrollLeft = 0));
+      } else await expect(drawing).not.toHaveAttribute('tabindex');
+      // Six nodes, one of them the decision, drawn as a diamond: its shape says so, not its colour.
+      await expect(drawing.locator('g.node')).toHaveCount(6);
+      await expect(drawing.locator('g.node polygon')).toHaveCount(1);
+      await expect(drawing).toContainText('資料庫版本對嗎？');
+      await expect(drawing).toContainText('是');
+      // SVG text, never foreign HTML.
+      await expect(drawing.locator('foreignObject')).toHaveCount(0);
+      // The node's text reads against its fill in this theme.
+      const colours = await drawing
+        .locator('g.node')
+        .first()
+        .evaluate((node) => ({
+          fill: getComputedStyle(node.querySelector('rect, polygon, path')!).fill,
+          text: getComputedStyle(node.querySelector('text, tspan')!).fill,
+        }));
+      expect(colours.fill).not.toBe(colours.text);
+      const source = flow.locator('details');
+      await expect(source).not.toHaveAttribute('open', '');
+      await source.locator('summary').click();
+      await expect(source.locator('.structured-diagram-line')).toHaveCount(6);
+      await expect(source.locator('.structured-diagram-line').nth(1)).toHaveText(
+        '2  A[按下刪除] --> B{資料庫版本對嗎？}',
+      );
+      await source.locator('summary').click();
+      // A source Mermaid cannot read says which line, and shows the source as it is.
+      const broken = host.locator('[data-block-id="broken"]');
+      await expect(broken.getByRole('alert')).toContainText('Line 3 cannot be read.', {
+        timeout: 30_000,
+      });
+      // The caret under the line leads; Mermaid's list of expected tokens waits behind Details.
+      await expect(broken.locator('.structured-diagram-message').first()).toHaveText(/\^$/);
+      const details = broken.getByRole('alert').locator('details');
+      await expect(details).not.toHaveAttribute('open', '');
+      await expect(details.locator('summary')).toHaveText('Details');
+      await expect(details).toContainText('Expecting');
+      await expect(broken.locator('.structured-diagram-line')).toHaveCount(6);
+      await expect(broken.locator('svg')).toHaveCount(0);
+      // A kind the page does not draw, or a directive, is never drawn and says why.
+      await expect(host.locator('[data-block-id="other"]').getByRole('status')).toHaveText(
+        text.diagram.kind,
+      );
+      await expect(host.locator('[data-block-id="directive"]').getByRole('status')).toContainText(
+        'remove the %%{…}%% directive',
+      );
+      await expect(host.locator('[data-block-id="directive"] svg')).toHaveCount(0);
+      if (theme === 'dark')
+        expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).not.toBe(
+          'rgb(255, 255, 255)',
+        );
+      await host.locator('[data-block-id="flow"]').screenshot({
+        path: capturePath(`structured-diagram-${width}-${theme}.png`),
+        animations: 'disabled',
+      });
+      await host.locator('[data-block-id="broken"]').screenshot({
+        path: capturePath(`structured-diagram-broken-${width}-${theme}.png`),
+        animations: 'disabled',
+      });
+    });
+
+/** What each kind past the flowchart draws from the fixture (DIAGRAM_KINDS in
+ * structured-page-browser.tsx): its words, and the marks that are its own. */
+const KIND_DRAWINGS = {
+  sequence: {
+    words: ['使用者', 'Colab', '按下刪除', '要求確認', '確認', '寫進 owner log'],
+    marks: 'text.actor',
+  },
+  state: { words: ['草稿', '審查中', '已發布', '送出', '退回', '通過'], marks: 'g.node' },
+  gantt: { words: ['發布計畫', '設計', '實作', '審查', '開發', '驗收'], marks: 'rect.task' },
+  class: {
+    words: ['Block', 'Chart', 'Diagram', '+id string', '+kind string', '延伸'],
+    marks: 'g.node',
+  },
+} as const;
+
+for (const [kind, drawn] of Object.entries(KIND_DRAWINGS))
+  test(`a ${kind} diagram draws as SVG text in the page's theme, at 1440 and 390, light and dark (#6746)`, async ({
+    page,
+  }) => {
+    const host = await mountFixture(page, 'diagrams');
+    const block = host.locator(`[data-block-id="${kind}"]`);
+    const figure = block.locator('.structured-diagram');
+    await expect(figure).toHaveAttribute('data-kind', kind);
+    for (const width of [1440, 390])
+      for (const theme of ['light', 'dark'] as const) {
+        await page.setViewportSize({ width, height: 900 });
+        await page.emulateMedia({ colorScheme: theme });
+        const svg = block.locator('.structured-diagram-drawing svg');
+        await expect(figure).toHaveAttribute('data-state', 'drawn', { timeout: 30_000 });
+        await expect(svg).toBeVisible();
+        // Every word is drawn as SVG text, never foreign HTML, so the cleaner keeps it all.
+        await expect(svg.locator('foreignObject')).toHaveCount(0);
+        const words = await svg.evaluate((node) =>
+          [...node.querySelectorAll('text')].map((text) => text.textContent ?? '').join('\n'),
+        );
+        for (const word of drawn.words) expect(words, word).toContain(word);
+        expect(await svg.locator(drawn.marks).count()).toBeGreaterThan(0);
+        // The text reads against the page in this theme.
+        const colours = await svg.evaluate((node) => ({
+          text: getComputedStyle(node.querySelector('text')!).fill,
+          page: getComputedStyle(document.body).backgroundColor,
+        }));
+        expect(colours.text).not.toBe(colours.page);
+        if (kind === 'state' || kind === 'class') {
+          // Each transition or relation label sits on an opaque backing in the page's colour, as
+          // large as its words, so no line runs through them.
+          const labels = await svg.locator('g.edgeLabel').evaluateAll((groups) => {
+            const probe = document.createElement('span');
+            probe.style.color = 'var(--tmt-ui-surface-paper)';
+            groups[0]!.closest('.structured-diagram')!.append(probe);
+            const paper = getComputedStyle(probe).color;
+            probe.remove();
+            return groups
+              .filter((group) => (group.textContent ?? '').trim() !== '')
+              .map((group) => {
+                const text = group.querySelector('text')!.getBoundingClientRect();
+                const rect = group.querySelector('rect');
+                const box = rect?.getBoundingClientRect();
+                return {
+                  words: group.textContent!.trim(),
+                  opacity: rect ? getComputedStyle(rect).opacity : 'none',
+                  paper: rect ? getComputedStyle(rect).fill === paper : false,
+                  covers:
+                    !!box &&
+                    box.left <= text.left + 0.5 &&
+                    box.right >= text.right - 0.5 &&
+                    box.top <= text.top + 0.5 &&
+                    box.bottom >= text.bottom - 0.5,
+                };
+              });
+          });
+          expect(labels.length, kind).toBeGreaterThan(0);
+          for (const label of labels)
+            expect(label, label.words).toMatchObject({ opacity: '1', paper: true, covers: true });
+        }
+        if (kind === 'sequence') {
+          // The source's red grouping draws in the design system's sheet, not in red.
+          const fill = await svg
+            .locator('rect.rect')
+            .first()
+            .evaluate((node) => getComputedStyle(node).fill);
+          expect(fill).not.toBe('rgb(255, 0, 0)');
+        }
+        if (kind === 'gantt') {
+          // The page turns today's marker off, so a Gantt chart never changes with the date.
+          await expect(svg.locator('.today')).toHaveCount(0);
+          // Each date on the axis clears the next.
+          const ticks = await svg.locator('g.tick text').evaluateAll((texts) =>
+            texts
+              .map((text) => text.getBoundingClientRect())
+              .sort((a, b) => a.left - b.left)
+              .map(({ left, right }) => [left, right]),
+          );
+          expect(ticks.length).toBeGreaterThan(5);
+          for (let at = 1; at < ticks.length; at++)
+            expect(ticks[at]![0]!, JSON.stringify(ticks)).toBeGreaterThan(ticks[at - 1]![1]!);
+        }
+        if (theme === 'dark')
+          expect(
+            await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+          ).not.toBe('rgb(255, 255, 255)');
+        await page.mouse.move(0, 0);
+        await block.screenshot({
+          path: capturePath(`structured-diagram-${kind}-${width}-${theme}.png`),
+          animations: 'disabled',
+        });
+      }
+  });
+
+test('each kind at its bound draws, and the time it takes is logged (#6746)', async ({ page }) => {
+  await mountFixture(page, 'diagrams');
+  await expect(page.locator('[data-block-id="flow"] svg')).toBeVisible({ timeout: 30_000 });
+  const timings = await page.evaluate(async () => {
+    const draw = '/src/diagram-draw.ts';
+    const admit = '/src/diagram-source.ts';
+    const { drawDiagram } = (await import(draw)) as typeof import('../src/diagram-draw.js');
+    const { admitDiagram, DIAGRAM_EDGES, DIAGRAM_LINES } = (await import(
+      admit
+    )) as typeof import('../src/diagram-source.js');
+    // A fixed tangle of 100 names, so every kind lays out the same many crossings.
+    let seed = 6746;
+    const pick = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) % 100;
+    const lines = (count: number, line: (at: number) => string) =>
+      Array.from({ length: count }, (_, at) => line(at));
+    const sources = {
+      flowchart: ['flowchart TD', ...lines(DIAGRAM_EDGES, () => `  N${pick()} --> N${pick()}`)],
+      sequence: [
+        'sequenceDiagram',
+        ...lines(DIAGRAM_LINES.sequence - 1, (at) => `  P${pick() % 8}->>P${pick() % 8}: m${at}`),
+      ],
+      state: [
+        'stateDiagram-v2',
+        ...lines(DIAGRAM_LINES.state - 1, () => `  S${pick()} --> S${pick()}`),
+      ],
+      gantt: [
+        'gantt',
+        '  dateFormat YYYY-MM-DD',
+        '  section S',
+        '  t0 :a0, 2026-01-01, 1d',
+        ...lines(
+          DIAGRAM_LINES.gantt - 4,
+          (at) => `  t${at + 1} :a${at + 1}, after a${at}, ${1 + (pick() % 5)}d`,
+        ),
+      ],
+      class: [
+        'classDiagram',
+        ...lines(DIAGRAM_LINES.class - 1, () => `  C${pick()} <|-- C${pick()}`),
+      ],
+    };
+    const theme = { dark: false, variables: {}, fontFamily: 'sans-serif' };
+    const out: Record<string, { admitted: boolean; drawn: boolean; ms: number }> = {};
+    for (const [kind, source] of Object.entries(sources)) {
+      const admitted = admitDiagram(source.join('\n'));
+      if (!admitted.ok) {
+        out[kind] = { admitted: false, drawn: false, ms: 0 };
+        continue;
+      }
+      const start = performance.now();
+      const drawn = await drawDiagram(`cap-${kind}`, admitted.source, theme);
+      out[kind] = {
+        admitted: true,
+        drawn: 'svg' in drawn,
+        ms: Math.round(performance.now() - start),
+      };
+    }
+    return out;
+  });
+  console.log(`diagram-cap-timing ${JSON.stringify(timings)}`);
+  for (const [kind, timing] of Object.entries(timings))
+    expect(timing, kind).toMatchObject({ admitted: true, drawn: true });
+});
+
+test('a hostile source of each kind draws as text: no link, menu or handler survives (#6746)', async ({
+  page,
+}) => {
+  const requested: string[] = [];
+  page.on('request', (request) => requested.push(request.url()));
+  const dialogs: string[] = [];
+  page.on('dialog', (dialog) => {
+    dialogs.push(dialog.message());
+    void dialog.dismiss();
+  });
+  await mountFixture(page, 'diagrams');
+  await expect(page.locator('[data-block-id="flow"] svg')).toBeVisible({ timeout: 30_000 });
+  const found = await page.evaluate(async () => {
+    const draw = '/src/diagram-draw.ts';
+    const admit = '/src/diagram-source.ts';
+    const { drawDiagram } = (await import(draw)) as typeof import('../src/diagram-draw.js');
+    const { admitDiagram } = (await import(admit)) as typeof import('../src/diagram-source.js');
+    const sources = {
+      sequence: [
+        'sequenceDiagram',
+        '  participant A as <img src=x onerror=alert(1)>',
+        '  link A: Docs @ javascript:alert(2)',
+        '  links A: {"Out": "https://example.com/l"}',
+        '  rect rgb(255, 0, 0)',
+        '    A->>A: <script>alert(3)</script>',
+        '  end',
+      ],
+      state: [
+        'stateDiagram-v2',
+        '  [*] --> A',
+        '  click A "https://example.com/c"',
+        '  style A fill:url(https://example.com/s.png)',
+      ],
+      gantt: [
+        'gantt',
+        '  dateFormat YYYY-MM-DD',
+        '  t :a1, 2026-01-01, 3d',
+        '  click a1 href "javascript:alert(4)"',
+        '  click a1 call alert(5)',
+      ],
+      class: [
+        'classDiagram',
+        '  class A',
+        '  click A href "javascript:alert(6)"',
+        '  link A "https://example.com/k"',
+        '  callback A "alert"',
+        '  style A fill:url(https://example.com/s.png)',
+      ],
+    };
+    const theme = { dark: false, variables: {}, fontFamily: 'sans-serif' };
+    const host = document.createElement('div');
+    document.body.append(host);
+    const out: Record<string, unknown> = {};
+    for (const [kind, source] of Object.entries(sources)) {
+      const admitted = admitDiagram(source.join('\n'));
+      if (!admitted.ok) {
+        out[kind] = admitted.reason;
+        continue;
+      }
+      const drawn = await drawDiagram(`hostile-${kind}`, admitted.source, theme);
+      if (!('svg' in drawn)) {
+        out[kind] = drawn.error.excerpt;
+        continue;
+      }
+      host.innerHTML = drawn.svg;
+      const all = [...host.querySelectorAll('*')];
+      out[kind] = {
+        links: host.querySelectorAll('a').length,
+        hrefs: all.filter((el) => el.hasAttribute('href') || el.hasAttribute('xlink:href')).length,
+        foreign: host.querySelectorAll('foreignObject, image, use, script, iframe, img').length,
+        handlers: all.filter((el) => [...el.attributes].some((attr) => attr.name.startsWith('on')))
+          .length,
+        outsideUrls: all.filter((el) =>
+          [...el.attributes].some((attr) => /url\(\s*['"]?(?!#)/i.test(attr.value)),
+        ).length,
+        example: host.innerHTML.includes('example.com'),
+      };
+      for (const node of host.querySelectorAll('g, text, rect'))
+        (node as SVGElement).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    }
+    host.remove();
+    return out;
+  });
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 300))),
+  );
+  const clean = { links: 0, hrefs: 0, foreign: 0, handlers: 0, outsideUrls: 0, example: false };
+  expect(found).toEqual({ sequence: clean, state: clean, gantt: clean, class: clean });
+  expect(dialogs).toEqual([]);
+  expect(requested.filter((url) => url.includes('example.com'))).toEqual([]);
+});
+
+test('a hostile diagram source draws as text: nothing in it runs, links or loads (#6746)', async ({
+  page,
+}) => {
+  const requested: string[] = [];
+  page.on('request', (request) => requested.push(request.url()));
+  const dialogs: string[] = [];
+  page.on('dialog', (dialog) => {
+    dialogs.push(dialog.message());
+    void dialog.dismiss();
+  });
+  const host = await mountFixture(page, 'diagrams');
+  const drawing = host.locator('[data-block-id="hostile"] .structured-diagram-drawing');
+  await expect(drawing.locator('svg')).toBeVisible({ timeout: 30_000 });
+  await expect(drawing.locator('g.node')).toHaveCount(3);
+  const found = await drawing.evaluate((node) => ({
+    links: node.querySelectorAll('a').length,
+    hrefs: [...node.querySelectorAll('*')].filter(
+      (el) => el.hasAttribute('href') || el.hasAttribute('xlink:href'),
+    ).length,
+    foreign: node.querySelectorAll('foreignObject, image, use, script, iframe, img').length,
+    handlers: [...node.querySelectorAll('*')].filter((el) =>
+      [...el.attributes].some((attr) => attr.name.startsWith('on')),
+    ).length,
+    outsideUrls: [...node.querySelectorAll('*')].filter((el) =>
+      [...el.attributes].some((attr) => /url\(\s*['"]?(?!#)/i.test(attr.value)),
+    ).length,
+    styleText: [...node.querySelectorAll('style')].map((style) => style.textContent ?? '').join(''),
+  }));
+  expect(found).toMatchObject({ links: 0, hrefs: 0, foreign: 0, handlers: 0, outsideUrls: 0 });
+  expect(found.styleText).not.toMatch(/example\.com|@import/);
+  await drawing.locator('g.node').first().click();
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 300))),
+  );
+  expect(dialogs).toEqual([]);
+  expect(requested.filter((url) => url.includes('example.com'))).toEqual([]);
+});
+
+/** The fixture's flowchart (DELETE_FLOW in structured-page-browser.tsx), a line each. */
+const DELETE_FLOW_LINES = [
+  'flowchart LR',
+  '  A[按下刪除] --> B{資料庫版本對嗎？}',
+  '  B -->|是| C[寫進 owner log]',
+  '  B -->|否| D[提示重新啟動 Colab]',
+  '  C --> E[記下時間與誰]',
+  '  E --> F[從列表移除]',
+];
+
+test("a diagram's source is edited in place: Enter is a line feed, and a fixed source draws (#6746)", async ({
+  page,
+}) => {
+  const host = await mountFixture(page, 'diagrams');
+  const blocks = host.locator('[data-block-id]');
+  const count = await blocks.count();
+  // The broken source: a click on its problem opens the source in the editor, the drawing's place
+  // under it still saying what is wrong.
+  const broken = host.locator('[data-block-id="broken"]');
+  await expect(broken.getByRole('alert')).toBeVisible({ timeout: 30_000 });
+  await broken.getByRole('alert').click();
+  const editor = broken.locator('[contenteditable="true"]');
+  await expect(editor).toBeFocused();
+  await expect(editor).toHaveText(/B -->>\|是\|/);
+  // The source typed again with line 3's arrow fixed and a new last edge: Enter adds a line, never
+  // a block.
+  await page.keyboard.press('ControlOrMeta+a');
+  await page.keyboard.press('Backspace');
+  await expect(editor).toHaveText('');
+  const fixed = [...DELETE_FLOW_LINES, '  F --> G[完成]'];
+  // Typed as a person types: an insert in the same frame as the clear is lost in any text block
+  // (filed separately), never a keystroke.
+  for (const [at, line] of fixed.entries()) {
+    if (at) await page.keyboard.press('Enter');
+    await page.keyboard.type(line);
+  }
+  await page.keyboard.press('Escape');
+  await expect(blocks).toHaveCount(count);
+  // The page holds the typed source, a line each.
+  await expect(broken.locator('.structured-diagram-line')).toHaveText(
+    fixed.map((line, at) => `${at + 1}${line}`),
+  );
+  const drawing = broken.locator('.structured-diagram-drawing svg');
+  await expect(drawing).toBeVisible({ timeout: 30_000 });
+  await expect(drawing.locator('g.node')).toHaveCount(7);
+  await expect(broken.getByRole('alert')).toHaveCount(0);
+  // Opening the source reads it, rather than editing it.
+  await broken.locator('summary').click();
+  await expect(broken.locator('[contenteditable="true"]')).toHaveCount(0);
+  await expect(broken.locator('.structured-diagram-line')).toHaveCount(7);
+  // Edited again on a wide screen, a drawing that still scrolls says how it would fit; read, or on
+  // a phone, where every flowchart scrolls, it says nothing.
+  const hint = broken.getByText(text.diagram.wide);
+  await expect(hint).toHaveCount(0);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await broken.locator('.structured-diagram-drawing').click();
+  await expect(broken.locator('[contenteditable="true"]')).toBeFocused();
+  await expect(hint).toBeVisible();
+  await broken.screenshot({ path: capturePath('structured-diagram-hint-1440.png') });
+  await page.keyboard.press('Escape');
+  await expect(hint).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await broken.locator('.structured-diagram-drawing').click();
+  await expect(broken.locator('[contenteditable="true"]')).toBeFocused();
+  await expect(broken.locator('.structured-diagram-drawing')).toHaveAttribute('tabindex', '0');
+  await expect(hint).toHaveCount(0);
+});
+
+test('a page without a diagram never loads the diagram drawer (#6746)', async ({ page }) => {
+  const loaded: string[] = [];
+  page.on('request', (request) => {
+    if (/diagram-draw|mermaid|dompurify/.test(request.url())) loaded.push(request.url());
+  });
+  const host = await mountFixture(page, 'charts');
+  await expect(host.locator('[data-block-id="meter"]')).toContainText('剩 55%');
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => setTimeout(done, 500))),
+  );
+  expect(loaded).toEqual([]);
+  // A page with one loads it.
+  await page.evaluate(async () => {
+    const path = '/test/structured-page-browser.tsx';
+    document.getElementById('structured-page-fixture')?.remove();
+    (await import(path)).mount('diagrams');
+  });
+  await expect(page.locator('[data-block-id="flow"] svg')).toBeVisible({ timeout: 30_000 });
+  expect(loaded.some((url) => url.includes('diagram-draw'))).toBe(true);
+});
+
 test('a mockup renders only in an opaque sandboxed frame, never in the page', async ({ page }) => {
   await servePageRuntime(page);
   const host = await mountFixture(page, 'spec');

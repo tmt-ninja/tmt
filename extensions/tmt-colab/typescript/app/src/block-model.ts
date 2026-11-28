@@ -34,6 +34,7 @@ export const TEXT_TYPES: ReadonlySet<EntryType> = new Set<EntryType>([
   'todo',
   'callout',
   'code',
+  'diagram',
 ]);
 
 /** The block type each insert-menu entry makes, by the design system's catalog ID (browser-ui

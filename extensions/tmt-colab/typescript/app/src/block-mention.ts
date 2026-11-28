@@ -46,6 +46,7 @@ const TYPE_NAMES: Readonly<Record<string, string>> = {
   'work-bundle': 'Work bundle',
   'page-view': 'Page view',
   chart: 'Chart',
+  diagram: 'Diagram',
 };
 
 /** A block's chip text: its type and opening text, as "Table: Ticket status". */

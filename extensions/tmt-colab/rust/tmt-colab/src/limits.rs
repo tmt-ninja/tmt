@@ -1,7 +1,8 @@
 //! L2 product bounds, distinct from the disposable #830 fixture budgets.
 use std::time::Duration;
 
-/// Immutable app inventory, below remote's per-reply 16 MiB cap.
+/// Immutable app inventory. Each file is one reply through Remote's mount, which relays at most
+/// 16 MiB per reply; the whole inventory is bounded by `APP_BYTES`.
 pub use crate::app_inventory::{APP_BYTES, APP_FILES};
 
 /// The largest embedded declaration or admission text: Remote's `DECLARATION_BYTES` and

@@ -845,8 +845,8 @@ script's licenses to `THIRD-PARTY-NOTICES.txt`, since the default build bundles 
 dependency or output is therefore a reviewed `runtime-pin.json` diff.
 
 Disk loading MUST admit only nonempty regular files through no-follow directory-
-anchored opens. Both disk and embedded inventories MUST have at most 128 files
-and 16 MiB total. The inventory requires
+anchored opens. Both disk and embedded inventories MUST have at most 160 files
+and 24 MiB total. The inventory requires
 `index.html`, `renderer.html` and `reader.html`, and admits optional `THIRD-PARTY-NOTICES.txt`, and flat generated `assets/` files;
 unknown output, symlinks and missing HTML entry references reject the inventory.
 JavaScript and CSS are required. Supported asset suffixes are `html`, `js`, `css`,
@@ -3245,7 +3245,7 @@ below; any other key, type or shape is refused.
 
 | Key       | Value                                                                                                                                                            |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`    | One of the fourteen types below, or the internal `row`; changes only by `retype` between the six [retype types](#retype-6742)                                    |
+| `type`    | One of the fifteen types below, or the internal `row`; changes only by `retype` between the six [retype types](#retype-6742)                                     |
 | `parent`  | `root` or the ID of a `card`; a card never holds a card; a `row`'s parent is its table                                                                           |
 | `pos`     | Fractional sort key: 1 to 64 characters of `0-9A-Za-z`, never ending in `0`; siblings order by `(pos, id)`, so two writers that pick one key keep a stable order |
 | `props`   | Nested `Y.Map` of plain values; only the keys of the type's schema                                                                                               |
@@ -3272,6 +3272,7 @@ back with it on `restore`.
 | `work-bundle` | none  | `page` (required page ID), `number`, `work`, `editable`, `tickets` (at most 20, `https://github.com/` links only)                                              |
 | `page-view`   | none  | `label`, `rows` (at most 200, 24 KiB), `filters`, `columns`, `sort` `updated\|title`, `limit` 1-200, `groupBy`, `state`, `density`, `selected`, `selectable`   |
 | `chart`       | none  | `kind` (required) `bar\|stacked-bar\|meter`, `title` (required, 128 bytes), `categories` (required), `series` (required), `max`, `decimals` 0-3                |
+| `diagram`     | plain | `title` (128 bytes)                                                                                                                                            |
 
 A `chart` (#6746) is data only; the page draws it with the design system's chart, so no block carries
 markup or script for it. `categories` is 1 to 60 non-empty labels of at most 64 bytes. `series` is 1 to
@@ -3284,6 +3285,34 @@ values' units) is the top of the axis, or a meter's whole, 100 when absent; a me
 percent of it with the same places, after the series name ("Left 55%"). A `bar` writes each value above
 its bar where it fits. The export writes a chart as its data, a `<figure data-chart>` whose table has a
 row per series, each value with exactly `decimals` places (`60.0`), and `—` for no value.
+
+A `diagram` (#6746) holds its Mermaid source as plain text. The block stores any text, so typing through
+a half-written source is never refused; the page draws a source only when its first line that is neither
+blank nor a `%%` comment names one of five kinds: `flowchart` or `graph`, `sequenceDiagram`,
+`stateDiagram` or `stateDiagram-v2`, `gantt`, and `classDiagram` or `classDiagram-v2`. It must be at
+most 16 KiB of UTF-8 and carry no `%%{…}%%` directive (front matter fails the first-line rule). A
+flowchart has at most 400 edges; a sequence or Gantt chart at most 400 lines that are neither blank nor
+a comment, and a state or class diagram at most 300. The lines that restyle a diagram, link out or set
+what the page sets are left out, each kind matched as its Mermaid lexer matches it: a flowchart's
+`style`, `classDef`, `class`, `linkStyle` and `click`; a sequence's `link`, `links`, `properties` and
+`details` (in any case); a state diagram's `classDef`, `class`, `style` and `click` (in any case); a
+class diagram's `style`, `classDef`, `cssClass`, `click`, `link` and `callback`, while `class Name`
+still declares a class; a Gantt chart's `click`, `tickInterval`, `todayMarker` and `excludes` (in any
+case), since `excludes` makes Mermaid walk every task day by day. A node's `:::class` goes too, in every
+kind but sequence. A left-out line stays as a blank one, and a Gantt chart gets `todayMarker off` after
+its last line, so Mermaid's line numbers are the source's and a drawing never depends on today. A
+sequence's `rect` and `box` keep their grouping in the design system's sheet, whatever colour they name.
+The design system draws every diagram alike. Anything else shows why, or Mermaid's line and message,
+above the numbered source, and is never a blank. The browser draws a diagram with Mermaid 11.17.2,
+loaded as one lazy chunk with all five kinds only when a page shows a diagram, in strict mode with SVG
+text labels, in the page's theme. It then cleans the SVG again, keeping no script, link, image, foreign
+HTML, `use`, event attribute, `href`, or `url()` or `@import` that reaches outside the diagram. Mermaid
+11.17.2 is the last of its line: fixes land on 12.x first, so exposure rests on the five-kind input, the
+16 KiB and line caps, strict mode, the absence of HTML labels and the second cleaning pass. Moving to
+12.x needs its ELK layout kept out of the build, or a licence decision. The export writes a diagram as
+its source, `<figure data-diagram>` with the title as `<figcaption>`, the source in `<pre><code
+class="language-mermaid">` and the sentence "Open this page in Colab to see the diagram drawn.". A
+drawing depends on the browser and the theme, and the export is the same bytes from every renderer.
 
 Rich text carries the marks `bold`, `italic` and `code` (value `true`), `link` (an `http://`,
 `https://` or `mailto:` target of at most 2048 bytes without whitespace), `agent` (a label of at most

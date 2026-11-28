@@ -11,10 +11,16 @@ import {
 } from '../../scripts/bundled-license-policy.mjs';
 import {
   clarifyBundledLicenses,
-  scrollBarLicense,
+  licensePins,
 } from '../../scripts/bundled-license-clarification.mjs';
 
 const source = fileURLToPath(new URL('../../../', import.meta.url));
+const scrollBarLicense = licensePins.find((pin) => pin.name === 'react-remove-scroll-bar')!;
+/** A lock holding exactly the pinned resolutions given. */
+const lockOf = (pins: readonly { name: string; version: string; integrity: string }[]) =>
+  `lockfileVersion: '9.0'\n\npackages:\n\n${pins
+    .map((pin) => `  ${pin.name}@${pin.version}:\n    resolution: {integrity: ${pin.integrity}}\n`)
+    .join('\n')}\nsnapshots:\n`;
 const accepted = acceptedLicenses(source);
 const entry = {
   name: '@example/bundled',
@@ -72,29 +78,69 @@ describe('redistributed npm license policy', () => {
     );
   });
 
-  it('rejects altered clarification bytes rather than accepting an unreviewed text', async () => {
-    const { root } = fixture();
-    mkdirSync(join(root, 'typescript'));
-    writeFileSync(
-      join(root, 'typescript/pnpm-lock.yaml'),
-      readFileSync(join(source, 'typescript/pnpm-lock.yaml'))
-    );
-    const module = join(root, 'bundled-license-clarification.mjs');
-    writeFileSync(
-      module,
-      readFileSync(join(source, 'typescript/scripts/bundled-license-clarification.mjs'))
-    );
-    writeFileSync(
-      join(root, 'bundled-license-react-remove-scroll-bar-2.3.8.txt'),
-      'MIT License\nCopyright another author'
-    );
-    const { clarifyBundledLicenses: altered } = await import(pathToFileURL(module).href);
-    expect(() =>
-      altered(root, [
-        { name: scrollBarLicense.name, version: scrollBarLicense.version, identifier: 'MIT' },
-      ])
-    ).toThrow('License clarification checksum mismatch');
-  });
+  it.each(licensePins.map((pin) => [`${pin.name}@${pin.version}`, pin] as const))(
+    'rejects altered clarification bytes rather than accepting an unreviewed text: %s',
+    async (_identity, pin) => {
+      const { root } = fixture();
+      mkdirSync(join(root, 'typescript'));
+      writeFileSync(join(root, 'typescript/pnpm-lock.yaml'), lockOf(licensePins));
+      const module = join(root, 'bundled-license-clarification.mjs');
+      writeFileSync(
+        module,
+        readFileSync(join(source, 'typescript/scripts/bundled-license-clarification.mjs'))
+      );
+      for (const other of licensePins)
+        writeFileSync(
+          join(root, `bundled-license-${other.name}-${other.version}.txt`),
+          other === pin
+            ? 'MIT License\nCopyright another author'
+            : readFileSync(
+                join(
+                  source,
+                  `typescript/scripts/bundled-license-${other.name}-${other.version}.txt`
+                )
+              )
+        );
+      const { clarifyBundledLicenses: altered } = await import(pathToFileURL(module).href);
+      expect(() =>
+        altered(root, [{ name: pin.name, version: pin.version, identifier: pin.identifier }])
+      ).toThrow(`License clarification checksum mismatch: ${pin.name}@${pin.version}`);
+    }
+  );
+
+  it.each(licensePins.map((pin) => [`${pin.name}@${pin.version}`, pin] as const))(
+    'fills only its own pinned notice, and a changed lock integrity or SPDX fails closed: %s',
+    (_identity, pin) => {
+      const { root } = fixture();
+      mkdirSync(join(root, 'typescript'));
+      writeFileSync(join(root, 'typescript/pnpm-lock.yaml'), lockOf(licensePins));
+      const missing = { name: pin.name, version: pin.version, identifier: pin.identifier };
+      const [filled] = clarifyBundledLicenses(root, [missing]) as { text: string }[];
+      expect(filled.text.length).toBeGreaterThan(200);
+      expect(assertBundledLicenses([filled], accepted)).toBe(1);
+      expect(() =>
+        clarifyBundledLicenses(root, [{ ...missing, identifier: 'GPL-3.0-only' }])
+      ).toThrow(`Review license clarification SPDX: ${pin.name}@${pin.version}`);
+      // Only a pin that allows it names a missing identifier.
+      const unnamed = { name: pin.name, version: pin.version };
+      if (pin.identifierWhenMissing)
+        expect(clarifyBundledLicenses(root, [unnamed])).toEqual([
+          { ...unnamed, identifier: pin.identifier, text: filled.text },
+        ]);
+      else
+        expect(() => clarifyBundledLicenses(root, [unnamed])).toThrow(
+          'Review license clarification SPDX'
+        );
+      writeFileSync(
+        join(root, 'typescript/pnpm-lock.yaml'),
+        lockOf(licensePins).replace(pin.integrity, 'sha512-CHANGED==')
+      );
+      expect(() => clarifyBundledLicenses(root, [missing])).toThrow(
+        `Review license clarification lock integrity: ${pin.name}@${pin.version}`
+      );
+    }
+  );
+
   it('reads the canonical reviewed Rust allowlist, including multiline TOML', () => {
     expect([...accepted]).toEqual([
       'MIT',

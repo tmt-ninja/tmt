@@ -1649,7 +1649,8 @@ export function useBlockEditing(
       )
         // The slash is typed as usual; what follows it filters the menu.
         setMenuAt({ id, query: '/' });
-      if (event.key === 'Enter' && !event.shiftKey && block.type !== 'code' && collapsed) {
+      // A plain block (code, a diagram's source) takes the line feed; a rich one splits.
+      if (event.key === 'Enter' && !event.shiftKey && richType(block.type) && collapsed) {
         void split(current, at);
         return true;
       }

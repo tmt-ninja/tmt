@@ -29,6 +29,7 @@ export const BLOCK_TYPES = [
   'work-bundle',
   'page-view',
   'chart',
+  'diagram',
 ] as const;
 export type BlockType = (typeof BLOCK_TYPES)[number];
 /** A table's rows are blocks of this type; only `table add-row` makes one. */
@@ -243,7 +244,16 @@ export function richFromRuns(runs: Run[]): RichText {
 
 /** A block of this type has text, and may carry marks only when `richType`. */
 export function hasText(type: string): boolean {
-  return ['paragraph', 'heading', 'list', 'todo', 'callout', 'code', 'question'].includes(type);
+  return [
+    'paragraph',
+    'heading',
+    'list',
+    'todo',
+    'callout',
+    'code',
+    'question',
+    'diagram',
+  ].includes(type);
 }
 export function richType(type: string): boolean {
   return ['paragraph', 'heading', 'list', 'todo', 'callout'].includes(type);
@@ -468,6 +478,8 @@ const SCHEMA: Record<string, Record<string, Prop>> = {
     // Values are whole numbers; one is shown divided by 10^decimals (625 at 1 is 62.5).
     decimals: int(0, 3),
   },
+  // A diagram's text is its Mermaid source (#6746); the page draws only what it admits.
+  diagram: { title: line(128) },
 };
 /** What a type's props may hold in all, as canonical JSON bytes. */
 function propsBytes(type: string): number {
