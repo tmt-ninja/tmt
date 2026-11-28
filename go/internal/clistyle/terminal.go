@@ -34,3 +34,56 @@ func ProbeWidth(stream *os.File) (int, bool) {
 	}
 	return cols, true
 }
+
+// OutputTerminal decides how a human output stream renders. JSON is plain
+// and unbounded. A terminal with no usable width also leaves values whole.
+func OutputTerminal(stream *os.File, json bool, theme *Theme) Terminal {
+	if json {
+		return Terminal{}
+	}
+	result := streamTerminal(stream, theme)
+	if columns, ok := ProbeWidth(stream); ok {
+		result.Width = &columns
+	}
+	return result
+}
+
+// DiagnosticTerminal styles diagnostic text without constraining its width.
+func DiagnosticTerminal(stream *os.File, theme *Theme) Terminal {
+	return streamTerminal(stream, theme)
+}
+
+func streamTerminal(stream *os.File, theme *Theme) Terminal {
+	depth := streamDepth(isTerminal(stream), os.LookupEnv)
+	if depth == NoColor {
+		return Terminal{}
+	}
+	return Terminal{Depth: depth, Theme: theme}
+}
+
+func streamDepth(isTerm bool, lookup func(string) (string, bool)) Depth {
+	noColor, _ := lookup("NO_COLOR")
+	if noColor != "" {
+		return NoColor
+	}
+	force, _ := lookup("CLICOLOR_FORCE")
+	if force == "" {
+		if !isTerm {
+			return NoColor
+		}
+		cliColor, cliColorSet := lookup("CLICOLOR")
+		if cliColorSet && cliColor == "0" {
+			return NoColor
+		}
+		term, termSet := lookup("TERM")
+		_, ci := lookup("CI")
+		if !cliColorSet && !ci && (!termSet || term == "dumb") {
+			return NoColor
+		}
+	}
+	depth, _ := lookup("COLORTERM")
+	if depth == "24bit" || depth == "truecolor" {
+		return TrueColor
+	}
+	return ANSI16
+}

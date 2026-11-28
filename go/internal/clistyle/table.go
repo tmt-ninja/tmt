@@ -183,8 +183,6 @@ func fitTableText(text string, cells int) string {
 		first.WriteString(word)
 		used += wordWidth
 	}
-	// NOT PORTED (#6938): use Unicode grapheme segmentation and sequence
-	// widths once the approved Go dependency is available.
 	prefix, _ := textHead(first.String(), cells-1)
 	// The word loop can also finish without wrapping, for example when it
 	// drops leading whitespace. In that case there is no ellipsis.

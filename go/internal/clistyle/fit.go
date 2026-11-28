@@ -1,12 +1,10 @@
 package clistyle
 
 import (
+	"github.com/rivo/uniseg"
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
-
-	"golang.org/x/text/width"
 )
 
 // Align places padding around text that fits within a cell.
@@ -58,26 +56,10 @@ func needsEscape(char rune) bool {
 	return unicode.IsControl(char) || char == '\u2028' || char == '\u2029'
 }
 
-func runeCells(char rune) int {
-	if unicode.IsControl(char) || unicode.In(char, unicode.Mn, unicode.Me, unicode.Cf) {
-		return 0
-	}
-	switch width.LookupRune(char).Kind() {
-	case width.EastAsianWide, width.EastAsianFullwidth:
-		return 2
-	default:
-		return 1
-	}
-}
-
-// DisplayWidth measures literal text in terminal cells. Escape untrusted
-// text first when measuring a cell that will display it visibly.
+// DisplayWidth measures literal text in terminal cells, including grapheme
+// sequences. Escape untrusted text before measuring a displayed cell.
 func DisplayWidth(text string) int {
-	cells := 0
-	for _, char := range text {
-		cells += runeCells(char)
-	}
-	return cells
+	return uniseg.StringWidth(text)
 }
 
 // Fit escapes, pads or cuts text to exactly cells display cells.
@@ -86,7 +68,8 @@ func Fit(text string, cells int, align Align, truncate Truncate) string {
 		return ""
 	}
 	text = Escape(text)
-	if used := DisplayWidth(text); used <= cells {
+	used := DisplayWidth(text)
+	if used <= cells {
 		pad := cells - used
 		before := 0
 		switch align {
@@ -100,17 +83,15 @@ func Fit(text string, cells int, align Align, truncate Truncate) string {
 	room := cells - 1
 	if truncate == TruncateMiddle {
 		front, frontCells := textHead(text, room-room/2)
-		offset, backCells := len(text), 0
-		for offset > 0 {
-			char, size := utf8.DecodeLastRuneInString(text[:offset])
-			if next := backCells + runeCells(char); next <= room/2 {
-				backCells = next
-				offset -= size
-			} else {
-				break
-			}
+		back := text
+		backCells := used
+		state := -1
+		for backCells > room/2 && back != "" {
+			var width int
+			_, back, width, state = uniseg.FirstGraphemeClusterInString(back, state)
+			backCells -= width
 		}
-		return front + strings.Repeat(" ", room-frontCells-backCells) + "…" + text[offset:]
+		return front + strings.Repeat(" ", room-frontCells-backCells) + "…" + back
 	}
 	front, frontCells := textHead(text, room)
 	return front + "…" + strings.Repeat(" ", room-frontCells)
@@ -133,25 +114,42 @@ func FitLines(text string, cells int, align Align, truncate Truncate, maxLines i
 			return append(lines, Fit(remaining, cells, align, TruncateEnd))
 		}
 		split := len(prefix)
-		for i, char := range prefix {
-			if i > 0 && unicode.IsSpace(char) {
+		for rest, state := prefix, -1; rest != ""; {
+			i := len(prefix) - len(rest)
+			var cluster string
+			cluster, rest, _, state = uniseg.FirstGraphemeClusterInString(rest, state)
+			if i > 0 && strings.TrimSpace(cluster) == "" {
 				split = i
 			}
 		}
 		lines = append(lines, Fit(strings.TrimRightFunc(remaining[:split], unicode.IsSpace), cells, align, TruncateEnd))
-		remaining = strings.TrimLeftFunc(remaining[split:], unicode.IsSpace)
+		remaining = trimLeadingSpace(remaining[split:])
 	}
 	return lines
 }
 
+func trimLeadingSpace(text string) string {
+	state := -1
+	for text != "" {
+		cluster, rest, _, next := uniseg.FirstGraphemeClusterInString(text, state)
+		if strings.TrimSpace(cluster) != "" {
+			break
+		}
+		text, state = rest, next
+	}
+	return text
+}
+
 func textHead(text string, cells int) (string, int) {
 	used := 0
-	for i, char := range text {
-		next := used + runeCells(char)
-		if next > cells {
+	for rest, state := text, -1; rest != ""; {
+		i := len(text) - len(rest)
+		var width int
+		_, rest, width, state = uniseg.FirstGraphemeClusterInString(rest, state)
+		if used+width > cells {
 			return text[:i], used
 		}
-		used = next
+		used += width
 	}
 	return text, used
 }
