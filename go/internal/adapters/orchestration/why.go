@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"encoding/json/v2"
 	"errors"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
@@ -83,5 +84,30 @@ func readFailure(err error) *core.RequestFailure {
 	if errors.As(err, &failure) {
 		return failure
 	}
+	switch {
+	case errors.Is(err, core.ErrOrchInput):
+		return &core.RequestFailure{Code: "ORCH_INPUT_INVALID", Message: "Invalid orchestration input or calendar selection.", Status: 1}
+	case errors.Is(err, core.ErrOrchLimit):
+		return &core.RequestFailure{Code: "ORCH_LIMIT", Message: "Orchestration query exceeds its bounded expansion.", Status: 1}
+	case errors.Is(err, core.ErrOrchZone):
+		return &core.RequestFailure{Code: "ORCH_TIME_ZONE", Message: "A named IANA time zone could not be resolved.", Status: 1}
+	case errors.Is(err, core.ErrOrchMember):
+		return &core.RequestFailure{Code: "ORCH_MEMBER_NOT_FOUND", Message: "Orchestration member was not found or is retired.", Status: 3}
+	}
 	return &core.RequestFailure{Code: "ORCH_STORAGE_UNAVAILABLE", Message: "Could not read orchestration storage.", Status: 1}
+}
+
+// ReadOutputLimit is the native bounded orchestration document size shared
+// with the local API transport, excluding the document's trailing newline.
+const ReadOutputLimit = 12_648_448
+
+func boundReadOutput(value any) *core.RequestFailure {
+	encoded, err := json.Marshal(value)
+	if err != nil {
+		return readFailure(core.ErrOrchInput)
+	}
+	if len(encoded) > ReadOutputLimit {
+		return readFailure(core.ErrOrchLimit)
+	}
+	return nil
 }

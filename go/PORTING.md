@@ -181,8 +181,8 @@ in the initial dual-runtime native slice (3 passed on each runtime):
   stdin, stdout, stderr, exit status, and the callback executable.
 
 The same three TypeScript assertions also passed with `nativecompat` and the
-unmodified TypeScript harness. The dispatch-only CI job is available. Its first
-E2E measurement is pending.
+unmodified TypeScript harness. Dispatch-only CI run `46148257268` passed 3
+native and 2 E2E cases each against Go and Rust.
 
 - [ ] Finish local API v1 operation admission, response parity, lazy schema fencing,
   lifecycle delivery, and CLI composition. Qualify MCP identity pinning and all
@@ -194,10 +194,15 @@ E2E measurement is pending.
   timer commands over the clock lease and minute window.
 - [ ] Port lifecycle-hook enable, disable and delivery with executable verification
   and bounded context contributions.
-- [ ] Complete orchestration overview, plans, preview, jobs, talks and routes.
+- [ ] Complete orchestration preview, jobs, talks and routes.
+  Plan list/show share the API projection and port exact selector and
+  UUID-shaped name assertions from `plan_filters_keep_competing_effects_and_uuid_selection_never_falls_back_to_names`
+  in `rust/crates/tmt-cli/tests/orchestration.rs`. Overview uses one effective
+  resolver and preserves member selection and plan sources. Gap, fold, and
+  half-hour range assertions map to the native `orchestration/calendar.rs`
+  tests. Digest receiving storage cutover to the shared resolver is pending.
   Why shares its JSON projection between the API and CLI. Its paging,
-  uncertainty and unchanged change-cursor
-  assertions map to `why_reads_actual_transactional_events_and_preserves_uncertainty`
+  uncertainty and unchanged change-cursor assertions map to `why_reads_actual_transactional_events_and_preserves_uncertainty`
   in `rust/crates/tmt-cli/tests/orchestration.rs`. Why advertises Digest claims
   and settlements. Hold and sending producers and other orchestration CLI
   entry points remain pending. Then port workspace capture and restore and the remaining

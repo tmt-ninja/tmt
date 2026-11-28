@@ -16,10 +16,14 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
+	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 func registerOrchGrammar() {
-	why := grammar.child("orch").child("why")
+	orch := grammar.child("orch")
+	registerOverviewGrammar(orch)
+	registerPlanGrammar(orch.child("plan"))
+	why := orch.child("why")
 	why.summary = "Read retained receiving decision facts"
 	why.operands = []operandSpec{required("subject")}
 	why.options = []string{"before", "limit"}
@@ -60,9 +64,23 @@ func journalStamp(ms uint64) string {
 }
 
 func runOrch(ctx context.Context, root home.Root, inv invocation) output.Report {
-	if !slices.Equal(inv.path, []string{"orch", "why"}) {
+	switch {
+	case len(inv.path) == 1:
+		return runOrchOverview(ctx, root, inv)
+	case slices.Equal(inv.path, []string{"orch", "why"}):
+		return runOrchWhy(ctx, root, inv)
+	case slices.Equal(inv.path, []string{"orch", "plan"}):
+		return orchPlanMissingSubcommand()
+	case slices.Equal(inv.path, []string{"orch", "plan", "ls"}):
+		return runOrchPlans(ctx, root, nil)
+	case slices.Equal(inv.path, []string{"orch", "plan", "show"}):
+		return runOrchPlans(ctx, root, &inv.operands[0])
+	default:
 		return bindingFailure("NOT_PORTED", fmt.Sprintf("Command '%s' is not yet ported.", strings.Join(inv.path, " ")), 2)
 	}
+}
+
+func runOrchWhy(ctx context.Context, root home.Root, inv invocation) output.Report {
 	subject := core.OrchJournalSubject{Kind: core.OrchSubjectIdentity, ID: inv.operands[0]}
 	if strings.HasPrefix(subject.ID, "req_") {
 		subject.Kind = core.OrchSubjectRequest
@@ -84,6 +102,17 @@ func runOrch(ctx context.Context, root home.Root, inv invocation) output.Report 
 		return bindingFailure("ORCH_INPUT_INVALID", "Invalid orchestration input or calendar selection.", 1)
 	}
 
+	return withOrchStore(ctx, root, func(reader ports.OrchReader, now uint64) output.Report {
+		query.NowMs = now
+		view, failure := orchestration.ReadWhy(ctx, reader, query)
+		if failure != nil {
+			return bindingFailure(failure.Code, failure.Message, failure.Status)
+		}
+		return whyReport{view: view}
+	})
+}
+
+func withOrchStore(ctx context.Context, root home.Root, run func(ports.OrchReader, uint64) output.Report) output.Report {
 	store, err := storage.Open(ctx, root)
 	if err != nil {
 		if errors.Is(err, os.ErrPermission) {
@@ -91,14 +120,11 @@ func runOrch(ctx context.Context, root home.Root, inv invocation) output.Report 
 		}
 		return bindingFailure("ORCH_STORAGE_UNAVAILABLE", "Could not open orchestration storage.", 1)
 	}
-	query.NowMs = uint64(time.Now().UnixMilli())
-	view, failure := orchestration.ReadWhy(ctx, store, query)
-	closeErr := store.Close()
-	if failure != nil {
-		return bindingFailure(failure.Code, failure.Message, failure.Status)
+	report := run(store, uint64(time.Now().UnixMilli()))
+	if err := store.Close(); err != nil {
+		if _, failed := report.(*output.Failure); !failed {
+			return bindingFailure("CLEANUP_ERROR", "Could not clean up command resources. Effects may already have occurred.", 1)
+		}
 	}
-	if closeErr != nil {
-		return bindingFailure("CLEANUP_ERROR", "Could not clean up command resources. Effects may already have occurred.", 1)
-	}
-	return whyReport{view: view}
+	return report
 }

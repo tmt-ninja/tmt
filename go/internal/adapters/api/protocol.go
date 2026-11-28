@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tmt-ninja/tmt/go/internal/adapters/orchestration"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/tick"
@@ -210,14 +209,14 @@ func (s *requestSession) respond(body []byte) (SessionResponse, error) {
 		}
 		value = status
 	case orchestrationRead:
-		query, ok := decodeWhy(request.Input, now)
-		if !ok {
+		read := decodeOrchestration(request.Input, now)
+		if read == nil {
 			return encodeFault(invalid())
 		}
 		if fault := s.open(ctx); fault != nil {
 			return encodeFault(fault)
 		}
-		result, failure := orchestration.ReadWhy(ctx, s.store, query)
+		result, failure := read(ctx, s.store)
 		if failure != nil {
 			return encodeFault(operationFault(failure))
 		}

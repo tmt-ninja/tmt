@@ -6,13 +6,14 @@ import (
 	"os"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/framedstdio"
+	"github.com/tmt-ninja/tmt/go/internal/adapters/orchestration"
 )
 
 // Local extension API byte ceilings. The input allows sixfold JSON expansion
 // of the exchange text plus the dispatch and API envelopes.
 const (
 	InputLimit  = 6_299_648
-	OutputLimit = 12_648_448
+	OutputLimit = orchestration.ReadOutputLimit
 )
 
 // SessionResponse is one compact API resource or error. Stale ends the

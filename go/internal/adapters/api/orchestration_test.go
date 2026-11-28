@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -16,16 +17,24 @@ import (
 
 const whyIdentity = "11111111-1111-4111-8111-111111111111"
 
-func whyRequest(fields string) []byte {
+func orchRequest(fields string) []byte {
 	return []byte(`{"version":1,"operation":"orchestration.read","input":` + fields + `}`)
 }
 
-func TestWhyRejectsInvalidQueriesBeforeOpeningStorage(t *testing.T) {
+func TestOrchestrationRejectsInvalidQueriesBeforeOpeningStorage(t *testing.T) {
 	const subject = `"subject":{"kind":"identity","id":"` + whyIdentity + `"}`
 	dir := filepath.Join(t.TempDir(), "absent")
 	session := requestSession{root: home.Root{Dir: dir, Database: filepath.Join(dir, home.DatabaseName)}}
-	for _, input := range []string{
+	for i, input := range []string{
 		`{"view":"why"}`,
+		`{"view":"plans","plan":" "}`,
+		`{"view":"plans","plan":1}`,
+		`{"view":"plans","plan":"Quiet","plan":"Shift"}`,
+		`{"view":"plans","rangeDays":1}`,
+		`{"view":"overview","rangeDays":2}`,
+		`{"view":"overview","atMs":0}`,
+		`{"view":"overview","memberQuery":" "}`,
+		`{"view":` + strings.Repeat(" ", 36_865) + `"plans"}`,
 		`{"view":"why","subject":{"kind":"request","id":"` + whyIdentity + `"}}`,
 		`{"view":"why","subject":{"kind":"identity","kind":"identity","id":"` + whyIdentity + `"}}`,
 		`{"view":"why","subject":{"kind":"identity","id":"` + whyIdentity + `","name":"name"}}`,
@@ -35,8 +44,8 @@ func TestWhyRejectsInvalidQueriesBeforeOpeningStorage(t *testing.T) {
 		`{"view":"why",` + subject + `,"limit":101}`,
 		`{"view":"why",` + subject + `,"rangeDays":1}`,
 	} {
-		t.Run(input, func(t *testing.T) {
-			result, err := session.respond(whyRequest(input))
+		t.Run(fmt.Sprint(i), func(t *testing.T) {
+			result, err := session.respond(orchRequest(input))
 			var body struct{ Error Fault }
 			if err != nil || result.Status != 1 || json.Unmarshal(result.Body, &body) != nil || body.Error.Code != "API_INPUT_INVALID" {
 				t.Fatalf("result = %d %s, %v", result.Status, result.Body, err)
@@ -61,7 +70,7 @@ func TestWhyReadsTransactionalEventsAndPreservesUncertainty(t *testing.T) {
 	const subject = `"subject":{"kind":"identity","id":"` + whyIdentity + `"}`
 	read := func(fields string) orchestration.JournalView {
 		t.Helper()
-		result, err := session.respond(whyRequest(`{"view":"why",` + subject + fields + `}`))
+		result, err := session.respond(orchRequest(`{"view":"why",` + subject + fields + `}`))
 		var page orchestration.JournalView
 		if err != nil || result.Status != 0 || json.Unmarshal(result.Body, &page) != nil {
 			t.Fatalf("result = %d %s, %v", result.Status, result.Body, err)
@@ -122,5 +131,46 @@ func TestWhyReadsTransactionalEventsAndPreservesUncertainty(t *testing.T) {
 		entry.RecordedAtMs != uint64(now) || second.ObservedAtMs-second.Coverage.RetainedAfterMs != second.Coverage.RetentionMs ||
 		cursor() != before {
 		t.Fatalf("journal evidence = %+v, coverage = %+v", entry, second.Coverage)
+	}
+}
+
+func TestPlansAPIUsesNativeScheduleFields(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, home.DatabaseName)
+	session := requestSession{root: home.Root{Dir: dir, Database: dbPath}}
+	if fault := session.open(t.Context()); fault != nil {
+		t.Fatal(fault)
+	}
+	defer session.close()
+	db, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO orchestration_plans VALUES
+		('11111111-1111-4111-8111-111111111111','Quiet',1,1,1,
+		'{"kind":"daily","start":"08:00","end":"14:00","allDay":false}','{"receiving":{"mode":"direct"}}');
+		INSERT INTO orchestration_plan_targets VALUES
+		('11111111-1111-4111-8111-111111111111',0,'{"kind":"all"}');`); err != nil {
+		t.Fatal(err)
+	}
+	result, err := session.respond(orchRequest(`{"view":"plans","plan":"Quiet"}`))
+	var body struct {
+		Plans []struct {
+			Schedule map[string]any
+			Fields   map[string]any
+		}
+	}
+	if err != nil || result.Status != 0 || json.Unmarshal(result.Body, &body) != nil || len(body.Plans) != 1 {
+		t.Fatalf("plans response = %d %s, %v", result.Status, result.Body, err)
+	}
+	var want map[string]any
+	if err := json.Unmarshal([]byte(`{"kind":"weekly","anchorDate":"1969-12-29","intervalWeeks":1,"weekdays":[1,2,3,4,5,6,7],"start":"08:00","end":"14:00","allDay":false}`), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(body.Plans[0].Schedule, want) ||
+		!reflect.DeepEqual(body.Plans[0].Fields["receiving"], map[string]any{"mode": "direct"}) {
+		t.Fatalf("native schedule fields = %s", result.Body)
 	}
 }
