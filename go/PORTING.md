@@ -115,8 +115,18 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 ## go-4 (install, extensions, api, mcp, digest, tick)
 
 API help is compared byte-for-byte (after the executable-name substitution) by
-`go/test/parity` → `TestHelpMatchesNative/{80,120}/root/api`, against the native
-binary built from the same branch.
+`go/test/parity` → `TestHelpMatchesNative/{80,120}/api`, against the native
+binary built from the same branch. Existing TypeScript assertions reused unchanged
+in the initial dual-runtime native slice (3 passed on each runtime):
+
+- `typescript/test/native/api.test.ts` checks incomplete session frames and
+  incomplete/oversized one-shot input before opening storage.
+- `typescript/test/native/extension-command.test.ts` checks exact external argv,
+  stdin, stdout, stderr, exit status, and the callback executable.
+
+The TypeScript run used a temporary Go fixture profile for private Go roots and
+oracle paths. The reviewed CI harness change and first CI E2E measurement are
+pending.
 
 - [ ] Finish local API v1 operation admission, response parity, lazy schema fencing,
   lifecycle delivery, and CLI composition. Qualify MCP identity pinning and all
