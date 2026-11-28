@@ -26,6 +26,9 @@ type TmuxCaller struct {
 	Socket    string
 	ServerPID uint64
 	PaneID    string
+	// SessionID is the exact $ID parsed from TMUX. It serves key jobs
+	// whose invocation has no TMUX_PANE.
+	SessionID string
 }
 
 // ClientView pins one attached client incarnation and its selected location.
@@ -39,11 +42,22 @@ type ClientView struct {
 func (c Client) InvokerClient(ctx context.Context, claim TmuxCaller) (ClientView, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
+	if claim.ServerPID == 0 {
+		return ClientView{}, ErrInvokerClient
+	}
+	if claim.PaneID == "" {
+		if !prefixedNumber(claim.SessionID, '$') {
+			return ClientView{}, ErrInvokerClient
+		}
+		return c.readClient(ctx, claim.Socket, claim.ServerPID, func(view ClientView) bool {
+			return view.SessionID == claim.SessionID
+		})
+	}
 	pane, err := c.invokerPane(ctx, claim)
 	if err != nil {
 		return ClientView{}, err
 	}
-	view, err := c.readClient(ctx, claim.Socket, func(view ClientView) bool {
+	view, err := c.readClient(ctx, claim.Socket, claim.ServerPID, func(view ClientView) bool {
 		return view.SessionID == pane.SessionID
 	})
 	if err != nil || view.PaneID != pane.Pane.PaneID || view.WindowID != pane.WindowID {
@@ -85,8 +99,8 @@ func (c Client) paneSnapshot(ctx context.Context, pane ports.PaneRef) (PaneSnaps
 	return observation.Candidates[0], nil
 }
 
-func (c Client) readClient(ctx context.Context, socket string, pick func(ClientView) bool) (ClientView, error) {
-	format := fields("client_name", "client_tty", "client_pid", "session_id", "window_id", "pane_id")
+func (c Client) readClient(ctx context.Context, socket string, serverPID uint64, pick func(ClientView) bool) (ClientView, error) {
+	format := fields("client_name", "client_tty", "client_pid", "session_id", "window_id", "pane_id", "socket_path", "pid")
 	found, err := c.run(ctx, socket, evidenceMaxBytes, nil, "list-clients", "-F", format)
 	if err != nil {
 		return ClientView{}, err
@@ -96,26 +110,20 @@ func (c Client) readClient(ctx context.Context, socket string, pick func(ClientV
 		if line == "" {
 			continue
 		}
-		row, valid := decodeRow(line, 6)
-		if !valid {
+		row, valid := decodeRow(line, 8)
+		if !valid || row[6] != socket || serverPID != 0 && row[7] != strconv.FormatUint(serverPID, 10) {
 			return ClientView{}, ErrInvokerClient
 		}
-		// Detached and control clients do not prove an interactive TTY.
-		if !filepath.IsAbs(row[1]) || strings.ContainsFunc(row[0], unicode.IsControl) ||
-			strings.ContainsFunc(row[1], unicode.IsControl) || row[0] == "" ||
-			!prefixedNumber(row[3], '$') || !prefixedNumber(row[4], '@') || !validPane(row[5]) {
-			continue
-		}
-		pid, err := strconv.ParseUint(row[2], 10, 31)
-		if err != nil || pid == 0 {
-			return ClientView{}, ErrInvokerClient
-		}
+		pid, pidErr := strconv.ParseUint(row[2], 10, 31)
 		item := ClientView{Name: row[0], TTY: row[1], Socket: socket, SessionID: row[3], WindowID: row[4], PaneID: row[5],
 			Process: core.ProcessIncarnation{PID: pid}}
 		if !pick(item) {
 			continue
 		}
-		if view.Name != "" {
+		// More than one match, including a control client, is ambiguous.
+		if view.Name != "" || item.Name == "" || !filepath.IsAbs(item.TTY) ||
+			strings.ContainsFunc(item.Name, unicode.IsControl) || strings.ContainsFunc(item.TTY, unicode.IsControl) ||
+			!prefixedNumber(item.SessionID, '$') || !prefixedNumber(item.WindowID, '@') || !validPane(item.PaneID) || pidErr != nil || pid == 0 {
 			return ClientView{}, ErrInvokerClient
 		}
 		view = item
@@ -214,7 +222,7 @@ func (c Client) verifyUnsharedFocus(ctx context.Context, expected ClientView, ta
 }
 
 func (c Client) clientAfter(ctx context.Context, expected ClientView) (ClientView, error) {
-	after, err := c.readClient(ctx, expected.Socket, func(view ClientView) bool {
+	after, err := c.readClient(ctx, expected.Socket, 0, func(view ClientView) bool {
 		return view.Name == expected.Name && view.TTY == expected.TTY && view.Process.PID == expected.Process.PID
 	})
 	if err != nil || after.Process != expected.Process {
@@ -257,6 +265,9 @@ var ErrNoNeighbour = errors.New("no visible tmux neighbour in that direction")
 func (c Client) SwapInto(ctx context.Context, claim TmuxCaller, expected ClientView, target PaneSnapshot, direction SwapDirection) (ClientView, error) {
 	ctx, cancel := context.WithTimeout(ctx, 4*time.Second)
 	defer cancel()
+	if !validPane(claim.PaneID) {
+		return ClientView{}, ErrInvokerClient
+	}
 	if claim.PaneID == target.Pane.PaneID {
 		return ClientView{}, ErrNoNeighbour
 	}

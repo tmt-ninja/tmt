@@ -65,7 +65,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO2-09: Enable Codex invocation hooks through the verified lifecycle and Digest callbacks.
 - [ ] GO2-10: Compose qualified Codex channel startup and emit the native preflight advisory.
 - [ ] GO2-11: Enforce the native 256 KiB Codex WebSocket inbound frame cap in addition to the 1 MiB message cap.
-- [x] GO2-12: Exact invoking tmux client focus and directional pane swap. Ambiguous client claims refuse rather than using activity as an identity proof.
+- [x] GO2-12: Exact invoking tmux client focus and directional pane swap. Ambiguous client claims refuse rather than using activity as an identity proof. Key-job session parity: Rust `tmux/focus.rs::a_key_binding_job_without_a_pane_uses_the_session_in_tmux` → `TestKeyBindingJobUsesTheSessionInTmux`; the pane-less `focus --client` view in `typescript/test/e2e/focus.e2e.test.ts` → the private-client assertion in `TestPrivateFocusAndSwapExactInvokingClient` (CLI scenario owned by go-3).
 - [x] GO2-13: Bounded discovery and exact marked-pane snapshots.
 - [x] GO2-14: Built-in terminal attach over an admitted PTY connection.
 - [ ] GO2-15: Go-owned built-in PTY supervisor and launch lifecycle.

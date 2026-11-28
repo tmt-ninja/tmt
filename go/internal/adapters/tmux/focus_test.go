@@ -136,6 +136,10 @@ func TestPrivateFocusHelper(t *testing.T) {
 			case <-tick.C:
 			}
 		}
+		keyJob := TmuxCaller{Socket: claim.Socket, ServerPID: claim.ServerPID, SessionID: client.SessionID}
+		if view, err := c.InvokerClient(ctx, keyJob); err != nil || view != client {
+			return fmt.Errorf("pane-less key job = %+v, %v", view, err)
+		}
 		readPane := func(id string) (PaneSnapshot, error) {
 			panes, err := c.Discover(ctx, claim.Socket, id)
 			if err != nil || len(panes.Candidates) != 1 {
@@ -176,6 +180,53 @@ func TestPrivateFocusHelper(t *testing.T) {
 	}
 	if err := os.Rename(pending, result); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Port of native a_key_binding_job_without_a_pane_uses_the_session_in_tmux,
+// with the additional case that a second client in that session is ambiguous.
+func TestKeyBindingJobUsesTheSessionInTmux(t *testing.T) {
+	const socket = "/tmp/unit-only-socket"
+	const other = "/dev/ttys001\t/dev/ttys001\t11\t$2\t@1\t%7\t" + socket + "\t100\n"
+	const wanted = "/dev/ttys002\t/dev/ttys002\t12\t$9\t@2\t%4\t" + socket + "\t100\n"
+	const second = "/dev/ttys003\t/dev/ttys003\t13\t$9\t@2\t%4\t" + socket + "\t100\n"
+	for _, tc := range []struct {
+		name, session, rows string
+		serverPID           uint64
+		tmuxCalls           int
+		found               bool
+	}{
+		{"unique selected session", "$9", other + wanted, 100, 1, true},
+		{"missing session claim", "", other + wanted, 100, 0, false},
+		{"no client in session", "$9", other, 100, 1, false},
+		{"several clients in session", "$9", other + wanted + second, 100, 1, false},
+		{"wrong server pid", "$9", other + wanted, 101, 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var tmuxCalls, psCalls int
+			c := Client{Path: "/unit/tmux", Process: runFunc(func(_ context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
+				if spec.Path == "/bin/ps" {
+					psCalls++
+					return ports.Bounded{Stdout: []byte("Sat Jan 1 00:00:00 2000 S\n")}, nil
+				}
+				tmuxCalls++
+				if len(spec.Args) < 4 || spec.Args[1] != "-S" || spec.Args[2] != socket || spec.Args[3] != "list-clients" {
+					t.Fatalf("key job attempted a different tmux command: %v", spec.Args)
+				}
+				return ports.Bounded{Stdout: []byte(tc.rows)}, nil
+			})}
+			view, err := c.InvokerClient(t.Context(), TmuxCaller{Socket: socket, ServerPID: tc.serverPID, SessionID: tc.session})
+			if tc.found {
+				if err != nil || view.Name != "/dev/ttys002" || view.PaneID != "%4" || psCalls != 1 {
+					t.Fatalf("key job view = %+v, %v, process calls %d", view, err, psCalls)
+				}
+			} else if !errors.Is(err, ErrInvokerClient) || psCalls != 0 {
+				t.Fatalf("key job refusal = %+v, %v, process calls %d", view, err, psCalls)
+			}
+			if tmuxCalls != tc.tmuxCalls {
+				t.Fatalf("tmux calls = %d, want %d", tmuxCalls, tc.tmuxCalls)
+			}
+		})
 	}
 }
 
