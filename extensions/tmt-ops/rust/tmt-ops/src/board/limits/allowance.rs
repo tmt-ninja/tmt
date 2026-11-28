@@ -152,7 +152,7 @@ pub(super) fn rates(history: &[Reading]) -> Rates {
 pub enum Outcome {
     /// No rate to hold, or no window to hold it against.
     Unknown,
-    /// Percent still left at the reset.
+    /// Amount still left at the reset, in the projection’s units.
     Lasts(f64),
     /// The window empties first, at this time.
     RunsOut(u64),
@@ -169,8 +169,8 @@ impl Outcome {
     }
 }
 
-/// `left` percent that refills in `resets_in_ms`, spent at `rate` percent per
-/// hour from `now_ms`.
+/// Project an amount spent at `rate` per hour from `now_ms` to the reset.
+/// The starting amount and rate share the same unit.
 pub fn project(left: f64, resets_in_ms: u64, now_ms: u64, rate: Option<f64>) -> Outcome {
     let Some(rate) = rate.filter(|rate| rate.is_finite() && *rate >= 0.0) else {
         return Outcome::Unknown;
@@ -181,6 +181,159 @@ pub fn project(left: f64, resets_in_ms: u64, now_ms: u64, rate: Option<f64>) -> 
     } else {
         Outcome::Lasts(remaining.max(0.0))
     }
+}
+
+/// A value from Digest's `spend` section. A floor and its reasons can be
+/// displayed in Details, but cannot establish a balance or rate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct QuotedSpend {
+    pub usd_micros: Option<u64>,
+    pub complete: bool,
+    pub lower_bound: bool,
+    pub reasons: Vec<String>,
+}
+
+impl QuotedSpend {
+    fn complete_micros(&self) -> Option<u64> {
+        if self.complete && !self.lower_bound && self.reasons.is_empty() {
+            self.usd_micros
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PaceQuote {
+    pub window_ms: u64,
+    pub from_ms: u64,
+    pub to_ms: u64,
+    pub spend: QuotedSpend,
+}
+
+/// One row of Digest's `spend.providers[]`, with the actual closed cut.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BudgetQuote {
+    pub provider: String,
+    pub from_ms: u64,
+    pub to_ms: u64,
+    pub models: Vec<String>,
+    pub total: QuotedSpend,
+    pub pace: Vec<PaceQuote>,
+}
+
+impl BudgetQuote {
+    fn pace_per_hour(&self, hours: u64) -> Option<f64> {
+        let window_ms = hours * HOUR_MS;
+        let pace = self.pace.iter().find(|pace| pace.window_ms == window_ms)?;
+        if pace.to_ms != self.to_ms || pace.to_ms.checked_sub(pace.from_ms) != Some(window_ms) {
+            return None;
+        }
+        Some(pace.spend.complete_micros()? as f64 / hours as f64)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct BudgetForecast {
+    pub left_usd_micros: Option<u64>,
+    pub left_is_upper_bound: bool,
+    pub need_usd_micros_per_hour: Option<f64>,
+    /// Dollar projections in 3 h, 6 h, 24 h and phase order, in USD micros.
+    pub lines: [Outcome; 4],
+}
+
+pub(crate) fn budget_forecast(
+    limit_usd_micros: u64,
+    period_start_ms: u64,
+    period_end_ms: u64,
+    now_ms: u64,
+    quote: Option<&BudgetQuote>,
+) -> BudgetForecast {
+    let unknown = BudgetForecast {
+        left_usd_micros: None,
+        left_is_upper_bound: false,
+        need_usd_micros_per_hour: None,
+        lines: [Outcome::Unknown; 4],
+    };
+    if !(period_start_ms..period_end_ms).contains(&now_ms) {
+        return unknown;
+    }
+    let Some(quote) = quote.filter(|quote| {
+        quote.from_ms >= period_start_ms && (quote.from_ms..=now_ms).contains(&quote.to_ms)
+    }) else {
+        return unknown;
+    };
+    let remaining_ms = period_end_ms - now_ms;
+    let remaining_hours = remaining_ms as f64 / HOUR_MS as f64;
+    if let Some(spend) = quote.total.usd_micros.filter(|_| quote.total.lower_bound) {
+        let left = limit_usd_micros.saturating_sub(spend);
+        return BudgetForecast {
+            left_usd_micros: Some(left),
+            left_is_upper_bound: true,
+            need_usd_micros_per_hour: Some(left as f64 / remaining_hours),
+            ..unknown
+        };
+    }
+    let Some(spend) = quote
+        .total
+        .complete_micros()
+        .filter(|_| quote.from_ms == period_start_ms)
+    else {
+        return unknown;
+    };
+    let left = limit_usd_micros.saturating_sub(spend);
+    let observed_ms = quote.to_ms - quote.from_ms;
+    let phase = (observed_ms > 0).then(|| spend as f64 / (observed_ms as f64 / HOUR_MS as f64));
+    let lines = [
+        quote.pace_per_hour(3),
+        quote.pace_per_hour(6),
+        quote.pace_per_hour(24),
+        phase,
+    ]
+    .map(|pace| project(left as f64, remaining_ms, now_ms, pace));
+    BudgetForecast {
+        left_usd_micros: Some(left),
+        left_is_upper_bound: false,
+        need_usd_micros_per_hour: Some(left as f64 / remaining_hours),
+        lines,
+    }
+}
+
+/// Calendar bounds in the board zone, including daylight-saving transitions.
+pub(in crate::board) fn budget_period(
+    period: crate::config::BudgetPeriod,
+    now_ms: u64,
+    zone: &jiff::tz::TimeZone,
+) -> Option<(u64, u64)> {
+    use crate::config::BudgetPeriod;
+    use jiff::{Span, Timestamp};
+    let date = Timestamp::from_millisecond(i64::try_from(now_ms).ok()?)
+        .ok()?
+        .to_zoned(zone.clone())
+        .date();
+    let start = match period {
+        BudgetPeriod::Week => date
+            .checked_sub(Span::new().days(date.weekday().to_monday_zero_offset()))
+            .ok()?,
+        BudgetPeriod::Month => date.first_of_month(),
+    };
+    let duration = match period {
+        BudgetPeriod::Week => Span::new().days(7),
+        BudgetPeriod::Month => Span::new().months(1),
+    };
+    let boundary = |day: jiff::civil::Date| {
+        u64::try_from(
+            zone.to_zoned(day.at(0, 0, 0, 0))
+                .ok()?
+                .timestamp()
+                .as_millisecond(),
+        )
+        .ok()
+    };
+    Some((
+        boundary(start)?,
+        boundary(start.checked_add(duration).ok()?)?,
+    ))
 }
 
 /// A weekly window as of now, with its projection lines.
@@ -194,13 +347,16 @@ pub struct Weekly {
 impl Weekly {
     /// The worst of the lines, for a row with no room for all five.
     pub fn worst(&self) -> Outcome {
-        self.lines
-            .iter()
-            .copied()
-            .filter_map(|outcome| outcome.severity().map(|key| (key, outcome)))
-            .min_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map_or(Outcome::Unknown, |(_, outcome)| outcome)
+        worst(self.lines)
     }
+}
+
+pub(in crate::board) fn worst(lines: impl IntoIterator<Item = Outcome>) -> Outcome {
+    lines
+        .into_iter()
+        .filter_map(|outcome| outcome.severity().map(|key| (key, outcome)))
+        .min_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .map_or(Outcome::Unknown, |(_, outcome)| outcome)
 }
 
 /// One source of the block. `weekly` is `None` while no usable reading stands.

@@ -1054,6 +1054,20 @@ fn invalid(message: impl Into<String>) -> SquadError {
     SquadError::new("SQUAD_CONFIG_INVALID", message)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BudgetPeriod {
+    Week,
+    Month,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AllowanceBudget {
+    pub name: String,
+    pub provider: String,
+    pub limit_usd_micros: u64,
+    pub period: BudgetPeriod,
+}
+
 #[derive(Clone)]
 pub struct Config {
     path: PathBuf,
@@ -1127,7 +1141,73 @@ impl Config {
         config.validate_views()?;
         config.tabs()?;
         config.links()?;
+        config.allowance_budgets()?;
         Ok(config)
+    }
+
+    /// User-owned provider budgets. An absent setting adds no rows.
+    pub(crate) fn allowance_budgets(&self) -> Result<Vec<AllowanceBudget>, SquadError> {
+        const PLACE: &str = "board.allowance.budgets";
+        let Some(allowance) = self
+            .document
+            .get("board")
+            .and_then(Item::as_table_like)
+            .and_then(|board| board.get("allowance"))
+        else {
+            return Ok(Vec::new());
+        };
+        let allowance = allowance
+            .as_table_like()
+            .ok_or_else(|| invalid("`board.allowance` must be a table."))?;
+        let Some(budgets) = allowance.get("budgets") else {
+            return Ok(Vec::new());
+        };
+        let tables = budgets
+            .as_array_of_tables()
+            .ok_or_else(|| invalid(format!("`{PLACE}` must be [[{PLACE}]] tables.")))?;
+        tables
+            .iter()
+            .enumerate()
+            .map(|(index, budget)| {
+                let field = |key| budget.get(key).and_then(Item::as_str);
+                let problem =
+                    |key, message| invalid(format!("`{PLACE}[{index}].{key}` {message}."));
+                if let Some((key, _)) = budget
+                    .iter()
+                    .find(|(key, _)| !matches!(*key, "name" | "provider" | "limit" | "period"))
+                {
+                    return Err(problem(key, "is not a budget setting"));
+                }
+                let name = field("name")
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty() && !name.chars().any(char::is_control))
+                    .ok_or_else(|| problem("name", "must be nonempty display text"))?;
+                let provider = field("provider")
+                    .filter(|id| matches!(*id, "anthropic" | "openai" | "google"))
+                    .ok_or_else(|| problem("provider", "must be anthropic, openai or google"))?;
+                let limit = budget
+                    .get("limit")
+                    .and_then(|item| {
+                        item.as_float()
+                            .or_else(|| item.as_integer().map(|n| n as f64))
+                    })
+                    .map(|dollars| (dollars * 1_000_000.0).round())
+                    // Keep amounts in the interoperable integer range for a JSON quote.
+                    .filter(|micros| (1.0..=9_007_199_254_740_991.0).contains(micros))
+                    .ok_or_else(|| problem("limit", "must be a positive USD amount"))?;
+                let period = match field("period") {
+                    Some("week") => BudgetPeriod::Week,
+                    Some("month") => BudgetPeriod::Month,
+                    _ => return Err(problem("period", "must be week or month")),
+                };
+                Ok(AllowanceBudget {
+                    name: name.into(),
+                    provider: provider.into(),
+                    limit_usd_micros: limit as u64,
+                    period,
+                })
+            })
+            .collect()
     }
 
     pub fn path(&self) -> &Path {
@@ -2538,6 +2618,73 @@ fn empty_table_without_comments(item: &Item) -> bool {
 mod tests {
     use super::*;
     use crate::{split::Split, test_support::Scratch};
+
+    #[test]
+    fn allowance_budgets_are_opt_in_and_validated() {
+        let (_scratch, path) = temp("allowance-budgets");
+        let empty = Config::read(path.clone()).unwrap();
+        assert!(empty.allowance_budgets().unwrap().is_empty());
+        let valid = r#"
+[[board.allowance.budgets]]
+name = "Anthropic work"
+provider = "anthropic"
+limit = 500
+period = "month"
+
+[[board.allowance.budgets]]
+name = "OpenAI week"
+provider = "openai"
+limit = 12.50
+period = "week"
+"#;
+        fs::write(&path, valid).unwrap();
+        assert_eq!(
+            Config::read(path.clone())
+                .unwrap()
+                .allowance_budgets()
+                .unwrap(),
+            [
+                AllowanceBudget {
+                    name: "Anthropic work".into(),
+                    provider: "anthropic".into(),
+                    limit_usd_micros: 500_000_000,
+                    period: BudgetPeriod::Month,
+                },
+                AllowanceBudget {
+                    name: "OpenAI week".into(),
+                    provider: "openai".into(),
+                    limit_usd_micros: 12_500_000,
+                    period: BudgetPeriod::Week,
+                },
+            ]
+        );
+        for (from, to, field) in [
+            ("Anthropic work", " ", "name"),
+            (
+                "provider = \"anthropic\"",
+                "provider = \"claude\"",
+                "provider",
+            ),
+            ("limit = 500", "limit = -1", "limit"),
+            ("limit = 500", "limit = nan", "limit"),
+            ("period = \"month\"", "period = \"year\"", "period"),
+            (
+                "period = \"month\"",
+                "scope = \"test\"\nperiod = \"month\"",
+                "scope",
+            ),
+        ] {
+            fs::write(&path, valid.replacen(from, to, 1)).unwrap();
+            let error = Config::read(path.clone())
+                .and_then(|config| config.allowance_budgets())
+                .unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
+            assert!(error.message.contains(field), "{error:?}");
+            if field == "provider" {
+                assert!(error.message.contains("anthropic, openai or google"));
+            }
+        }
+    }
 
     #[test]
     fn link_handlers_are_explicit_validated_run_bindings() {

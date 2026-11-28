@@ -302,6 +302,7 @@ pub(super) fn evidence(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<Strin
         ));
         text.extend(model::pricing_details(status, now_ms));
     }
+    text.extend(super::allowance::budget_details(app, now_ms));
     text.push(METHOD.into());
     text
 }
@@ -318,6 +319,11 @@ pub(super) fn links(app: &App) -> Vec<String> {
     {
         if !links.contains(&model.source) {
             links.push(model.source.clone());
+        }
+    }
+    for source in super::allowance::budget_sources(app, crate::status::now_ms()) {
+        if !links.contains(&source) {
+            links.push(source);
         }
     }
     links

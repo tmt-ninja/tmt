@@ -3,7 +3,7 @@
 //! cannot hold up a reload, and the board never waits for it.
 
 use super::{
-    Request,
+    Request, budgets,
     model::{Report, Since},
 };
 use crate::{core::Core, runner::Cancellation};
@@ -91,6 +91,7 @@ impl Reader {
         core: &Core,
         timing: Timing,
         mut deliver: impl FnMut(Delivery) -> bool + Send + 'static,
+        mut deliver_budget: impl FnMut(budgets::Delivery) -> bool + Send + 'static,
     ) -> Self {
         let core = core.clone();
         let (signals, wake) = mpsc::channel::<Signal>();
@@ -101,7 +102,7 @@ impl Reader {
         };
         let thread = std::thread::spawn(move || {
             let mut wait = timing.every;
-            loop {
+            'read: loop {
                 let (request, cancellation) = {
                     let demand = demand.lock().expect("reader demand");
                     if demand.stopped {
@@ -145,6 +146,25 @@ impl Reader {
                     result,
                 }) {
                     return;
+                }
+                let budget_core = core.cancellable(cancellation.clone());
+                for (&start, vendors) in &request.budgets {
+                    if cancellation.cancelled() {
+                        wait = timing.every;
+                        continue 'read;
+                    }
+                    let result = budgets::read(&budget_core, start, vendors);
+                    if cancellation.cancelled() {
+                        wait = timing.every;
+                        continue 'read;
+                    }
+                    if !deliver_budget(budgets::Delivery {
+                        start,
+                        vendors: vendors.clone(),
+                        result,
+                    }) {
+                        break 'read;
+                    }
                 }
                 match wake.recv_timeout(wait) {
                     Err(RecvTimeoutError::Timeout) => {}

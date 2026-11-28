@@ -3,13 +3,17 @@
 use super::model::{HourlySeries, Pair, Report, Seat, Since, Traffic, Unavailable, Warning, Who};
 use crate::{config::TokRange, core::Core};
 use serde_json::{Value, json};
-use std::time::{Duration, Instant};
+use std::{
+    collections::BTreeMap,
+    time::{Duration, Instant},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Request {
     pub range: TokRange,
     pub identities: std::sync::Arc<[String]>,
     pub window_series: bool,
+    pub budgets: BTreeMap<u64, super::budgets::Vendors>,
 }
 impl Request {
     /// Identities come from the acquired roster's unique, ordered UUID keys.
@@ -17,6 +21,7 @@ impl Request {
         Self {
             range,
             window_series: false,
+            budgets: BTreeMap::new(),
             identities: identities.into(),
         }
     }

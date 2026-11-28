@@ -207,6 +207,7 @@ pub(crate) struct OpsWorkspaceSnapshot {
     /// adapters. Display models never reconstruct send data from visible text.
     pub rows: BTreeMap<OpsTarget, Value>,
     pub preferences: OpsPreferences,
+    pub allowance_budgets: Vec<crate::config::AllowanceBudget>,
     /// Reserve the member chip slot only when an assigned identity is in this roster.
     pub labels_present: bool,
     pub read_markers: crate::config::ReadMarkers,
@@ -287,6 +288,7 @@ impl OpsWorkspaceSnapshot {
     pub(crate) fn configure(&mut self, config: &Config) -> Result<(), SquadError> {
         self.shell_counts = self.roster.shell_counts();
         self.set_preferences(config.workspace_preferences()?);
+        self.allowance_budgets = config.allowance_budgets()?;
         self.read_markers = config.read_markers()?;
         self.config_path = config.path().display().to_string();
         for scope in OpsKeyScope::ALL {

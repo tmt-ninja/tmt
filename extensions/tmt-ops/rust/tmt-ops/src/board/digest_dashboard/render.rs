@@ -62,7 +62,17 @@ pub(in crate::board) fn render(frame: &mut Frame, app: &App, area: Rect) {
             ..area
         },
     );
-    let top = band_height;
+    let budget_height = super::allowance::budget_height(
+        app,
+        area.width,
+        area.height.saturating_sub(band_height + 10),
+    );
+    super::allowance::paint_budgets(
+        frame,
+        app,
+        Rect::new(area.x, area.y + band_height, area.width, budget_height),
+    );
+    let top = band_height + budget_height;
     let body = Rect::new(
         area.x,
         area.y.saturating_add(top),

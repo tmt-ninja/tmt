@@ -2,6 +2,7 @@
 //! The shared TOK range and acquired UUID roster are its only demand; paint and
 //! input project held evidence without starting commands.
 mod acquire;
+pub(in crate::board) mod budgets;
 pub(in crate::board) mod model;
 mod reader;
 #[cfg(test)]
@@ -24,9 +25,28 @@ pub enum View<'a> {
 pub struct State {
     report: Option<std::sync::Arc<Report>>,
     failure: Option<(Since, String)>,
+    budgets: std::collections::BTreeMap<u64, Result<budgets::SpendReport, String>>,
 }
 
 impl State {
+    pub(in crate::board) fn apply_budget(
+        &mut self,
+        delivery: budgets::Delivery,
+        wanted: &std::collections::BTreeMap<u64, budgets::Vendors>,
+    ) {
+        self.budgets.retain(|start, _| wanted.contains_key(start));
+        if wanted.get(&delivery.start) == Some(&delivery.vendors) {
+            self.budgets.insert(delivery.start, delivery.result);
+        }
+    }
+
+    pub(in crate::board) fn budget(
+        &self,
+        start: u64,
+    ) -> Option<&Result<budgets::SpendReport, String>> {
+        self.budgets.get(&start)
+    }
+
     /// Keeps the last good report when a later read fails; the rule's own time
     /// says how old it is.
     pub fn apply(&mut self, delivery: Delivery) {

@@ -1618,7 +1618,58 @@ fn digest_impact_frames(styles: &mut Styles) -> Vec<Value> {
             }
         }
     }
+    frames.extend(allowance_budget_frames(styles));
     frames
+}
+
+fn allowance_budget_frames(styles: &mut Styles) -> Vec<Value> {
+    let mut frames = Vec::new();
+    for (look_name, look) in looks() {
+        let app = crate::board::digest_dashboard::tests::allowance::budget_fixture(look);
+        for width in [160, 80] {
+            frames.push(capture_frame(
+                &app,
+                "digest-allowance-budgets",
+                look_name,
+                width,
+                36,
+                styles,
+            ));
+        }
+    }
+    frames
+}
+
+#[test]
+#[ignore = "exports the budget scene to HOME_ORACLE_OUT without recording"]
+fn dump_allowance_budget_oracle() {
+    let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
+    let captured = crate::status::with_now_ms(1_791_600_000_000, || {
+        let mut styles = Styles::default();
+        let frames = allowance_budget_frames(&mut styles);
+        let (name, look) = looks()[0];
+        let mut app = crate::board::digest_dashboard::tests::allowance::budget_fixture(look);
+        app.open_estimate_basis();
+        let details = capture_frame(
+            &app,
+            "digest-allowance-budget-details",
+            name,
+            160,
+            70,
+            &mut styles,
+        );
+        let styles = styles
+            .0
+            .into_iter()
+            .map(|(cell, id)| (id, cell))
+            .collect::<BTreeMap<_, _>>();
+        json!({"styles": styles, "frames": frames, "details": details})
+    });
+    fs::write(
+        path,
+        serde_json::to_string_pretty(&captured).unwrap() + "\n",
+    )
+    .unwrap();
 }
 
 fn digest_impact_frame(
@@ -1901,7 +1952,7 @@ macro_rules! oracle_groups {
         $group!(7, 16, unread_hover_frames($styles));
         $group!(7, 200, checklist_capture_frames($styles));
         $group!(7, 12, action_needed_frames($styles));
-        $group!(8, 224, digest_impact_frames($styles));
+        $group!(8, 232, digest_impact_frames($styles));
         $group!(7, 96, answer_paging_frames($styles));
         $group!(7, 20, jump_latest_frames($styles));
         $group!(7, 96, checklist_activity_frames($styles));

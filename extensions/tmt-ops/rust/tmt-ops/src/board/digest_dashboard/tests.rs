@@ -1569,7 +1569,7 @@ fn digest_details_paints_observation_age_with_the_apps_local_clock() {
     });
 }
 
-mod allowance;
+pub(in crate::board) mod allowance;
 mod details;
 pub(in crate::board) mod impact;
 mod layout;

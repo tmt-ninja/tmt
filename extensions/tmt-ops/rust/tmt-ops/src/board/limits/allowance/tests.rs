@@ -238,3 +238,92 @@ fn the_tokens_line_projects_like_the_others_and_stays_unknown_without_tokens() {
     let none = rows(&[standing], NOW, &|_| None)[0].weekly.unwrap();
     assert_eq!(none.lines[at], Outcome::Unknown);
 }
+
+#[test]
+fn allowance_budget_forecasts_use_only_complete_owner_quotes() {
+    const DOLLAR: u64 = 1_000_000;
+    let start = NOW - 10 * HOUR;
+    let end = NOW + 10 * HOUR;
+    let known = |dollars| QuotedSpend {
+        usd_micros: Some(dollars * DOLLAR),
+        complete: true,
+        lower_bound: false,
+        reasons: vec![],
+    };
+    let incomplete = QuotedSpend {
+        usd_micros: Some(20 * DOLLAR),
+        complete: false,
+        lower_bound: true,
+        reasons: vec!["cache_write_unreported".into()],
+    };
+    let pace = |hours, spend| PaceQuote {
+        window_ms: hours * HOUR,
+        from_ms: NOW - hours * HOUR,
+        to_ms: NOW,
+        spend,
+    };
+    let quote = BudgetQuote {
+        provider: "openai".into(),
+        from_ms: start,
+        to_ms: NOW,
+        models: vec!["gpt-5".into()],
+        total: known(20),
+        pace: vec![pace(3, known(30)), pace(6, known(18)), pace(24, known(0))],
+    };
+    let lasts = |dollars| Outcome::Lasts(f64::from(dollars) * DOLLAR as f64);
+    let full = [
+        Outcome::RunsOut(NOW + 8 * HOUR),
+        lasts(50),
+        lasts(80),
+        lasts(60),
+    ];
+    let no_data = [Outcome::Unknown; 4];
+    for (label, quote, left, upper_bound, lines) in [
+        ("complete", Some(quote.clone()), Some(80), false, full),
+        (
+            "missing pace",
+            Some(BudgetQuote {
+                pace: vec![pace(3, known(30)), pace(6, incomplete.clone())],
+                ..quote.clone()
+            }),
+            Some(80),
+            false,
+            [full[0], Outcome::Unknown, Outcome::Unknown, full[3]],
+        ),
+        (
+            "price floor",
+            Some(BudgetQuote {
+                total: incomplete,
+                ..quote.clone()
+            }),
+            Some(80),
+            true,
+            no_data,
+        ),
+        (
+            "late coverage",
+            Some(BudgetQuote {
+                from_ms: start + HOUR,
+                ..quote
+            }),
+            None,
+            false,
+            no_data,
+        ),
+        ("no reading", None, None, false, no_data),
+    ] {
+        let got = budget_forecast(100 * DOLLAR, start, end, NOW, quote.as_ref());
+        assert_eq!(
+            got.left_usd_micros,
+            left.map(|dollars| dollars * DOLLAR),
+            "{label}"
+        );
+        assert_eq!(
+            got.need_usd_micros_per_hour,
+            left.map(|dollars| (dollars * DOLLAR) as f64 / 10.0),
+            "{label}"
+        );
+        assert_eq!(got.left_is_upper_bound, upper_bound, "{label}");
+        assert_eq!(got.lines, lines, "{label}");
+    }
+}
