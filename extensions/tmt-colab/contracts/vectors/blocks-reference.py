@@ -64,6 +64,7 @@ ok("every type with its smallest value", {
     bid(11): block("mockup", pos="f", props={"markup": "<tmt-ui-button>Go</tmt-ui-button>"}),
     bid(12): block("work-bundle", pos="g", props={"page": bid(500)}),
     bid(13): block("page-view", pos="h"),
+    bid(14): block("chart", pos="i", props={"kind": "meter", "title": "t", "categories": ["a"], "series": [{"name": "Left", "values": [55]}]}),
 })
 ok("props at their edges", {
     bid(1): block("heading", props={"level": 3, "progress": "done"}, text=rich("h")),
@@ -189,6 +190,43 @@ bad("a file link naming an attachment with a malformed token", {bid(1): block("i
 bad("a file link that is empty", {bid(1): block("image", props={"variant": "file", "files": [{"name": "n", "href": ""}]})})
 bad("a page-view filter on an unknown field", {bid(1): block("page-view", props={"filters": [{"field": "colour", "value": "x"}]})})
 bad("a page-view limit of zero", {bid(1): block("page-view", props={"limit": 0})})
+ok("charts of every kind with gaps and their edges", {
+    bid(1): block("chart", props={"kind": "stacked-bar", "title": "Tokens a week", "categories": ["Mon", "Tue"], "series": [{"name": f"s{i}", "values": [i, None]} for i in range(8)], "max": 9007199254740991}),
+    bid(2): block("chart", pos="W", props={"kind": "bar", "title": "t" * 128, "categories": [f"{i}" for i in range(60)], "series": [{"name": "n" * 64, "values": [0] * 60}]}),
+    bid(3): block("chart", pos="X", props={"kind": "bar", "title": "t", "categories": ["a"], "series": [{"name": "n", "values": [None]}], "decimals": 3}),
+    bid(4): block("chart", pos="Y", props={"kind": "meter", "title": "t", "categories": ["a", "b"], "series": [{"name": "Left", "values": [1, None]}], "max": 2}),
+})
+CHART = {"kind": "stacked-bar", "title": "t", "categories": ["a", "b"], "series": [{"name": "n", "values": [1, 2]}]}
+def chart(**change):
+    props = {**CHART, **change}
+    return {bid(1): block("chart", props={k: v for k, v in props.items() if v is not ...})}
+bad("a chart without a kind", chart(kind=...))
+bad("a chart without a title", chart(title=...))
+bad("a chart with an empty title", chart(title=""))
+bad("a chart without categories", chart(categories=...))
+bad("a chart without series", chart(series=...))
+bad("a chart of an unknown kind", chart(kind="pie"))
+bad("a line chart, not a v1 kind", chart(kind="line"))
+bad("an area chart, not a v1 kind", chart(kind="area"))
+bad("a chart with no categories", chart(categories=[], series=[{"name": "n", "values": []}]))
+bad("a chart with 61 categories", chart(categories=[f"{i}" for i in range(61)], series=[{"name": "n", "values": [0] * 61}]))
+bad("a chart category that is empty", chart(categories=["a", ""]))
+bad("a chart with no series", chart(series=[]))
+bad("a chart with nine series", chart(series=[{"name": f"s{i}", "values": [1, 2]} for i in range(9)]))
+bad("a chart series without a name", chart(series=[{"values": [1, 2]}]))
+bad("a chart series with an extra key", chart(series=[{"name": "n", "values": [1, 2], "colour": "red"}]))
+bad("a chart series shorter than its categories", chart(series=[{"name": "n", "values": [1]}]))
+bad("a chart series longer than its categories", chart(series=[{"name": "n", "values": [1, 2, 3]}]))
+bad("a chart value below zero", chart(series=[{"name": "n", "values": [1, -1]}]))
+bad("a chart value with a fraction", chart(series=[{"name": "n", "values": [1, 1.5]}]))
+bad("a chart value as text", chart(series=[{"name": "n", "values": [1, "2"]}]))
+bad("a chart value past the exact range", chart(series=[{"name": "n", "values": [1, 9007199254740992]}]))
+bad("a bar chart of two series", chart(kind="bar", series=[{"name": "a", "values": [1, 2]}, {"name": "b", "values": [1, 2]}]))
+bad("a meter of two series", chart(kind="meter", series=[{"name": "a", "values": [1, 2]}, {"name": "b", "values": [1, 2]}]))
+bad("a chart max of zero", chart(max=0))
+bad("a chart with four decimal places", chart(decimals=4))
+bad("a chart with decimals as text", chart(decimals="1"))
+bad("a chart with text", {bid(1): block("chart", props=CHART, text=rich("x"))})
 bad("props over the type's size", {bid(1): block("page-view", props={"rows": [{"id": f"p{i}", "name": "n" * 200} for i in range(200)]})})
 bad("a text block without text", {bid(1): {"type": "paragraph", "parent": "root", "pos": "V", "props": {}}})
 bad("text on a block that has none", {bid(1): block("table", text=rich(""))})

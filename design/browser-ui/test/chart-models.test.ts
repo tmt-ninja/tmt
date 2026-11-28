@@ -4,6 +4,7 @@ import { expect, it } from 'vite-plus/test';
 import { readFileSync } from 'node:fs';
 import { matrixModel } from '../src/chart-matrix-model';
 import { seriesModel } from '../src/chart-series-model';
+import { chartBlockValue } from '../src/blocks/chart-block';
 import { stripsModel } from '../src/chart-strips-model';
 
 const css = staticCss;
@@ -117,6 +118,162 @@ it('bars skip a missing column, never draw below the axis and stay clear of the 
   // A pointer maps to the bar under it: the first column is where the first bar's centre is.
   expect(model.left).toBeCloseTo(model.xs[0]!, 5);
   expect(model.xs[1]! - model.xs[0]!).toBeCloseTo(model.step, 5);
+});
+
+it('a category axis names every column that fits, else every k-th, on round steps (#6746)', () => {
+  const model = seriesModel(
+    { title: 't', kind: 'stacked-bars', x, series, axis: 'categories' },
+    640,
+  );
+  // The columns sum to 55: round steps of 20 reach it in three, never 13.75 or 18.33.
+  expect(model.grid.map((line) => line.label)).toEqual(['0', '20', '40', '60']);
+  // Every column's name fits, so every column is named.
+  expect(model.xLabels.map((label) => label.text)).toEqual(x);
+  // Too narrow for every name: every second one, never only the ends and the middle.
+  const narrow = seriesModel(
+    { title: 't', kind: 'stacked-bars', x, series, axis: 'categories' },
+    180,
+  );
+  expect(narrow.xLabels.map((label) => label.text)).toEqual(['00:00', '02:00', '04:00']);
+  const hours = Array.from({ length: 24 }, (_, at) => `${String(at).padStart(2, '0')}:00`);
+  const day = seriesModel(
+    {
+      title: 't',
+      kind: 'bars',
+      x: hours,
+      series: [{ key: 'a', label: 'a', values: hours.map(() => 1) }],
+      axis: 'categories',
+    },
+    640,
+  );
+  expect(day.xLabels.map((label) => label.text)).toEqual(hours.filter((_, at) => at % 2 === 0));
+  // A fixed top (a percent) keeps quarters.
+  const percent = seriesModel(
+    { title: 't', kind: 'bars', x, series: [series[0]!], max: 100, axis: 'categories' },
+    640,
+  );
+  expect(percent.grid.map((line) => line.label)).toEqual(['0', '25', '50', '75', '100']);
+});
+
+it('stacked bars stack each column in bands, leave a missing value out and label nothing', () => {
+  const model = seriesModel(
+    { title: 't', kind: 'stacked-bars', x, series, labels: true, axis: 'categories' },
+    640,
+  );
+  // seat-a misses 02:00: four of its bars, five of seat-b's.
+  expect(model.marks.map((mark) => mark.style)).toEqual([0, 0, 0, 0, 1, 1, 1, 1, 1]);
+  const at = (style: number, column: number) =>
+    model.marks.filter((mark) => mark.style === style)[column]!.rect!;
+  // seat-b sits on seat-a: its bottom is seat-a's top, and seat-a stands on the axis.
+  expect(at(1, 0).y + at(1, 0).height).toBeCloseTo(at(0, 0).y, 5);
+  expect(at(0, 0).y + at(0, 0).height).toBeCloseTo(model.bottom, 5);
+  expect(at(0, 0).x).toBeGreaterThanOrEqual(model.grid[0]!.x1);
+  // The axis reaches the tallest column's sum (55), not its tallest part; bands name their own column.
+  expect(model.grid.at(-1)!.label).toBe('60');
+  expect(model.xLabels.map((label) => label.anchor)).toEqual(Array(5).fill('middle'));
+  expect(model.labels).toEqual([]);
+});
+
+it('a category bar takes about 60 percent of a wide band up to 64px; a time series keeps 24px', () => {
+  const few = seriesModel(
+    {
+      title: 't',
+      kind: 'bars',
+      x: ['a', 'b', 'c', 'd', 'e'],
+      series: [{ key: 'a', label: 'a', values: [1, 2, 3, 4, 5] }],
+      axis: 'categories',
+    },
+    1200,
+  );
+  expect(few.marks[0]!.rect!.width).toBe(64);
+  const seven = seriesModel(
+    {
+      title: 't',
+      kind: 'bars',
+      x: ['1', '2', '3', '4', '5', '6', '7'],
+      series: [{ key: 'a', label: 'a', values: [1, 2, 3, 4, 5, 6, 7] }],
+      axis: 'categories',
+    },
+    640,
+  );
+  expect(seven.marks[0]!.rect!.width).toBeCloseTo(seven.step * 0.6, 5);
+  const hours = Array.from({ length: 24 }, (_, at) => String(at));
+  const dense = seriesModel(
+    {
+      title: 't',
+      kind: 'bars',
+      x: hours,
+      series: [{ key: 'a', label: 'a', values: hours.map(() => 1) }],
+      axis: 'categories',
+    },
+    640,
+  );
+  expect(dense.marks[0]!.rect!.width).toBeCloseTo(Math.min(24, dense.step - 2), 5);
+  // A time series keeps its columns at most 24px, as the Digest charts draw them.
+  const time = seriesModel(
+    {
+      title: 't',
+      kind: 'bars',
+      x: ['a', 'b', 'c', 'd', 'e'],
+      series: [{ key: 'a', label: 'a', values: [1, 2, 3, 4, 5] }],
+    },
+    1200,
+  );
+  expect(time.marks[0]!.rect!.width).toBe(24);
+});
+
+it('bar labels write each value above its bar, and only where the column holds it', () => {
+  const model = seriesModel(
+    { title: 't', kind: 'bars', x, series: [series[0]!], labels: true },
+    640,
+  );
+  expect(model.labels.map((label) => label.text)).toEqual(['10', '20', '40', '50']);
+  model.labels.forEach((label, at) => {
+    const bar = model.marks[at]!.rect!;
+    expect(label.x).toBeCloseTo(bar.x + bar.width / 2, 5);
+    expect(label.y).toBeLessThan(bar.y);
+  });
+  const narrow = seriesModel(
+    {
+      title: 't',
+      kind: 'bars',
+      x: Array.from({ length: 60 }, String),
+      labels: true,
+      series: [{ key: 'a', label: 'a', values: Array.from({ length: 60 }, () => 123_456) }],
+    },
+    320,
+  );
+  expect(narrow.labels).toEqual([]);
+});
+
+it('a chart block value keeps its decimal places, and a large one stays compact', () => {
+  expect([625, 980, 0].map((value) => chartBlockValue(value, 1))).toEqual(['62.5', '98.0', '0.0']);
+  expect(chartBlockValue(56, 2)).toBe('0.56');
+  expect(chartBlockValue(34_000)).toBe('34K');
+  expect(chartBlockValue(1_234_567, 1)).toBe('123K');
+  // The axis, the tip and the table read the same text.
+  const model = seriesModel(
+    {
+      title: 't',
+      kind: 'bars',
+      x: ['a', 'b'],
+      series: [{ key: 'a', label: 'a', values: [625, 980] }],
+      labels: true,
+      format: (value) => chartBlockValue(value, 1),
+      axis: 'categories',
+    },
+    640,
+  );
+  expect(model.labels.map((label) => label.text)).toEqual(['62.5', '98.0']);
+  expect(model.table.rows[0]).toEqual(['a', '62.5', '98.0']);
+  expect(model.grid.map((line) => line.label)).toEqual([
+    '0.0',
+    '20.0',
+    '40.0',
+    '60.0',
+    '80.0',
+    '100.0',
+  ]);
 });
 
 it('a single column and a very narrow width still give finite geometry', () => {
@@ -248,4 +405,36 @@ it('monotone areas retain raw values and curve through observed positions', () =
       [1, 2],
     ]),
   ).toBe('M0 1L1 2');
+});
+
+it('a category axis keeps every x label inside the plot and clear of the one before it', () => {
+  // A week of four-hour columns on a phone: every k-th name would leave the last shown one centred
+  // under its column, past the plot's right edge (#6746).
+  const week = Array.from({ length: 48 }, (_, at) => `d${Math.floor(at / 6)} ${(at % 6) * 4}h`);
+  for (const width of [340, 360, 380, 640, 980])
+    for (const kind of ['bars', 'stacked-bars'] as const) {
+      const model = seriesModel(
+        {
+          title: 't',
+          kind,
+          x: week,
+          series: [{ key: 'a', label: 'a', values: week.map((_, at) => at) }],
+          axis: 'categories',
+        },
+        width,
+      );
+      expect(new Set(model.xLabels.map((label) => label.anchor))).toEqual(new Set(['middle']));
+      const spans = model.xLabels.map(({ x, text }) => [
+        x - text.length * 3.5,
+        x + text.length * 3.5,
+      ]);
+      for (const [from, to] of spans) {
+        expect(from).toBeGreaterThanOrEqual(model.grid[0]!.x1 - 0.01);
+        expect(to).toBeLessThanOrEqual(width - 10 + 0.01);
+      }
+      for (let at = 1; at < spans.length; at++)
+        expect(spans[at]![0]!).toBeGreaterThanOrEqual(spans[at - 1]![1]! + 4 - 0.01);
+      expect(model.xLabels[0]!.text).toBe('d0 0h');
+      expect(model.xLabels.length).toBeGreaterThan(2);
+    }
 });

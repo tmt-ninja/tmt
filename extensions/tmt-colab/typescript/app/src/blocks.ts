@@ -28,6 +28,7 @@ export const BLOCK_TYPES = [
   'mockup',
   'work-bundle',
   'page-view',
+  'chart',
 ] as const;
 export type BlockType = (typeof BLOCK_TYPES)[number];
 /** A table's rows are blocks of this type; only `table add-row` makes one. */
@@ -338,6 +339,32 @@ function jsonShape(value: unknown, depth: number): boolean {
     );
   return false;
 }
+function categories(value: unknown) {
+  const items = list(value, 60);
+  requireValue(items.length > 0);
+  for (const item of items) nonempty(item, 64);
+}
+/** One to eight series, each a name and one value per category: a whole number from 0 up, or
+ * `null` for no value (drawn as a gap, never as zero). */
+function chartSeries(value: unknown) {
+  const items = list(value, 8);
+  requireValue(items.length > 0);
+  for (const series of items) {
+    const map = keys(series, ['name', 'values']);
+    nonempty(map.name, 64);
+    for (const item of list(map.values, 60))
+      requireValue(item === null || (Number.isSafeInteger(item) && (item as number) >= 0));
+  }
+}
+/** Every series has one value per category, and a bar chart or a meter draws exactly one series. */
+function chart(map: Record<string, unknown>) {
+  for (const key of ['kind', 'title', 'categories', 'series'])
+    requireValue(Object.hasOwn(map, key));
+  const count = (map.categories as unknown[]).length;
+  const series = map.series as { values: unknown[] }[];
+  requireValue(series.every((item) => item.values.length === count));
+  if (map.kind === 'bar' || map.kind === 'meter') requireValue(series.length === 1);
+}
 function rows(value: unknown) {
   list(value, 200);
   requireValue(byteLength(canonical(value)) <= 24 * 1024 && jsonShape(value, 0));
@@ -431,6 +458,16 @@ const SCHEMA: Record<string, Record<string, Prop>> = {
     selected: line(128),
     selectable: bool,
   },
+  // A chart is data only (#6746): the page draws it, nothing in it is markup or script.
+  chart: {
+    kind: choice('bar', 'stacked-bar', 'meter'),
+    title: custom((value) => nonempty(value, 128)),
+    categories: custom(categories),
+    series: custom(chartSeries),
+    max: int(1, Number.MAX_SAFE_INTEGER),
+    // Values are whole numbers; one is shown divided by 10^decimals (625 at 1 is 62.5).
+    decimals: int(0, 3),
+  },
 };
 /** What a type's props may hold in all, as canonical JSON bytes. */
 function propsBytes(type: string): number {
@@ -467,9 +504,11 @@ export function validateProps(type: string, props: unknown) {
     requireValue(prop !== undefined);
     checkProp(prop, value);
   }
-  // A mockup draws nothing without its markup, and a work card nothing without its page.
+  // A mockup draws nothing without its markup, a work card nothing without its page, and a chart
+  // nothing without its kind, title and data.
   if (type === 'mockup') requireValue(Object.hasOwn(map, 'markup'));
   if (type === 'work-bundle') requireValue(Object.hasOwn(map, 'page'));
+  if (type === 'chart') chart(map);
 }
 
 /** One prop's value against its kind. */

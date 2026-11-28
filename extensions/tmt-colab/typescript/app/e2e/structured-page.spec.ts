@@ -1551,6 +1551,58 @@ for (const theme of ['light', 'dark'] as const)
     await expect(kept).toHaveCount(0);
   });
 
+for (const width of [1440, 390])
+  for (const theme of ['light', 'dark'] as const)
+    test(`a chart block draws its data with written values at ${width} ${theme} (#6746)`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.emulateMedia({ colorScheme: theme });
+      const host = await mountFixture(page, 'charts');
+      const block = (id: string) => host.locator(`[data-block-id="${id}"]`);
+      // Stacked bars: three series in each of seven columns, each named in the legend.
+      const stacked = block('stacked').getByRole('group', { name: '每週 token 用量' });
+      await expect(stacked.locator('rect.tmt-ui-chart-bar')).toHaveCount(21);
+      await expect(stacked.locator('.tmt-ui-chart-legend-label')).toHaveText([
+        'Codex',
+        'Claude',
+        'Agy',
+      ]);
+      // Every category is named under its column, at 390 too (seven short names fit).
+      await expect(
+        stacked.locator('text.tmt-ui-chart-tick').filter({ hasText: /^週/ }),
+      ).toHaveCount(7);
+      // Bars write their values where the column holds them.
+      if (width === 1440)
+        await expect(block('bar').locator('text.tmt-ui-chart-value')).toHaveText([
+          '24',
+          '31',
+          '18',
+          '36',
+          '28',
+        ]);
+      // A meter always writes its percent, after the series' name.
+      const meters = block('meter').getByRole('meter');
+      await expect(meters).toHaveCount(3);
+      await expect(meters.first()).toHaveAttribute('aria-valuetext', '55%');
+      await expect(block('meter')).toContainText('剩 55%');
+      // No chart block carries markup of its own: nothing in the page runs.
+      expect(
+        await page.evaluate(
+          () => document.querySelectorAll('#structured-page-fixture script').length,
+        ),
+      ).toBe(0);
+      if (theme === 'dark')
+        expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor)).not.toBe(
+          'rgb(255, 255, 255)',
+        );
+      await page.mouse.move(0, 0);
+      await host.screenshot({
+        path: capturePath(`structured-charts-${width}-${theme}.png`),
+        animations: 'disabled',
+      });
+    });
+
 test('a mockup renders only in an opaque sandboxed frame, never in the page', async ({ page }) => {
   await servePageRuntime(page);
   const host = await mountFixture(page, 'spec');

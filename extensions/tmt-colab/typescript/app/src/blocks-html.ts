@@ -183,6 +183,28 @@ function table(all: Json, id: string, block: Json): string {
   return `${out}</tbody></table></section>\n`;
 }
 
+/** A chart exports as its data: the title, then one row per series with a value per category
+ * (`—` where it has none), so it reads offline with nothing to run (#6746). */
+function chart(props: Json): string {
+  const decimals = typeof props.decimals === 'number' ? Math.min(3, props.decimals) : 0;
+  const unit = 10 ** decimals;
+  /** A stored whole number with `decimals` places, exactly: 625 at 1 is `62.5`. */
+  const shown = (value: number) =>
+    decimals === 0
+      ? String(value)
+      : `${(value - (value % unit)) / unit}.${String(value % unit).padStart(decimals, '0')}`;
+  let out = `<figure data-chart="${escape(str(props.kind) ?? '')}"><figcaption>${escape(str(props.title) ?? '')}</figcaption><table><thead><tr><th></th>`;
+  for (const category of arr(props.categories)) out += `<th>${escape(str(category) ?? '')}</th>`;
+  out += '</tr></thead><tbody>';
+  for (const series of arr(props.series).map(obj)) {
+    out += `<tr><th>${escape(str(series.name) ?? '')}</th>`;
+    for (const value of arr(series.values))
+      out += `<td>${typeof value === 'number' ? shown(value) : '—'}</td>`;
+    out += '</tr>';
+  }
+  return `${out}</tbody></table></figure>\n`;
+}
+
 type Surface = 'export' | 'reader';
 
 const readerPlaceholders: Readonly<Record<string, string>> = {
@@ -313,6 +335,8 @@ function render1(all: Json, id: string, block: Json, surface: Surface): string {
       }
       return `${out}</div>\n`;
     }
+    case 'chart':
+      return chart(props);
     case 'page-view': {
       let out = '<section class="tmt-ui-section" data-page-view>';
       const label = str(props.label);

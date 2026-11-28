@@ -48,6 +48,11 @@
   stroke-width: 2px;
   stroke-linejoin: round;
 }
+.tmt-ui-chart-value {
+  fill: var(--tmt-ui-color-text);
+  font: var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-mono);
+  font-variant-numeric: tabular-nums;
+}
 .tmt-ui-chart-reference {
   fill: none;
   stroke: var(--tmt-ui-color-secondary);

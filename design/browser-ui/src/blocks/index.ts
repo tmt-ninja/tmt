@@ -68,6 +68,8 @@ export type {
   WorkBundleTicket,
   WorkBundleSource,
 } from './work-bundle.js';
+export { ChartBlock, chartBlockValue } from './chart-block.js';
+export type { ChartBlockKind, ChartBlockProps, ChartBlockSeries } from './chart-block.js';
 export { MockupBlock } from './mockup-block.js';
 export type { MockupBlockProps, MockupLabels, MockupUnavailable } from './mockup-block.js';
 export { PageViewToolbar } from './page-view-toolbar.js';

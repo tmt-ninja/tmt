@@ -1,6 +1,7 @@
 import { Button } from '../src/ui/index.js';
 import { useState } from 'react';
 import {
+  ChartBlock,
   ImageBlock,
   MarkedText,
   MockupBlock,
@@ -14,6 +15,7 @@ import type { ComponentDoc } from './catalog.js';
 
 const sampleImage =
   'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"%3E%3Crect width="320" height="180" fill="%23e3e1dc"/%3E%3Crect x="24" y="24" width="272" height="30" fill="%23a29e97"/%3E%3Crect x="24" y="70" width="160" height="80" fill="%23cfccc6"/%3E%3C/svg%3E';
+const WEEK = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 function QuestionDemo() {
   const [answer, setAnswer] = useState('');
   return (
@@ -222,6 +224,61 @@ export const blockComponents: ComponentDoc[] = [
       [
         'Unavailable page',
         () => <WorkBundle page="missing" state="unavailable" work="Keep this work." />,
+      ],
+    ],
+  },
+  {
+    slug: 'chart-block',
+    name: 'Chart block',
+    description:
+      'A chart drawn from data alone: bars, stacked bars or meters, in the chart roles. A bar writes its value and a meter its percent; null is no value, never zero. Values are whole numbers shown divided by 10^decimals (625 at 1 is 62.5).',
+    preview: () => (
+      <ChartBlock
+        kind="stacked-bar"
+        title="Tokens a week"
+        categories={WEEK}
+        series={[
+          { name: 'Codex', values: [30000, 42000, 38000, 55000, 48000, 20000, 16000] },
+          { name: 'Claude', values: [22000, 18000, 30000, 26000, 34000, 10000, 8000] },
+          { name: 'Agy', values: [8000, 10000, 6000, 12000, 9000, 4000, 3000] },
+        ]}
+      />
+    ),
+    usage: `${entry('ChartBlock, chartBlockValue')}<ChartBlock kind="stacked-bar" title="Done and added" categories={days} series={[{ name: 'Done', values }, { name: 'Added', values: added }]} />\n<ChartBlock kind="bar" title="Pass rate (%)" categories={days} series={[{ name: 'Pass', values: [625, 980] }]} decimals={1} />\nchartBlockValue(625, 1); // '62.5', as the chart shows it`,
+    variants: [
+      [
+        'Bars with values',
+        () => (
+          <ChartBlock
+            kind="bar"
+            title="Reviews a day"
+            categories={['A', 'B', 'C', 'D', 'E']}
+            series={[{ name: 'Reviews', values: [24, 31, 18, 36, 28] }]}
+          />
+        ),
+      ],
+      [
+        'Bars with one decimal place',
+        () => (
+          <ChartBlock
+            kind="bar"
+            title="Pass rate (%)"
+            categories={['Mon', 'Tue', 'Wed']}
+            series={[{ name: 'Pass', values: [625, 980, 875] }]}
+            decimals={1}
+          />
+        ),
+      ],
+      [
+        'Meters',
+        () => (
+          <ChartBlock
+            kind="meter"
+            title="Weekly allowance"
+            categories={['Codex', 'Claude', 'Budget']}
+            series={[{ name: 'Left', values: [55, 26, 82] }]}
+          />
+        ),
       ],
     ],
   },

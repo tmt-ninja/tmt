@@ -160,6 +160,10 @@
     "status": "stable"
    },
    {
+    "tag": "chart-block",
+    "status": "stable"
+   },
+   {
     "tag": "mockup-block",
     "status": "stable"
    },
@@ -1949,6 +1953,84 @@
     "WorkBundle"
    ],
    "source": "// Runtime 4 supplies the real browser-ui WorkBundle. The host supplies only the admitted display\n// metadata for this page id; the tag adds the `tmt-work-change` event for an editable work text.\nexport default ({ React, data, ui }) => {\n  const usePage = data.page;\n  return function WorkBundleTag(props) {\n    const host = React.useRef(null);\n    const [work, setWork] = React.useState(props.work || '');\n    React.useEffect(() => setWork(props.work || ''), [props.work]);\n    const observed = usePage(props.page || '');\n    const page = /^[A-Za-z0-9_-]{1,128}$/.test(props.page || '') ? observed : null;\n    let tickets;\n    try {\n      tickets = JSON.parse(props.tickets || '[]');\n    } catch {\n      tickets = [];\n    }\n    tickets = (Array.isArray(tickets) ? tickets : [])\n      .slice(0, 20)\n      .filter(\n        (item) =>\n          item &&\n          typeof item.label === 'string' &&\n          typeof item.href === 'string' &&\n          /^https:\\/\\/github\\.com\\//.test(item.href),\n      );\n    const number = Number(props.number);\n    return React.createElement(\n      'div',\n      { ref: host, style: { display: 'contents' } },\n      React.createElement(ui.WorkBundle, {\n        page: props.page || '',\n        number: props.number && Number.isSafeInteger(number) ? number : undefined,\n        work,\n        tickets,\n        data: page || undefined,\n        state: page === undefined ? 'loading' : page ? 'ready' : 'unavailable',\n        onWorkChange: props.editable\n          ? (value) => {\n              setWork(value);\n              host.current?.dispatchEvent(\n                new CustomEvent('tmt-work-change', { bubbles: true, detail: { value } }),\n              );\n            }\n          : undefined,\n      }),\n    );\n  };\n};\n",
+   "css": ""
+  },
+  {
+   "schema": 1,
+   "kind": "component",
+   "tag": "chart-block",
+   "props": {
+    "kind": {
+     "enum": [
+      "bar",
+      "stacked-bar",
+      "meter"
+     ],
+     "default": "bar"
+    },
+    "label": {
+     "type": "string"
+    },
+    "categories": {
+     "type": "string"
+    },
+    "series": {
+     "type": "string"
+    },
+    "max": {
+     "type": "string"
+    },
+    "decimals": {
+     "enum": [
+      "0",
+      "1",
+      "2",
+      "3"
+     ],
+     "default": "0"
+    }
+   },
+   "slots": [
+    "default"
+   ],
+   "uiParts": [
+    "ChartBlock"
+   ],
+   "examples": [
+    {
+     "title": "Stacked bars",
+     "markup": "<tmt-ui-chart-block kind=\"stacked-bar\" label=\"Tokens a week\" categories=\"Mon, Tue, Wed, Thu, Fri, Sat, Sun\" series=\"Codex: 30000, 42000, 38000, 55000, 48000, 20000, 16000; Claude: 22000, 18000, 30000, 26000, 34000, 10000, 8000; Agy: 8000, 10000, 6000, 12000, 9000, 4000, 3000\"></tmt-ui-chart-block>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Bars with values",
+     "markup": "<tmt-ui-chart-block kind=\"bar\" label=\"Reviews a day\" categories=\"A, B, C, D, E\" series=\"Reviews: 24, 31, 18, 36, 28\"></tmt-ui-chart-block>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Bars with one decimal place",
+     "markup": "<tmt-ui-chart-block kind=\"bar\" label=\"Pass rate (%)\" categories=\"Mon, Tue, Wed\" series=\"Pass: 625, 980, 875\" decimals=\"1\"></tmt-ui-chart-block>",
+     "widths": [
+      1440,
+      390
+     ]
+    },
+    {
+     "title": "Meters",
+     "markup": "<tmt-ui-chart-block kind=\"meter\" label=\"Weekly allowance\" categories=\"Codex, Claude, Budget\" series=\"Left: 55, 26, 82\"></tmt-ui-chart-block>",
+     "widths": [
+      1440,
+      390
+     ]
+    }
+   ],
+   "source": "// A thin wrapper over the ChartBlock part: `categories` is a comma list, `series` is\n// `name: value, value; name: value, …` with `-` for no value, so a mockup draws a chart from data.\n// Values are whole numbers, shown divided by 10^`decimals` (0 to 3).\nexport default ({ React, ui }) => ({ kind = 'bar', label = 'Chart', categories = '', series = '', max = '', decimals = '' }) => {\n  const list = (text) => text.split(',').map((item) => item.trim());\n  const labels = categories ? list(categories) : [];\n  const layers = series.split(';').filter((part) => part.includes(':')).map((part) => {\n    const at = part.indexOf(':');\n    const values = list(part.slice(at + 1)).map((value) => (/^\\d+(\\.\\d+)?$/.test(value) ? Number(value) : null));\n    return { name: part.slice(0, at).trim(), values: labels.map((_, index) => values[index] ?? null) };\n  });\n  const top = Number(max);\n  const places = Math.min(3, Math.max(0, Math.trunc(Number(decimals)) || 0));\n  return React.createElement(ui.ChartBlock, { kind, title: label, categories: labels, series: layers, decimals: places, ...(top > 0 ? { max: top } : {}) });\n};\n",
    "css": ""
   },
   {

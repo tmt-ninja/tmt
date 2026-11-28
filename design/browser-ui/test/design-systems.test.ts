@@ -181,6 +181,7 @@ describe('buildBundle', () => {
       'tmt-ui-block-toast',
       'tmt-ui-page-view',
       'tmt-ui-work-bundle',
+      'tmt-ui-chart-block',
       'tmt-ui-mockup-block',
       'tmt-ui-question-block',
       'tmt-ui-image-block',

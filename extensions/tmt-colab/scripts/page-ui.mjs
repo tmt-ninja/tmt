@@ -37,7 +37,10 @@ import { readFile } from 'node:fs/promises';
 // Go to menu: 134,059 -> 134,956 (+897), exact, no headroom (GUI lead approval on #6833). A page
 // frame draws no rail, so #5809's stripping recovers these bytes too.
 // Measured by buildPageUi() with Node v26.12.1.
-export const PAGE_UI_LIMIT = 134_956;
+// Chart and meter blocks (#6746): the unstacked area fill, line points and their legend shapes, bar
+// values and the chart block's meter rows: 134,956 -> 135,476 (+520), exact, no headroom (GUI lead
+// approval on #6824).
+export const PAGE_UI_LIMIT = 135_476;
 
 export async function buildPageUi() {
   // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the

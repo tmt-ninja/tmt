@@ -413,8 +413,61 @@ fn block(out: &mut String, all: &Map<String, Value>, id: &str, block: &Value) {
             }
             out.push_str("</section>\n");
         }
+        "chart" => chart(out, props),
         _ => {}
     }
+}
+
+/// A stored whole number with `decimals` places, exactly: 625 at 1 is `62.5`, 600 at 1 is `60.0`.
+fn shown(value: u64, decimals: u32) -> String {
+    if decimals == 0 {
+        return value.to_string();
+    }
+    let unit = 10u64.pow(decimals);
+    format!(
+        "{}.{:0width$}",
+        value / unit,
+        value % unit,
+        width = decimals as usize
+    )
+}
+
+/// A chart exports as its data: the title, then one row per series with a value per category
+/// (`—` where it has none), so it reads offline with nothing to run (#6746).
+fn chart(out: &mut String, props: &Value) {
+    let decimals = props["decimals"].as_u64().unwrap_or(0).min(3) as u32;
+    let list = |key: &str| -> &[Value] {
+        props
+            .get(key)
+            .and_then(Value::as_array)
+            .map_or(&[], Vec::as_slice)
+    };
+    out.push_str(&format!(
+        "<figure data-chart=\"{}\"><figcaption>{}</figcaption><table><thead><tr><th></th>",
+        escape(str_of(props, "kind").unwrap_or_default()),
+        escape(str_of(props, "title").unwrap_or_default())
+    ));
+    for category in list("categories") {
+        out.push_str(&format!(
+            "<th>{}</th>",
+            escape(category.as_str().unwrap_or_default())
+        ));
+    }
+    out.push_str("</tr></thead><tbody>");
+    for series in list("series") {
+        out.push_str(&format!(
+            "<tr><th>{}</th>",
+            escape(str_of(series, "name").unwrap_or_default())
+        ));
+        for value in series["values"].as_array().map_or(&[][..], Vec::as_slice) {
+            match crate::closed::integer(value) {
+                Ok(value) => out.push_str(&format!("<td>{}</td>", shown(value, decimals))),
+                Err(_) => out.push_str("<td>—</td>"),
+            }
+        }
+        out.push_str("</tr>");
+    }
+    out.push_str("</tbody></table></figure>\n");
 }
 
 fn children(out: &mut String, all: &Map<String, Value>, parent: &str) {
@@ -788,6 +841,33 @@ mod tests {
                             root,
                             "X",
                             json!({"label": "Open pages", "rows": [{"id": id(8), "name": "Plan"}, {"id": id(9), "name": "Notes & ideas"}]}),
+                            None,
+                        ),
+                    ),
+                ]),
+            ),
+            (
+                "a chart with a gap and a meter, as their data",
+                doc(vec![
+                    (
+                        1,
+                        block(
+                            "chart",
+                            root,
+                            "V",
+                            json!({"kind": "stacked-bar", "title": "Tokens <a week>", "categories": ["Mon", "Tue & Wed"],
+                        "series": [{"name": "Codex", "values": [1200, null]}, {"name": "Claude", "values": [0, 34]}]}),
+                            None,
+                        ),
+                    ),
+                    (
+                        2,
+                        block(
+                            "chart",
+                            root,
+                            "W",
+                            json!({"kind": "meter", "title": "Allowance", "categories": ["Codex", "Claude"], "max": 2000,
+                        "decimals": 1, "series": [{"name": "Left", "values": [1105, 7]}]}),
                             None,
                         ),
                     ),

@@ -86,6 +86,32 @@ export function niceMax(max: number): number {
   return 10 * base;
 }
 
+/** An axis from 0: its top and how many equal steps reach it. */
+export interface Scale {
+  max: number;
+  count: number;
+}
+
+/**
+ * The axis for data up to `max`: the smallest step of 1, 2 or 5 × 10^k (at least 1, as values
+ * are counts or scaled whole numbers) that reaches `max` in at most five steps, so every tick is
+ * a round number (0, 10K, 20K, 30K, 40K; never 12.5K). An empty domain is 0 to 1.
+ */
+export function niceScale(max: number): Scale {
+  if (!(max > 0) || !Number.isFinite(max)) return { max: 1, count: 1 };
+  for (let base = 10 ** Math.max(0, Math.floor(Math.log10(max / 5))); ; base *= 10)
+    for (const m of [1, 2, 5]) {
+      const count = Math.ceil(max / (m * base) - 1e-9);
+      if (count <= 5) return { max: count * m * base, count };
+    }
+}
+
+/** The steps of a fixed top (100 for a percent): four when they are whole, else five, three,
+ * two or one. */
+export function fixedScale(max: number): Scale {
+  return { max, count: [4, 5, 3, 2].find((count) => Number.isInteger(max / count)) ?? 1 };
+}
+
 /** `count + 1` evenly spaced ticks from 0 to `max`. */
 export function ticks(max: number, count = 4): number[] {
   return Array.from({ length: count + 1 }, (_, at) => (max * at) / count);

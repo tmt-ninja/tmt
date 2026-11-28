@@ -104,6 +104,9 @@
       "doc": "components/work-bundle.json"
     },
     {
+      "doc": "components/chart-block.json"
+    },
+    {
       "doc": "components/mockup-block.json"
     },
     {

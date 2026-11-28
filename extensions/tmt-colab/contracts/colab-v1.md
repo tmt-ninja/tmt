@@ -3245,7 +3245,7 @@ below; any other key, type or shape is refused.
 
 | Key       | Value                                                                                                                                                            |
 | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type`    | One of the thirteen types below, or the internal `row`; changes only by `retype` between the six [retype types](#retype-6742)                                    |
+| `type`    | One of the fourteen types below, or the internal `row`; changes only by `retype` between the six [retype types](#retype-6742)                                    |
 | `parent`  | `root` or the ID of a `card`; a card never holds a card; a `row`'s parent is its table                                                                           |
 | `pos`     | Fractional sort key: 1 to 64 characters of `0-9A-Za-z`, never ending in `0`; siblings order by `(pos, id)`, so two writers that pick one key keep a stable order |
 | `props`   | Nested `Y.Map` of plain values; only the keys of the type's schema                                                                                               |
@@ -3271,6 +3271,19 @@ back with it on `restore`.
 | `mockup`      | none  | `markup` (required, 64 KiB), `system`, `lock`, `preset` `390\|1440\|custom`, `width`, `height`, `toolbarLabels`                                                |
 | `work-bundle` | none  | `page` (required page ID), `number`, `work`, `editable`, `tickets` (at most 20, `https://github.com/` links only)                                              |
 | `page-view`   | none  | `label`, `rows` (at most 200, 24 KiB), `filters`, `columns`, `sort` `updated\|title`, `limit` 1-200, `groupBy`, `state`, `density`, `selected`, `selectable`   |
+| `chart`       | none  | `kind` (required) `bar\|stacked-bar\|meter`, `title` (required, 128 bytes), `categories` (required), `series` (required), `max`, `decimals` 0-3                |
+
+A `chart` (#6746) is data only; the page draws it with the design system's chart, so no block carries
+markup or script for it. `categories` is 1 to 60 non-empty labels of at most 64 bytes. `series` is 1 to
+8 of `{name, values}`: a non-empty name of at most 64 bytes and exactly one value per category, each a
+whole number from 0 to 2^53 − 1 or `null`, which is no value: no bar is drawn and it never reads as
+zero. A value is shown divided by 10 to the power of `decimals` (0 when absent), with that many places,
+on the axis, in the tip, the bar labels, the data table and the export alike: 62.5 is stored as `625`
+with `decimals: 1`. A `bar` or a `meter` has exactly one series. `max` (a whole number from 1, in the
+values' units) is the top of the axis, or a meter's whole, 100 when absent; a meter row writes its
+percent of it with the same places, after the series name ("Left 55%"). A `bar` writes each value above
+its bar where it fits. The export writes a chart as its data, a `<figure data-chart>` whose table has a
+row per series, each value with exactly `decimals` places (`60.0`), and `—` for no value.
 
 Rich text carries the marks `bold`, `italic` and `code` (value `true`), `link` (an `http://`,
 `https://` or `mailto:` target of at most 2048 bytes without whitespace), `agent` (a label of at most

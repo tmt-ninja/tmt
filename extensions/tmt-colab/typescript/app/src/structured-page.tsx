@@ -34,6 +34,8 @@ import {
   MarkedText,
   authoredPageViewRows,
   ConnectedWorkBundle,
+  ChartBlock,
+  type ChartBlockProps,
   MockupBlock,
   PageView,
   QuestionBlock,
@@ -1765,6 +1767,9 @@ function Content({
         <WorkBundle {...bundle} state="unavailable" onOpenTicket={openTicket} />
       );
     }
+    case 'chart':
+      // Data only, checked by the page's schema before it reaches here (#6746).
+      return <ChartBlock {...(block.props as unknown as ChartBlockProps)} />;
     case 'page-view': {
       const spec = pageViewSpec(block);
       // Authored rows draw as plain values; a live view is the parent's owner list, gated.

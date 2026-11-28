@@ -16,9 +16,9 @@ use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 use tmt_colab_model::values;
 
-/// The thirteen block types a page can insert. A table's rows are blocks too (type `row`), but only
+/// The fourteen block types a page can insert. A table's rows are blocks too (type `row`), but only
 /// `table add-row` makes one.
-pub const TYPES: [&str; 13] = [
+pub const TYPES: [&str; 14] = [
     "paragraph",
     "heading",
     "list",
@@ -32,6 +32,7 @@ pub const TYPES: [&str; 13] = [
     "mockup",
     "work-bundle",
     "page-view",
+    "chart",
 ];
 pub const ROW: &str = "row";
 /// The parent of a block that sits on the page itself.
@@ -165,6 +166,16 @@ fn schema(block_type: &str) -> &'static [(&'static str, Prop)] {
             ("density", Prop::Enum(&["compact", "comfortable"])),
             ("selected", Prop::Text(128)),
             ("selectable", Prop::Bool),
+        ],
+        // A chart is data only (#6746): the page draws it, nothing in it is markup or script.
+        "chart" => &[
+            ("kind", Prop::Enum(&["bar", "stacked-bar", "meter"])),
+            ("title", Prop::Custom(chart_title)),
+            ("categories", Prop::Custom(categories)),
+            ("series", Prop::Custom(chart_series)),
+            ("max", Prop::Int(1, 9_007_199_254_740_991)),
+            // Values are whole numbers; one is shown divided by 10^decimals (625 at 1 is 62.5).
+            ("decimals", Prop::Int(0, 3)),
         ],
         _ => &[],
     }
@@ -303,6 +314,47 @@ fn column_names(value: &Value) -> Result<()> {
         .iter()
         .try_for_each(|c| nonempty(c, 64).map(drop))
 }
+fn chart_title(value: &Value) -> Result<()> {
+    nonempty(value, 128).map(drop)
+}
+fn categories(value: &Value) -> Result<()> {
+    let items = list(value, 60)?;
+    require(!items.is_empty())?;
+    items.iter().try_for_each(|c| nonempty(c, 64).map(drop))
+}
+/// One to eight series, each a name and one value per category: a whole number from 0 up, or
+/// `null` for no value (no bar is drawn, and it never reads as zero).
+fn chart_series(value: &Value) -> Result<()> {
+    let items = list(value, 8)?;
+    require(!items.is_empty())?;
+    for series in items {
+        keys(series, &["name", "values"], &[])?;
+        nonempty(&series["name"], 64)?;
+        for value in list(&series["values"], 60)? {
+            if !value.is_null() {
+                crate::closed::integer(value)?;
+            }
+        }
+    }
+    Ok(())
+}
+/// Every series has one value per category, and a bar chart or a meter draws exactly one series.
+fn chart(map: &Map<String, Value>) -> Result<()> {
+    for key in ["kind", "title", "categories", "series"] {
+        require(map.contains_key(key))?;
+    }
+    let count = map["categories"].as_array().map_or(0, Vec::len);
+    let series = map["series"].as_array().ok_or(Invalid)?;
+    require(
+        series
+            .iter()
+            .all(|s| s["values"].as_array().is_some_and(|v| v.len() == count)),
+    )?;
+    if matches!(map["kind"].as_str(), Some("bar" | "meter")) {
+        require(series.len() == 1)?;
+    }
+    Ok(())
+}
 fn markup(value: &Value) -> Result<()> {
     multiline(value, 64 * 1024).map(drop)
 }
@@ -331,10 +383,12 @@ pub fn validate_props(block_type: &str, props: &Value) -> Result<()> {
             .ok_or(Invalid)?;
         check_prop(kind, value)?;
     }
-    // A mockup draws nothing without its markup, and a work card nothing without its page.
+    // A mockup draws nothing without its markup, a work card nothing without its page, and a chart
+    // nothing without its kind, title and data.
     match block_type {
         "mockup" => require(map.contains_key("markup")),
         "work-bundle" => require(map.contains_key("page")),
+        "chart" => chart(map),
         _ => Ok(()),
     }
 }
