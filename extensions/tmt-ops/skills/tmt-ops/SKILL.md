@@ -1971,6 +1971,10 @@ to it, because that is how the user sees you handled it.
 silently. If a change would help, propose the exact lines and let the user
 apply them.
 
+An optional `[[board.allowance.budgets]]` entry supplies `name`, a billing
+`provider` (`anthropic`, `openai` or `google`), a positive USD `limit`, and
+`period = "week"` or `"month"`. A budget groups that vendor's local usage.
+
 The user is Core's: its `user.name` setting (default: your OS login name) names
 the identity that is you, and Core marks it with the reserved `user = true`
 metadata entry, so Digest never holds your messages or replies. `tmt ops squad

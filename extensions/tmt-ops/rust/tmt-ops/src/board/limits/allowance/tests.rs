@@ -244,41 +244,54 @@ fn allowance_budget_forecasts_use_only_complete_owner_quotes() {
     const DOLLAR: u64 = 1_000_000;
     let start = NOW - 10 * HOUR;
     let end = NOW + 10 * HOUR;
-    let known = |dollars| QuotedSpend::Complete(dollars * DOLLAR);
-    let incomplete = QuotedSpend::Incomplete {
+    let known = |dollars| QuotedSpend {
+        usd_micros: Some(dollars * DOLLAR),
+        complete: true,
+        lower_bound: false,
+        reasons: vec![],
+    };
+    let incomplete = QuotedSpend {
         usd_micros: Some(20 * DOLLAR),
-        reason: "lower_bound".into(),
+        complete: false,
+        lower_bound: true,
+        reasons: vec!["cache_write_unreported".into()],
+    };
+    let pace = |hours, spend| PaceQuote {
+        window_ms: hours * HOUR,
+        from_ms: NOW - hours * HOUR,
+        to_ms: NOW,
+        spend,
     };
     let quote = BudgetQuote {
+        provider: "openai".into(),
         from_ms: start,
         to_ms: NOW,
-        spend: known(20),
-        pace_per_hour: [known(10), known(3), known(0)],
-        token_pace_per_hour: Some(known(1)),
+        models: vec!["gpt-5".into()],
+        total: known(20),
+        pace: vec![pace(3, known(30)), pace(6, known(18)), pace(24, known(0))],
     };
     let lasts = |dollars| Outcome::Lasts(f64::from(dollars) * DOLLAR as f64);
     let full = [
         Outcome::RunsOut(NOW + 8 * HOUR),
         lasts(50),
         lasts(80),
-        lasts(70),
+        Outcome::Unknown,
         lasts(60),
     ];
     let no_data = [Outcome::Unknown; 5];
     for (label, quote, left, lines) in [
         ("complete", Some(quote.clone()), Some(80), full),
         (
-            "missing pace and token estimate",
+            "missing pace",
             Some(BudgetQuote {
-                pace_per_hour: [known(10), incomplete.clone(), known(0)],
-                token_pace_per_hour: None,
+                pace: vec![pace(3, known(30)), pace(6, incomplete.clone())],
                 ..quote.clone()
             }),
             Some(80),
             [
                 full[0],
                 Outcome::Unknown,
-                full[2],
+                Outcome::Unknown,
                 Outcome::Unknown,
                 full[4],
             ],
@@ -286,7 +299,7 @@ fn allowance_budget_forecasts_use_only_complete_owner_quotes() {
         (
             "price floor",
             Some(BudgetQuote {
-                spend: incomplete,
+                total: incomplete,
                 ..quote.clone()
             }),
             None,

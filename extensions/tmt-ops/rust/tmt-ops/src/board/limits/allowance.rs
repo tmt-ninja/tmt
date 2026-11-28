@@ -152,7 +152,7 @@ pub(super) fn rates(history: &[Reading]) -> Rates {
 pub enum Outcome {
     /// No rate to hold, or no window to hold it against.
     Unknown,
-    /// Percent still left at the reset.
+    /// Amount still left at the reset, in the projection’s units.
     Lasts(f64),
     /// The window empties first, at this time.
     RunsOut(u64),
@@ -169,8 +169,8 @@ impl Outcome {
     }
 }
 
-/// `left` percent that refills in `resets_in_ms`, spent at `rate` percent per
-/// hour from `now_ms`.
+/// Project an amount spent at `rate` per hour from `now_ms` to the reset.
+/// The starting amount and rate share the same unit.
 pub fn project(left: f64, resets_in_ms: u64, now_ms: u64, rate: Option<f64>) -> Outcome {
     let Some(rate) = rate.filter(|rate| rate.is_finite() && *rate >= 0.0) else {
         return Outcome::Unknown;
@@ -183,27 +183,54 @@ pub fn project(left: f64, resets_in_ms: u64, now_ms: u64, rate: Option<f64>) -> 
     }
 }
 
-/// Spend supplied by the usage owner. An incomplete amount is evidence
-/// for Details, but does not establish a budget balance or a rate.
+/// A value from Digest's `spend` section. A floor and its reasons can be
+/// displayed in Details, but cannot establish a balance or rate.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum QuotedSpend {
-    Complete(u64),
-    Incomplete {
-        usd_micros: Option<u64>,
-        reason: String,
-    },
+pub(crate) struct QuotedSpend {
+    pub usd_micros: Option<u64>,
+    pub complete: bool,
+    pub lower_bound: bool,
+    pub reasons: Vec<String>,
 }
 
-/// Actual bounds and priced amounts for one provider on this machine.
+impl QuotedSpend {
+    fn complete_micros(&self) -> Option<u64> {
+        if self.complete && !self.lower_bound && self.reasons.is_empty() {
+            self.usd_micros
+        } else {
+            None
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct BudgetQuote {
+pub(crate) struct PaceQuote {
+    pub window_ms: u64,
     pub from_ms: u64,
     pub to_ms: u64,
     pub spend: QuotedSpend,
-    /// Owner-reported USD micros per hour over 3 h, 6 h and 24 h.
-    pub pace_per_hour: [QuotedSpend; 3],
-    /// A separate owner-provided token projection, if the contract supplies it.
-    pub token_pace_per_hour: Option<QuotedSpend>,
+}
+
+/// One row of Digest's `spend.providers[]`, with the actual closed cut.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BudgetQuote {
+    pub provider: String,
+    pub from_ms: u64,
+    pub to_ms: u64,
+    pub models: Vec<String>,
+    pub total: QuotedSpend,
+    pub pace: Vec<PaceQuote>,
+}
+
+impl BudgetQuote {
+    fn pace_per_hour(&self, hours: u64) -> Option<f64> {
+        let window_ms = hours * HOUR_MS;
+        let pace = self.pace.iter().find(|pace| pace.window_ms == window_ms)?;
+        if pace.to_ms != self.to_ms || pace.to_ms.checked_sub(pace.from_ms) != Some(window_ms) {
+            return None;
+        }
+        Some(pace.spend.complete_micros()? as f64 / hours as f64)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -215,16 +242,49 @@ pub(crate) struct BudgetForecast {
 }
 
 pub(crate) fn budget_forecast(
-    _limit_usd_micros: u64,
-    _period_start_ms: u64,
-    _period_end_ms: u64,
-    _now_ms: u64,
-    _quote: Option<&BudgetQuote>,
+    limit_usd_micros: u64,
+    period_start_ms: u64,
+    period_end_ms: u64,
+    now_ms: u64,
+    quote: Option<&BudgetQuote>,
 ) -> BudgetForecast {
-    BudgetForecast {
+    let unknown = BudgetForecast {
         left_usd_micros: None,
         need_usd_micros_per_hour: None,
         lines: [Outcome::Unknown; 5],
+    };
+    if !(period_start_ms..period_end_ms).contains(&now_ms) {
+        return unknown;
+    }
+    let Some(quote) = quote.filter(|quote| {
+        quote.from_ms == period_start_ms && (quote.from_ms..=now_ms).contains(&quote.to_ms)
+    }) else {
+        return unknown;
+    };
+    let Some(spend) = quote.total.complete_micros() else {
+        return unknown;
+    };
+    let left = limit_usd_micros.saturating_sub(spend);
+    let remaining_ms = period_end_ms - now_ms;
+    let remaining_hours = remaining_ms as f64 / HOUR_MS as f64;
+    let observed_ms = quote.to_ms - quote.from_ms;
+    let lines = Line::ALL.map(|line| {
+        let pace = match line {
+            Line::Hours3 => quote.pace_per_hour(3),
+            Line::Hours6 => quote.pace_per_hour(6),
+            Line::Hours24 => quote.pace_per_hour(24),
+            // The owner supplies monetary pace, with no independent token estimate.
+            Line::Tokens => None,
+            Line::SinceReset => {
+                (observed_ms > 0).then(|| spend as f64 / (observed_ms as f64 / HOUR_MS as f64))
+            }
+        };
+        project(left as f64, remaining_ms, now_ms, pace)
+    });
+    BudgetForecast {
+        left_usd_micros: Some(left),
+        need_usd_micros_per_hour: Some(left as f64 / remaining_hours),
+        lines,
     }
 }
 
