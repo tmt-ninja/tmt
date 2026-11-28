@@ -8,8 +8,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/delivery"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -75,12 +77,13 @@ func TestLiveTalkFencesDeliveryAndSettlesBeforeReadingFinal(t *testing.T) {
 				capture: func(context.Context, ports.PaneRef, ports.CaptureOpts) (ports.Screen, error) {
 					return ports.Screen{Pane: pane, Text: "› Ask Codex to do anything\n← for agents · ? for shortcuts\n"}, nil
 				},
-				deliver: func(_ context.Context, ref ports.PaneRef, in ports.DeliveryInput) (ports.DeliveryOutcome, error) {
+				deliver: func(_ context.Context, root home.Root, target delivery.PasteTarget, in ports.DeliveryInput) (ports.DeliveryOutcome, error) {
 					actions = append(actions, "deliver")
-					if ref != pane || !strings.HasPrefix(in.Text, message+"\n\n") ||
+					if root.Dir != "/fixture" || target.Pane != pane || target.Identity.ID != recipient.ID ||
+						!reflect.DeepEqual(target.Binding, &binding) || !strings.HasPrefix(in.Text, message+"\n\n") ||
 						!strings.Contains(in.Text, "<tmt-reply from=\"a&lt;b\">\ntmt-go reply "+requestID+" --receipt "+receipt+" --message <text>") ||
 						len(in.Submit) != 1 || in.Submit[0].Key != "Enter" {
-						t.Fatalf("unexpected delivery frame or target: %+v, %+v", ref, in)
+						t.Fatalf("unexpected delivery frame or target: %+v, %+v", target, in)
 					}
 					if uncertain {
 						return ports.DeliveryUncertain, errors.New("private transport detail")
@@ -129,7 +132,7 @@ func TestLiveTalkFencesDeliveryAndSettlesBeforeReadingFinal(t *testing.T) {
 				},
 			},
 		}
-		result := app.liveTalk(t.Context(), talkPlan{target: "worker", message: message, timeout: time.Second, poll: time.Second},
+		result := app.liveTalk(t.Context(), talkPlan{root: home.Root{Dir: "/fixture"}, target: "worker", message: message, timeout: time.Second, poll: time.Second},
 			*recipient, binding, core.PrepareRequest{
 				Kind: core.RequestKindRequest, Message: message, Wait: true,
 				Route: core.RequestRoute{Kind: core.RequestRouteInbox, Recipient: &recipient.ID},

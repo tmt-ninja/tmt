@@ -7,12 +7,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/delivery"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/claude"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/gemini"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -20,7 +22,7 @@ import (
 type liveTalkHost struct {
 	driver  func(context.Context, core.Identity, core.Binding, core.EndpointProbe) (ports.Driver, error)
 	capture func(context.Context, ports.PaneRef, ports.CaptureOpts) (ports.Screen, error)
-	deliver func(context.Context, ports.PaneRef, ports.DeliveryInput) (ports.DeliveryOutcome, error)
+	deliver func(context.Context, home.Root, delivery.PasteTarget, ports.DeliveryInput) (ports.DeliveryOutcome, error)
 }
 
 func systemLiveTalkHost(acquire func() (tmux.Client, error)) liveTalkHost {
@@ -50,12 +52,13 @@ func systemLiveTalkHost(acquire func() (tmux.Client, error)) liveTalkHost {
 			}
 			return client.Capture(ctx, pane, opt)
 		},
-		deliver: func(ctx context.Context, pane ports.PaneRef, input ports.DeliveryInput) (ports.DeliveryOutcome, error) {
+		deliver: func(ctx context.Context, root home.Root, target delivery.PasteTarget, input ports.DeliveryInput) (ports.DeliveryOutcome, error) {
 			client, err := acquire()
 			if err != nil {
 				return ports.DeliveryNotStarted, err
 			}
-			return client.Deliver(ctx, pane, input)
+			outcome, _, err := delivery.GuardedPaste(ctx, client, client.Process, root, target, input)
+			return outcome, err
 		},
 	}
 }
@@ -164,8 +167,9 @@ func (app application) liveTalk(ctx context.Context, plan talkPlan, recipient co
 	}
 
 	frame := liveRequestFrame(plan.message, sender, prepared)
-	delivery, stop := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
-	delivered, err := app.live.deliver(delivery, pane, ports.DeliveryInput{Text: frame, Submit: driver.SubmitPlan(frame)})
+	sendCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
+	target := delivery.PasteTarget{Pane: pane, Binding: &binding, Identity: recipient}
+	delivered, err := app.live.deliver(sendCtx, plan.root, target, ports.DeliveryInput{Text: frame, Submit: driver.SubmitPlan(frame)})
 	stop()
 	if delivered == ports.DeliveryDelivered && err != nil {
 		delivered = ports.DeliveryUncertain

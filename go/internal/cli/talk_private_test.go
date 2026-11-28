@@ -116,6 +116,29 @@ IFS= read -r ignored`, "fixture", binary, fake, exitFile, secondExit},
 		return out
 	}
 	command := func(args ...string) []byte { return commandStatus(0, args...) }
+	codexDir := filepath.Join(root.Dir, "channels", "codex")
+	if err := os.MkdirAll(codexDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	record := filepath.Join(codexDir, string(first.ID)+".json")
+	if err := os.WriteFile(record, []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	const fencedContent = "message blocked by channel fence"
+	refused := commandStatus(1, "talk", "Worker", fencedContent, "--timeout", "8s", "--json")
+	var refusal struct {
+		Error struct{ Code string }
+	}
+	if err := json.Unmarshal(refused, &refusal); err != nil || refusal.Error.Code != "DELIVERY_PREPARATION_FAILED" {
+		t.Fatalf("fenced talk output = %q, error = %v", refused, err)
+	}
+	observed, err := host.Capture(ctx, pane, ports.CaptureOpts{})
+	if err != nil || strings.Contains(observed.Text, fencedContent) {
+		t.Fatalf("fenced talk reached the private pane: %v", err)
+	}
+	if err := os.Remove(record); err != nil {
+		t.Fatal(err)
+	}
 	talkJSON := command("talk", "Worker", "verify", "--timeout", "8s", "--json")
 	var talk struct {
 		RequestID core.RequestID

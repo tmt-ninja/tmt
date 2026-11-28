@@ -20,6 +20,7 @@ import (
 )
 
 type talkPlan struct {
+	root       home.Root
 	target     string
 	message    string
 	originator identitySelection
@@ -35,6 +36,7 @@ type talkPlan struct {
 
 func (app application) prepareTalk(ctx context.Context, root home.Root, inv invocation) (talkPlan, *output.Failure) {
 	plan := talkPlan{
+		root:   root,
 		target: inv.operands[0], message: inv.operands[1], detach: inv.has("detach"), urgent: inv.has("urgent"),
 		digestKind: core.DigestKind(inv.options["kind"]),
 	}
