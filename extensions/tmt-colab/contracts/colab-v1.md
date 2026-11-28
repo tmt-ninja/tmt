@@ -6424,8 +6424,8 @@ in its own transaction, owner-locally (never a statement, never synced or export
 `deletedAt` (the owner's clock, ms) and `by`: `{kind:"device", id}` for a browser's verified sender
 device, or `{kind:"cli", id}` for a local command, `id` being the TMT caller it ran as (the same source
 as a page's publisher agent) or `null`. A local delete body names that caller as `actor`; a serve from
-before schema 29 refuses such a body, and a CLI sends it only to a store at schema 29, which only a
-serve that accepts it migrates to. No title is kept. It takes no other list filter and has no human
+before schema 29 refuses such a body. The CLI sends it only to a store on the current schema,
+which a serve that accepts the body has migrated. No title is kept. It takes no other list filter and has no human
 form.
 
 All commands support human output and one `--json` document. Human retention
