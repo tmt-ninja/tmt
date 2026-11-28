@@ -58,7 +58,7 @@ func TestProviderBuildPolicy(t *testing.T) {
 	runner := testRunner(func(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
 		if _, ok := ctx.Deadline(); !ok || spec.Path != executable ||
 			!slices.Equal(spec.Args, []string{"--version"}) || spec.MaxOut != 4096 || len(spec.Stdin) != 0 {
-			t.Fatalf("unexpected provider probe %+v", spec)
+			t.Fatalf("unexpected provider version arguments: %q", spec.Args)
 		}
 		return ports.Bounded{Stdout: []byte(version + "\n")}, nil
 	})

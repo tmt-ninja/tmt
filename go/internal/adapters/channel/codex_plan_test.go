@@ -1,12 +1,18 @@
 package channel
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
 	"net/netip"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
+	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -87,4 +93,71 @@ func TestCodexLaunchRejectsAmbiguousOrUnsupportedArguments(t *testing.T) {
 			t.Errorf("accepted %q: %v", args, err)
 		}
 	}
+}
+
+func TestCodexPreflightTrustNoteUsesNativeCDAndOnlyReadsLocalSettings(t *testing.T) {
+	fixture := t.TempDir()
+	selected := filepath.Join(fixture, "selected")
+	alternate := filepath.Join(fixture, "alternate")
+	for _, dir := range []string{selected, alternate} {
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("HOME", fixture)
+	t.Setenv("CODEX_HOME", alternate)
+	// The selected shim uses the same PATH as the invoker's version probe.
+	// This directory contains only fixture executables.
+	t.Setenv("PATH", alternate)
+	executable := filepath.Join(fixture, "fake-codex")
+	shim := "#!/usr/bin/env node\n"
+	probe := "#!/bin/sh\n[ \"$#\" = 2 ] && [ \"$2\" = --version ] || exit 2\nprintf 'codex-cli %s\\n' \"$CODEX_FIXTURE_VERSION\"\n"
+	settings := filepath.Join(alternate, "config.toml")
+	root := home.Root{Dir: filepath.Join(fixture, "channel")}
+	write := func(path, content string, mode os.FileMode) {
+		t.Helper()
+		if err := os.WriteFile(path, []byte(content), mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(executable, shim, 0700)
+	write(filepath.Join(alternate, "node"), probe, 0700)
+	original := fmt.Sprintf("[profiles.managed]\nmodel = %q\n[projects.%q]\ntrust_level = %q\n", "unused", fixture, "trusted")
+	write(settings, original, 0600)
+	const advisory = "Codex may ask you to trust this folder in its own window."
+	plan, err := PlanCodexLaunch(ports.ProcessSpec{Path: executable, Args: []string{"-C", "selected"}}, fixture, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(plan CodexPlan, version, want string, original string) {
+		t.Helper()
+		t.Setenv("CODEX_FIXTURE_VERSION", version)
+		got, err := PreflightCodexPlan(t.Context(), process.Runner{}, root, plan)
+		if err != nil || got != want {
+			t.Fatalf("version %s: advisory = %q, err = %v, want %q", version, got, err, want)
+		}
+		after, err := os.ReadFile(settings)
+		if err != nil || !bytes.Equal(after, []byte(original)) {
+			t.Fatalf("settings changed after preflight: %v", err)
+		}
+		if _, err := os.Lstat(root.Dir); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("preflight created channel state: %v", err)
+		}
+	}
+	for _, version := range []string{"0.159.2", "0.159.3", "0.160.0"} {
+		check(plan, version, advisory, original)
+	}
+	const session = "10000000-0000-4000-8000-000000000001"
+	resume, err := PlanCodexLaunch(ports.ProcessSpec{Path: executable, Args: []string{"resume", session}}, selected, session)
+	if err != nil {
+		t.Fatal(err)
+	}
+	check(resume, "0.160.0", "", original)
+
+	trusted := original + fmt.Sprintf("[projects.%q]\ntrust_level = %q\n", selected, "trusted")
+	write(settings, trusted, 0600)
+	check(plan, "0.160.0", "", trusted)
+	const malformed = "malformed = ["
+	write(settings, malformed, 0600)
+	check(plan, "0.160.0", "", malformed)
 }

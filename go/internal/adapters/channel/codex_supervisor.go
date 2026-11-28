@@ -72,7 +72,7 @@ func startCodexSupervisor(ctx context.Context, runner ports.Process, req codexEn
 	}
 	ctx, cancel := context.WithTimeout(ctx, codexStartupBudget)
 	defer cancel()
-	start := codexControlStart{Path: req.plan.selected.Path, Args: req.plan.selected.Args, CWD: req.plan.cwd, Resume: req.plan.resume}
+	start := codexControlStart{Path: req.plan.selected.Path, Args: req.plan.selected.Args, CWD: req.plan.baseCWD, Resume: req.plan.resume}
 	payload, err := json.Marshal(start)
 	if err != nil || len(payload)+1 > codexControlLimit {
 		return nil, ErrEnrollment

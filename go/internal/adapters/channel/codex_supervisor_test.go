@@ -21,6 +21,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
+	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 func TestCodexSupervisorEOFKeepsEnrollmentAndWithdrawalRetiresIt(t *testing.T) {
@@ -34,6 +35,48 @@ func TestCodexSupervisorEOFKeepsEnrollmentAndWithdrawalRetiresIt(t *testing.T) {
 				t.Fatal(err)
 			}
 			assertSupervisorCleanup(t, root, rec.Generation, endpoint, withdraw)
+		})
+	}
+}
+
+func TestCodexSupervisorResolvesRelativeAndAbsoluteCDOnce(t *testing.T) {
+	for _, absolute := range []bool{false, true} {
+		t.Run(fmt.Sprintf("absolute=%v", absolute), func(t *testing.T) {
+			root := home.Root{Dir: t.TempDir()}
+			project := filepath.Join(root.Dir, "project")
+			if err := os.Mkdir(project, 0700); err != nil {
+				t.Fatal(err)
+			}
+			selected := "project"
+			if absolute {
+				selected = project
+			}
+			supervisor := startSupervisorFixture(t, root, "-C", selected)
+			resolved, err := filepath.EvalSymlinks(project)
+			if err != nil || supervisor.lease.cwd != resolved {
+				t.Fatalf("supervisor cwd = %q, want %q: %v", supervisor.lease.cwd, resolved, err)
+			}
+			command := supervisor.lease.command
+			cd := slices.Index(command.Args, "-C")
+			if command.Dir != project || cd < 0 || cd+1 >= len(command.Args) || command.Args[cd+1] != project {
+				t.Fatal("foreground used a different working directory from the owned server")
+			}
+			// Reuse the native shell probe's observable contract. From
+			// either spawn cwd, the foreground argv leads to the same cwd.
+			const probe = `while [ "$#" -gt 0 ]; do case "$1" in -C|--cd) shift; cd -- "$1" || exit 1;; esac; shift; done; pwd -P`
+			for _, spawn := range []string{root.Dir, project} {
+				argv := append([]string{"-c", probe, "fixture"}, command.Args...)
+				got, err := (process.Runner{}).Run(t.Context(), ports.ProcessSpec{
+					Path: "/bin/sh", Args: argv, Dir: spawn, MaxOut: 4096, Timeout: time.Second,
+				})
+				if err != nil || got.ExitCode != 0 || strings.TrimSpace(string(got.Stdout)) != resolved {
+					t.Fatalf("foreground cwd from %q = %q, want %q: %v", spawn, got.Stdout, resolved, err)
+				}
+			}
+			if err := supervisor.stop(true); err != nil {
+				t.Fatal(err)
+			}
+			assertSupervisorCleanup(t, root, supervisor.lease.record.Generation, supervisor.lease.endpointProcess, true)
 		})
 	}
 }
@@ -116,7 +159,7 @@ func assertSupervisorCleanup(t *testing.T, root home.Root, generation string, en
 	}
 }
 
-func startSupervisorFixture(t *testing.T, root home.Root) *codexSupervisor {
+func startSupervisorFixture(t *testing.T, root home.Root, args ...string) *codexSupervisor {
 	t.Helper()
 	fixture := fixtureEnrollment(t)
 	fixture.Root = root
@@ -131,6 +174,7 @@ func startSupervisorFixture(t *testing.T, root home.Root) *codexSupervisor {
 		t.Fatalf("launcher fixture owner = %+v, %v", owner, err)
 	}
 	command := fixtureOwnedCodexEndpoint(t, root.Dir, "fresh")
+	command.Args = args
 	plan, err := PlanCodexLaunch(command, root.Dir, "")
 	if err != nil {
 		t.Fatal(err)

@@ -33,7 +33,7 @@ func currentProviderPaths() (providerPaths, error) {
 		return providerPaths{}, ErrHookSources
 	}
 	explicit, found := os.LookupEnv("CODEX_HOME")
-	if !found {
+	if !found || explicit == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return providerPaths{}, ErrHookSources

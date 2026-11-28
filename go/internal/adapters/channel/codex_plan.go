@@ -23,6 +23,7 @@ var ErrCodexLaunchArguments = errors.New("unsupported Codex channel launch argum
 // arguments and exact resume session. No provider configuration is read.
 type CodexPlan struct {
 	selected   ports.ProcessSpec
+	baseCWD    string
 	cwd        string
 	resume     string
 	foreground []string
@@ -38,7 +39,7 @@ func PlanCodexLaunch(command ports.ProcessSpec, cwd, resume string) (CodexPlan, 
 	}
 	command.Args = slices.Clone(command.Args)
 	command.Env = slices.Clone(command.Env)
-	plan := CodexPlan{selected: command, cwd: cwd, resume: resume}
+	plan := CodexPlan{selected: command, baseCWD: cwd, cwd: cwd, resume: resume}
 	args := command.Args
 	if resume != "" {
 		var ok bool

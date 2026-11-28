@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -151,6 +152,11 @@ func PreflightCodexPlan(ctx context.Context, runner ports.Process, root home.Roo
 	if err := PreflightCodex(ctx, runner, root, plan.selected.Path); err != nil {
 		return "", err
 	}
+	// Native only advises for the plain launch grammar. The generated
+	// exact-resume command is qualified but has no local trust advisory.
+	if plan.resume != "" {
+		return "", nil
+	}
 	return codex.FolderTrustAdvisory(plan.cwd), nil
 }
 
@@ -162,7 +168,7 @@ func providerVersion(ctx context.Context, runner ports.Process, executable strin
 	ctx, cancel := context.WithTimeout(ctx, budget)
 	defer cancel()
 	got, err := runner.Run(ctx, ports.ProcessSpec{
-		Path: executable, Args: []string{"--version"}, MaxOut: providerVersionLimit, Timeout: budget,
+		Path: executable, Args: []string{"--version"}, Env: os.Environ(), MaxOut: providerVersionLimit, Timeout: budget,
 	})
 	if err != nil || ctx.Err() != nil || got.ExitCode != 0 || got.Truncated || len(got.Stdout) > providerVersionLimit {
 		return "", ErrProviderUnavailable
