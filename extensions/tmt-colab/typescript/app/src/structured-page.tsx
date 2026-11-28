@@ -843,7 +843,7 @@ function Blocks({
           />
         </div>
       )}
-      {rest.blockMenu?.id === block.id && (
+      {!rest.readonly && rest.blockMenu?.id === block.id && (
         <ActionsPopover
           block={block}
           active={rest.blockMenu.active}

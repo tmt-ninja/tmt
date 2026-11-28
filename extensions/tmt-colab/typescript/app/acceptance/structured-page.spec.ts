@@ -226,6 +226,50 @@ test('keyboard activation stays on selected mockup controls', async () => {
   });
 });
 
+test('an empty mockup width field cannot delete its selected block', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'mockup-width-owner');
+    const cli = (args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const created = cli(['page', 'create', '--title', 'Custom preview width', '--no-open']);
+    const markup = '<p>Release sketch</p>';
+    const {
+      blockIds: [id],
+    } = cli([
+      'block',
+      'insert',
+      created.pageId,
+      '--type',
+      'mockup',
+      '--props',
+      JSON.stringify({ markup, preset: 'custom', width: 500 }),
+    ]);
+    const page = await browser.context.newPage();
+    await page.goto(new URL(created.path, door.origin).href);
+    const block = page.locator(`[data-block-id="${id}"]`);
+    await selectBlockByFocus(block);
+    const width = block.getByRole('spinbutton', { name: 'Stage width' });
+    await width.focus();
+    // The controlled width immediately clamps on change. Put its real input into the empty
+    // native state to exercise key ownership independently of the width validation.
+    for (const key of ['Backspace', 'Delete']) {
+      await width.evaluate((node: HTMLInputElement) => {
+        node.value = '';
+      });
+      await expect(width).toHaveValue('');
+      await page.keyboard.press(key);
+      // The controlled input may restore its width, but focus and the block must survive.
+      await expect(width).toBeFocused();
+      await expect(block).toHaveAttribute('data-selected', '');
+    }
+    expect(cli(['block', 'get', created.pageId, id]).block).toMatchObject({
+      type: 'mockup',
+      props: { markup, preset: 'custom', width: 500 },
+    });
+  });
+});
+
 test('keyboard activation of a selected block mention opens its destination', async () => {
   await withWorld(async (world) => {
     const door = await startDoor(world, await freePort());

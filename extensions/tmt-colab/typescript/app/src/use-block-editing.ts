@@ -1917,11 +1917,15 @@ export function useBlockEditing(
   /** A key on the page outside a block's editor; true when taken. */
   const pageKey = useCallback(
     (event: KeyboardEvent): boolean => {
-      // The question handles its own answer keys before they bubble here. They must never run
-      // page commands, even while the question or another block is still selected.
+      // Form fields own their keys before any page command can act on the selected block.
+      // The block text editor retains its own block-aware key handling.
+      const target = event.target;
       if (
-        event.target instanceof Element &&
-        event.target.closest('.tmt-block-question :is(input, textarea)')
+        target instanceof Element &&
+        (target.closest('input, textarea, select') ||
+          (target instanceof HTMLElement &&
+            target.isContentEditable &&
+            !target.closest('.tmt-block-editor-text')))
       )
         return false;
       const menuOn = blockMenu;
@@ -1995,15 +1999,11 @@ export function useBlockEditing(
         if (treeRef.current.get(selection.focus)?.type === 'question') return false;
         // Events from the block's controls (including its menus and viewer) reach this handler
         // before their native activation. Enter on the block surface still enters its editor.
-        const target = event.target;
         if (
           target instanceof Element &&
-          (target.closest(
-            'button, a[href], input, textarea, select, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="listbox"], [role="option"], [role="slider"], [role="spinbutton"], [role="tab"], [role="textbox"], [role="treeitem"]',
-          ) ||
-            (target instanceof HTMLElement &&
-              target.isContentEditable &&
-              !target.closest('.tmt-block-editor-text')))
+          target.closest(
+            'button, a[href], summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="listbox"], [role="option"], [role="slider"], [role="spinbutton"], [role="tab"], [role="textbox"], [role="treeitem"]',
+          )
         )
           return false;
         // A table is entered at its first cell, or by adding its first row.
