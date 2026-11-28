@@ -18,6 +18,28 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 
 ## go-1 (core, storage)
 
+- [ ] GO1-01: ICU NFKC without stream-safe combining grapheme joiner insertion.
+- [ ] GO1-02: ICU final-sigma context beyond 30 case-ignorable runes.
+- [ ] GO1-03: Registered external host target grammars.
+- [ ] GO1-04: Remote request routes and response reads.
+- [ ] GO1-05: Native Digest, flow and capture retention with incremental page reclaim.
+- [ ] GO1-06: Atomic SQLite symlink refusal when opening the hook queue.
+- [ ] GO1-07: SQLite no-checkpoint-on-close connection option.
+- [ ] GO1-08: Digest holds and provider activity in the request delivery view.
+- [ ] GO1-09: Read footprint page counts when a WAL exists without an index.
+- [ ] GO1-10: Enumerate the full native Colab backup set in footprint.
+- [ ] GO1-11: Reply callbacks, provider capture and flow accounting.
+- [ ] GO1-12: Partial usage totals for unmeasured wake turns.
+- [ ] GO1-13: End the binding’s Digest continuation.
+- [ ] GO1-14: Exact resume for Claude and Codex, including the read-only preset projection.
+- [ ] GO1-15: Resume forget, move, new, retry, driver switching and stale/pending settlement.
+- [ ] GO1-16: Gemini exact resume.
+- [ ] GO1-17: Resume launches that honor saved wrapper, model, effort and channel settings.
+- [ ] GO1-18: Exact send-now release, guarded claim and settlement.
+- [ ] GO1-19: Reply and timeout notice production.
+- [ ] GO1-20: Selected Digest checklist snapshot and summary-only counts after settlement.
+- [ ] GO1-21: Observe future schema versions through an existing API session.
+
 ## go-2 (sys, process, tmux, host, drivers, channel)
 
 ## go-3 (cli, output)

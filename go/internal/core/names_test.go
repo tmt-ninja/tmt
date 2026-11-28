@@ -150,14 +150,14 @@ func TestCommandWord(t *testing.T) {
 }
 
 func TestNameNormalizationKnownICUDivergences(t *testing.T) {
-	// NOT PORTED (#6938): x/text inserts a combining grapheme joiner to limit
+	// NOT PORTED (#6938, GO1-01): x/text inserts a combining grapheme joiner to limit
 	// the non-starter run. ICU NFKC leaves all 31 marks adjacent.
 	marks := strings.Repeat("\u0301", 30)
 	if got, want := TargetText("B"+marks+"\u0301"), "B"+marks+"\u034f\u0301"; got != want {
 		t.Errorf("stream-safe NFKC returned %q, want %q", got, want)
 	}
 
-	// NOT PORTED (#6938): x/text caps the final-sigma lookahead. ICU sees the
+	// NOT PORTED (#6938, GO1-02): x/text caps the final-sigma lookahead. ICU sees the
 	// cased A after the joiners and produces medial sigma (σ).
 	joiners := strings.Repeat("\u200d", 31)
 	if got, want := NormalizeName("AΣ"+joiners+"A"), "aς"+joiners+"a"; got != want {

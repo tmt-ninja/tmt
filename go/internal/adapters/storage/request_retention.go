@@ -40,7 +40,7 @@ func pruneRequests(r records, now uint64) error {
 			return err
 		}
 	}
-	// NOT PORTED (#6938): Digest, flow, capture, and incremental-vacuum cleanup.
+	// NOT PORTED (#6938, GO1-05): Digest, flow, capture, and incremental-vacuum cleanup.
 	return nil
 }
 

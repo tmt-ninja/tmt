@@ -157,7 +157,7 @@ func (s *Storage) checkpoint() error {
 	if err := setBusyTimeout(ctx, conn, 0); err != nil {
 		return err
 	}
-	// NOT PORTED (#6938): the public Go driver has no NO_CKPT_ON_CLOSE option.
+	// NOT PORTED (#6938, GO1-07): the public Go driver has no NO_CKPT_ON_CLOSE option.
 	// The explicit checkpoint follows the native no-wait policy.
 	var busy, logFrames, copied int
 	if err := conn.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &logFrames, &copied); err != nil {

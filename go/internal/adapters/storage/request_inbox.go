@@ -209,7 +209,7 @@ func requestDeliveryView(r records, id core.RequestID, now uint64) (core.Deliver
 	if person && (attempt == core.AttemptSent || (route == core.RequestRouteInbox && attempt == core.AttemptQueued)) {
 		return view("delivered", "waiting_for_person", "waiting for the person", false), nil
 	}
-	// NOT PORTED (#6938): Digest holds and provider activity in the delivery view.
+	// NOT PORTED (#6938, GO1-08): Digest holds and provider activity in the delivery view.
 	if route == core.RequestRouteInbox {
 		switch wake {
 		case "sent":

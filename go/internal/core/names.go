@@ -28,7 +28,7 @@ type ValidatedName struct {
 func (n ValidatedName) DisplayName() Name     { return n.display }
 func (n ValidatedName) CanonicalName() string { return n.canonical }
 
-// NOT PORTED (#6938): ICU normalization without stream-safe joiner insertion.
+// NOT PORTED (#6938, GO1-01): ICU normalization without stream-safe joiner insertion.
 func TargetText(value string) string {
 	return norm.NFKC.String(strings.TrimFunc(value, ecmascriptSpace))
 }
@@ -37,7 +37,7 @@ func NormalizeName(value string) string {
 	return lowercaseName(TargetText(value))
 }
 
-// NOT PORTED (#6938): ICU final-sigma context beyond 30 case-ignorable runes.
+// NOT PORTED (#6938, GO1-02): ICU final-sigma context beyond 30 case-ignorable runes.
 func lowercaseName(target string) string {
 	return cases.Lower(language.Und).String(target)
 }
@@ -79,7 +79,7 @@ func validateName(value string, newName bool) (ValidatedName, error) {
 	return ValidatedName{display: Name(display), canonical: canonical}, nil
 }
 
-// NOT PORTED (#6938): registered external host target grammars are out of scope for phase 1.
+// NOT PORTED (#6938, GO1-03): registered external host target grammars are out of scope for phase 1.
 func isPaneTargetText(value string) bool {
 	if isTmuxTarget(value) {
 		return true

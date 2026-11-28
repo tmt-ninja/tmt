@@ -129,7 +129,7 @@ func storeFinal(r records, attempt core.RequestAttempt, body string, now uint64)
 			return core.FinalResponse{}, err
 		}
 	}
-	// NOT PORTED (#6938): reply callbacks, provider capture, and flow accounting.
+	// NOT PORTED (#6938, GO1-11): reply callbacks, provider capture, and flow accounting.
 	return final, nil
 }
 

@@ -223,7 +223,7 @@ func (r bindingRows) Detach(expected core.Binding) (bool, error) {
 	if err != nil || reservation != nil {
 		return false, err
 	}
-	// NOT PORTED (#6938): ending a binding's Digest continuation.
+	// NOT PORTED (#6938, GO1-13): ending a binding's Digest continuation.
 	return affectedOne(r.exec("DELETE FROM bindings WHERE id = ? AND identity_id = ?", expected.ID, expected.IdentityID))
 }
 

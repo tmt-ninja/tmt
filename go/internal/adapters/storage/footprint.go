@@ -154,7 +154,7 @@ func observeFootprintPages(ctx context.Context, root *os.Root, path string, wal 
 			return nil, err
 		}
 		if shm == nil {
-			// NOT PORTED (#6938): native can observe a WAL without an existing index.
+			// NOT PORTED (#6938, GO1-09): native can observe a WAL without an existing index.
 			// Refuse that case so SQLite does not initialize a sidecar during inspection.
 			return nil, errors.New("WAL page counts require an existing shared-memory index")
 		}
@@ -291,7 +291,7 @@ func inspectColabFootprint(ctx context.Context, base *os.Root, path string) (*Co
 		return nil, err
 	}
 	if !done {
-		// NOT PORTED (#6938): native backup discovery has no entry limit.
+		// NOT PORTED (#6938, GO1-10): native backup discovery has no entry limit.
 		return nil, errors.New("Colab footprint directory exceeds its inspection limit")
 	}
 	slices.SortFunc(result.Backups, func(a, b StoreFile) int { return strings.Compare(a.Path, b.Path) })

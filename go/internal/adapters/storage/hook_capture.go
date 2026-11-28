@@ -236,7 +236,7 @@ func settleCurrentCapture(r records, c *core.HookPendingCapture, usage bool, seq
 	if err := settleHookPassthrough(r, c, sequence, now); err != nil {
 		return err
 	}
-	// NOT PORTED (#6938): partial usage totals for unmeasured wake turns await UsageStore.
+	// NOT PORTED (#6938, GO1-12): partial usage totals for unmeasured wake turns await UsageStore.
 	if !usage || c.Interrupted {
 		if _, err := r.exec(`UPDATE wake_turns SET ended_ms=?2 WHERE identity_id=?1 AND started_ms=(
 			SELECT started_ms FROM wake_turns WHERE identity_id=?1 AND ended_ms IS NULL AND started_ms<=?2 ORDER BY started_ms DESC LIMIT 1)`, c.Identity, c.NowMs); err != nil {

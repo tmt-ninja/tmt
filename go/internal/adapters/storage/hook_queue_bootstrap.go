@@ -172,7 +172,7 @@ func createHookQueueFile(path string) error {
 	return file.Close()
 }
 
-// NOT PORTED (#6938): the public SQLite driver has no SQLITE_OPEN_NOFOLLOW
+// NOT PORTED (#6938, GO1-06): the public SQLite driver has no SQLITE_OPEN_NOFOLLOW
 // option. The owner and symlink preflight leaves a race between Lstat and
 // SQLite open within the private directory.
 func openHookSQLite(path string, wait time.Duration) (*sql.DB, error) {

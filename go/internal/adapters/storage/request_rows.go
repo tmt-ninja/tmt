@@ -48,7 +48,7 @@ func (r routeRow) route(recipient *core.IdentityID) (core.RequestRoute, error) {
 			PaneID: *r.pane, PanePID: *r.ppid,
 		}}, nil
 	default:
-		// NOT PORTED (#6938): remote request routes and response reads.
+		// NOT PORTED (#6938, GO1-04): remote request routes and response reads.
 		return core.RequestRoute{}, fmt.Errorf("unsupported stored request route %q", r.kind)
 	}
 }
