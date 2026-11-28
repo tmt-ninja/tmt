@@ -23,6 +23,7 @@ func registerOrchGrammar() {
 	orch := grammar.child("orch")
 	registerOverviewGrammar(orch)
 	registerPlanGrammar(orch.child("plan"))
+	registerJobsGrammar(orch.child("job"))
 	why := orch.child("why")
 	why.summary = "Read retained receiving decision facts"
 	why.operands = []operandSpec{required("subject")}
@@ -71,6 +72,10 @@ func runOrch(ctx context.Context, root home.Root, inv invocation) output.Report 
 		return runOrchPreview(ctx, root, inv)
 	case slices.Equal(inv.path, []string{"orch", "why"}):
 		return runOrchWhy(ctx, root, inv)
+	case slices.Equal(inv.path, []string{"orch", "job", "ls"}):
+		return runOrchJobs(ctx, root, inv)
+	case slices.Equal(inv.path, []string{"orch", "job", "show"}):
+		return runOrchJob(ctx, root, inv)
 	case slices.Equal(inv.path, []string{"orch", "plan"}):
 		return orchPlanMissingSubcommand()
 	case slices.Equal(inv.path, []string{"orch", "plan", "ls"}):
@@ -104,7 +109,7 @@ func runOrchWhy(ctx context.Context, root home.Root, inv invocation) output.Repo
 		return bindingFailure("ORCH_INPUT_INVALID", "Invalid orchestration input or calendar selection.", 1)
 	}
 
-	return withOrchStore(ctx, root, func(reader ports.OrchReader, now uint64) output.Report {
+	return withOrchStore(ctx, root, func(reader orchStore, now uint64) output.Report {
 		query.NowMs = now
 		view, failure := orchestration.ReadWhy(ctx, reader, query)
 		if failure != nil {
@@ -114,7 +119,12 @@ func runOrchWhy(ctx context.Context, root home.Root, inv invocation) output.Repo
 	})
 }
 
-func withOrchStore(ctx context.Context, root home.Root, run func(ports.OrchReader, uint64) output.Report) output.Report {
+type orchStore interface {
+	ports.OrchReader
+	ports.Store
+}
+
+func withOrchStore(ctx context.Context, root home.Root, run func(orchStore, uint64) output.Report) output.Report {
 	store, err := storage.Open(ctx, root)
 	if err != nil {
 		if errors.Is(err, os.ErrPermission) {

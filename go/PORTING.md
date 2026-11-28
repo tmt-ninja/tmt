@@ -282,7 +282,12 @@ both runtimes after receiving sync was added.
   timer commands over the clock lease and minute window.
 - [ ] Port lifecycle-hook enable, disable and delivery with executable verification
   and bounded context contributions.
-- [ ] Complete orchestration jobs, talks and routes.
+- [ ] Complete orchestration job mutations and execution, talks and routes.
+  API and CLI job reads share the cursor, schedule and recorded run projection.
+  Exact definition bytes, CLI/API list equality and unchanged cursors map to
+  `job_help_preview_exact_message_and_cli_api_reads_are_causal` in
+  `rust/crates/tmt-cli/tests/orchestration/jobs.rs`. The TypeScript Ops
+  scenarios that read jobs also require job writes and companion integration.
   Plan list/show share the API projection and port exact selector and
   UUID-shaped name assertions from `plan_filters_keep_competing_effects_and_uuid_selection_never_falls_back_to_names`
   in `rust/crates/tmt-cli/tests/orchestration.rs`. Overview uses one effective

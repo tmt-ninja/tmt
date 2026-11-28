@@ -10,7 +10,6 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
-	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 func registerPlanGrammar(plan *commandSpec) {
@@ -51,7 +50,7 @@ func runOrchPlans(ctx context.Context, root home.Root, selector *string) output.
 	if !orchestration.ValidPlanSelector(selector) {
 		return bindingFailure("ORCH_INPUT_INVALID", "Invalid orchestration input or calendar selection.", 1)
 	}
-	return withOrchStore(ctx, root, func(reader ports.OrchReader, now uint64) output.Report {
+	return withOrchStore(ctx, root, func(reader orchStore, now uint64) output.Report {
 		view, failure := orchestration.ReadPlans(ctx, reader, selector, now)
 		if failure != nil {
 			return bindingFailure(failure.Code, failure.Message, failure.Status)

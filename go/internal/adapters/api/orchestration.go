@@ -90,6 +90,47 @@ func decodeOrchestration(input jsontext.Value, now uint64) orchestrationAction {
 		return func(ctx context.Context, reader ports.OrchReader) (any, *core.RequestFailure) {
 			return orchestration.ReadOverview(ctx, reader, query, now)
 		}
+	case "jobs":
+		var wire struct {
+			View   string           `json:"view"`
+			Room   *string          `json:"squadRoomId"`
+			Owner  *core.IdentityID `json:"ownerIdentityId"`
+			Job    *string          `json:"jobId"`
+			Limit  *uint16          `json:"limit"`
+			Cursor *string          `json:"cursor"`
+		}
+		if !decodeObject(input, &wire) || wire.Cursor != nil && len(*wire.Cursor) > 512 {
+			return nil
+		}
+		query := core.OrchJobQuery{RoomID: wire.Room, OwnerID: wire.Owner, JobID: wire.Job, Limit: orchestration.JobDefaultLimit, NowMs: now}
+		if wire.Limit != nil {
+			query.Limit = *wire.Limit
+		}
+		if _, ok := orchestration.AdmitJobs(query, nil); !ok {
+			return nil
+		}
+		return func(ctx context.Context, reader ports.OrchReader) (any, *core.RequestFailure) {
+			query, ok := orchestration.AdmitJobs(query, wire.Cursor)
+			if !ok {
+				return nil, &core.RequestFailure{Code: "ORCH_INPUT_INVALID", Message: "Invalid orchestration input or calendar selection.", Status: 1}
+			}
+			return orchestration.ReadJobs(ctx, reader, query)
+		}
+	case "job":
+		var wire struct {
+			View string  `json:"view"`
+			Job  *string `json:"jobId"`
+		}
+		if !decodeObject(input, &wire) || wire.Job == nil {
+			return nil
+		}
+		query := core.OrchJobQuery{JobID: wire.Job, Limit: 1, NowMs: now, FullMessage: true}
+		if _, ok := orchestration.AdmitJobs(query, nil); !ok {
+			return nil
+		}
+		return func(ctx context.Context, reader ports.OrchReader) (any, *core.RequestFailure) {
+			return orchestration.ReadJob(ctx, reader, query)
+		}
 	case "plans":
 		var wire struct {
 			View string  `json:"view"`

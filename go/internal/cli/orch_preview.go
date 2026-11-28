@@ -11,7 +11,6 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
-	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 type previewReport struct{ view orchestration.PreviewView }
@@ -46,7 +45,7 @@ func runOrchPreview(ctx context.Context, root home.Root, inv invocation) output.
 	if problem != nil {
 		return bindingFailure(problem.Code, problem.Message, problem.Status)
 	}
-	return withOrchStore(ctx, root, func(reader ports.OrchReader, now uint64) output.Report {
+	return withOrchStore(ctx, root, func(reader orchStore, now uint64) output.Report {
 		view, failure := orchestration.ReadPreview(ctx, reader, query, plan, now)
 		if failure != nil {
 			return bindingFailure(failure.Code, failure.Message, failure.Status)

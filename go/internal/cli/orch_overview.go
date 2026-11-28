@@ -12,7 +12,6 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
-	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 func registerOverviewGrammar(orch *commandSpec) {
@@ -167,7 +166,7 @@ func runOrchOverview(ctx context.Context, root home.Root, inv invocation) output
 	if failure != nil {
 		return failure
 	}
-	return withOrchStore(ctx, root, func(reader ports.OrchReader, now uint64) output.Report {
+	return withOrchStore(ctx, root, func(reader orchStore, now uint64) output.Report {
 		view, failure := orchestration.ReadOverview(ctx, reader, query, now)
 		if failure != nil {
 			return bindingFailure(failure.Code, failure.Message, failure.Status)
