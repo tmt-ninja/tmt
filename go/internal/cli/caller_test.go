@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -47,8 +48,17 @@ func TestCallerSelectionWithPrivateTmuxEvidence(t *testing.T) {
 	ctx := context.Background()
 	caller := systemCaller()
 	pane := ports.PaneRef{Server: server.Socket, PaneID: strings.TrimSpace(server.Run("display-message", "-p", "#{pane_id}"))}
-	const serverID = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
-	server.Run("set-option", "-s", "@tmt-go.server-id", serverID)
+	const nativeOption = "@tmt.agent"
+	const nativeMarker = `{"version":1,"native":"preset sentinel"}`
+	server.Run("set-option", "-p", "-t", pane.PaneID, nativeOption, nativeMarker)
+	client, err := newTmuxClient()
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverID, err := client.EnsureServerID(ctx, pane.Server)
+	if err != nil {
+		t.Fatal(err)
+	}
 	observed, err := caller.probe(ctx, pane)
 	if err != nil || observed.State != core.EndpointProbeLive || len(observed.Panes) != 1 || observed.Panes[0].Incarnation == nil {
 		t.Fatalf("private binding probe = %+v, error = %v", observed, err)
@@ -65,9 +75,14 @@ func TestCallerSelectionWithPrivateTmuxEvidence(t *testing.T) {
 		t.Helper()
 		marker := fmt.Sprintf(`{"version":1,"globalIdentity":{"name":%q,"canonicalName":%q,"identityId":%q,"bindingId":%q,"serverId":%q,"panePid":%d}}`,
 			identity.Name, identity.CanonicalName, identity.ID, bindingID, serverID, binding.PanePID)
-		server.Run("set-option", "-p", "-t", pane.PaneID, "@tmt-go.agent", marker)
+		server.Run("set-option", "-p", "-t", pane.PaneID, tmux.AgentOption, marker)
 	}
-	setMarker(binding.ID)
+	if published, err := client.PublishBinding(ctx, binding, *identity); err != nil || !published {
+		t.Fatalf("publish binding = %t, error = %v", published, err)
+	}
+	if native := server.Run("show-options", "-p", "-v", "-t", pane.PaneID, nativeOption); native != nativeMarker+"\n" {
+		t.Fatalf("native pane marker changed: %q", native)
+	}
 
 	env := map[string]string{
 		"TMUX": server.Socket + "," + strconv.FormatUint(observed.Server.PID, 10) + ",0", "TMUX_PANE": pane.PaneID,

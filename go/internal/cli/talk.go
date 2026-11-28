@@ -111,14 +111,11 @@ func (app application) prepareTalk(ctx context.Context, root home.Root, inv invo
 	if len(plan.message) > core.MaxExchangeTextBytes {
 		return plan, &output.Failure{Code: "REQUEST_INPUT_TOO_LARGE", Message: "Original request exceeds the UTF-8 byte limit.", Status: 1}
 	}
-	// NOT PORTED (#6938): implicit sender attribution is enabled only once the
-	// production tmux probe uses the isolated marker namespace.
-	if inv.has("identity") {
-		selected, failure := app.caller.selectIdentity(ctx, inv)
-		if failure != nil {
-			return plan, failure
-		}
+	selected, failure := app.caller.selectIdentity(ctx, inv)
+	if failure == nil {
 		plan.originator, plan.hasSender = selected, true
+	} else if failure.Code != "IDENTITY_REQUIRED" {
+		return plan, failure
 	}
 	return plan, nil
 }
@@ -222,7 +219,14 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 		if err != nil || !plan.hasSender {
 			return err
 		}
-		sender, err := core.ResolveIdentity(tx.Identities(), *plan.originator.explicit)
+		if plan.originator.explicit == nil {
+			sender, err := verifiedCaller(tx, plan.originator.claim, plan.originator.probe)
+			if err == nil && sender != nil {
+				originator = core.Originator{Kind: core.OriginatorVerified, IdentityID: &sender.ID}
+			}
+			return err
+		}
+		sender, err := core.ResolveIdentity(records, *plan.originator.explicit)
 		if err != nil {
 			return err
 		}

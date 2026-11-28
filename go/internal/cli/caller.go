@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"unicode/utf8"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
@@ -23,17 +24,24 @@ type callerSelector struct {
 	probe  func(context.Context, ports.PaneRef) (core.EndpointProbe, error)
 }
 
-// systemCaller is wired after the tmux adapter selects the isolated marker namespace.
+func newTmuxClient() (tmux.Client, error) {
+	path, err := exec.LookPath("tmux")
+	if err != nil {
+		return tmux.Client{}, err
+	}
+	return tmux.Client{Path: path, Process: process.Runner{}}, nil
+}
+
 func systemCaller() callerSelector {
+	client := sync.OnceValues(newTmuxClient)
 	return callerSelector{
 		lookup: os.LookupEnv,
 		probe: func(ctx context.Context, pane ports.PaneRef) (core.EndpointProbe, error) {
-			path, err := exec.LookPath("tmux")
+			tmuxClient, err := client()
 			if err != nil {
 				return core.EndpointProbe{}, err
 			}
-			client := tmux.Client{Path: path, Process: process.Runner{}}
-			return client.ProbeBinding(ctx, pane)
+			return tmuxClient.ProbeBinding(ctx, pane)
 		},
 	}
 }
