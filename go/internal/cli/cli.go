@@ -48,7 +48,9 @@ type application struct {
 }
 
 func (app application) run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
-	// NOT PORTED (CLI-43): External commands and help-tail rewriting.
+	if status, handled := app.runAdapterCommand(args, stdout, stderr); handled {
+		return status
+	}
 	invocation, failure := parse(args)
 	if failure != nil {
 		return publish(stdout, stderr, failure, invocation.json)
