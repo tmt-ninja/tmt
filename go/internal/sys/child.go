@@ -20,7 +20,9 @@ func OwnProcessGroup(cmd *exec.Cmd) {
 // be the sole waiter so the caller can safely signal the group before reaping.
 func WaitChild(ctx context.Context, child *os.Process) (int, error) {
 	var status syscall.WaitStatus
-	var retry *time.Ticker
+	const maxDelay = 25 * time.Millisecond
+	delay := time.Millisecond
+	var retry *time.Timer
 	for {
 		if err := ctx.Err(); err != nil {
 			return 0, err
@@ -35,9 +37,12 @@ func WaitChild(ctx context.Context, child *os.Process) (int, error) {
 			return status.ExitStatus(), nil
 		}
 		if retry == nil {
-			retry = time.NewTicker(time.Millisecond)
+			retry = time.NewTimer(delay)
 			defer retry.Stop()
+		} else {
+			retry.Reset(delay)
 		}
+		delay = min(2*delay, maxDelay)
 		select {
 		case <-ctx.Done():
 			return 0, ctx.Err()

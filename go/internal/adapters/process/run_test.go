@@ -50,12 +50,28 @@ func TestRunCapsEachStream(t *testing.T) {
 	if err != nil || string(got.Stdout) != "1234" || string(got.Stderr) != "5678" {
 		t.Fatalf("exact caps: Run = %+v, %v", got, err)
 	}
-	for _, script := range []string{"printf 12345", "printf 12345 >&2", "exec /usr/bin/yes >&2"} {
-		spec.Args[1] = script
-		got, err = (Runner{}).Run(t.Context(), spec)
-		if !errors.Is(err, ErrOutputLimit) || !got.Truncated || len(got.Stdout)+len(got.Stderr) != 0 {
-			t.Fatalf("%q: Run = %+v, %v", script, got, err)
-		}
+	for _, tc := range []struct {
+		name   string
+		script string
+		stream string
+	}{
+		{"stdout", "printf note >&2; printf 12345", "stdout"},
+		{"stderr", "printf note; printf 12345 >&2", "stderr"},
+		{"unbounded stderr", "exec /usr/bin/yes >&2", "stderr"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			spec.Args[1] = tc.script
+			got, err := (Runner{}).Run(t.Context(), spec)
+			// Rust's OutputLimit returns the failed stream and no completed
+			// output on either stream, even when the other stayed in bounds.
+			want := tc.stream + ": " + ErrOutputLimit.Error()
+			if !errors.Is(err, ErrOutputLimit) || err.Error() != want {
+				t.Fatalf("Run error = %v, want %s", err, want)
+			}
+			if !got.Truncated || got.Stdout != nil || got.Stderr != nil {
+				t.Fatalf("Run returned a partial capture: %+v", got)
+			}
+		})
 	}
 	spec.MaxOut = 0
 	spec.Args[1] = ":"
