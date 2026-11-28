@@ -3902,7 +3902,7 @@ function OpenPage({
                           type="button"
                           variant="text"
                           presentation="compact"
-                          label="OK"
+                          label={text.historyReclaimedDismiss}
                           onActivate={() => {
                             setDismissedRecovery(`${recoveryKey}:${recoveryVersion}`);
                             try {

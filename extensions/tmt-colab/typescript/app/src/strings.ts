@@ -242,6 +242,7 @@ export const text = {
     projectPages: (count: number) => `Project · ${count} ${count === 1 ? 'page' : 'pages'}`,
   },
   historyReclaimed: 'Content history discarded',
+  historyReclaimedDismiss: 'OK',
   historyReclaimedAt: (time: string) =>
     `Old content history was discarded on ${time} to make room for an edit.`,
   archiveReadOnly: 'Archived · Read only',
