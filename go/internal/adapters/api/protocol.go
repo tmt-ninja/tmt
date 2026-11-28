@@ -196,15 +196,20 @@ func (s *requestSession) respond(body []byte) (SessionResponse, error) {
 			value = map[string]string{"dataRoot": s.root.Dir}
 		}
 	default:
-		action := decodeDigest(request.Operation, request.Input, now)
-		if action == nil {
+		digest := decodeDigest(request.Operation, request.Input, now)
+		usage := decodeUsage(request.Operation, request.Input, now)
+		if digest == nil && usage == nil {
 			return encodeFault(invalid())
 		}
 		if fault := s.open(ctx); fault != nil {
 			return encodeFault(fault)
 		}
 		var err error
-		value, err = action(ctx, s.store)
+		if digest != nil {
+			value, err = digest(ctx, s.store)
+		} else {
+			value, err = usage(ctx, s.store)
+		}
 		if err != nil {
 			return encodeFault(operationFault(err))
 		}
@@ -267,10 +272,12 @@ func encodeFault(fault *Fault) (SessionResponse, error) {
 }
 
 func capabilities() any {
+	operations := append([]string{"capabilities", "storage.root"}, digestOperations...)
+	operations = append(operations, usageOperations...)
 	return map[string]any{
 		"version":    ProtocolVersion,
 		"supported":  supported,
-		"operations": append([]string{"capabilities", "storage.root"}, digestOperations...),
+		"operations": operations,
 		"limits":     map[string]int{"inputBytes": InputLimit, "outputBytes": OutputLimit},
 		"commands":   []string{"identity", "list", "x", "reply", "result"},
 		"session":    map[string]any{"framing": "ndjson", "terminalCommandOutput": false},

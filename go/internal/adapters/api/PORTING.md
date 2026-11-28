@@ -8,7 +8,7 @@ See [#6938](https://github.com/tmt-ninja/tmt/issues/6938) for the delivery order
   lifecycle delivery, and CLI composition. Qualify MCP identity pinning and all
   eight tool calls against real Go request services.
 - [ ] Finish Digest checklist read, claim, delivery and settle, receiving sync,
-  usage and wake-turn projections, and the shared wake clock. Port the finite and
+  consumption limits and changes, and the shared wake clock. Port the finite and
   foreground tick clock, job and capture composition, and consented timer commands.
 - [ ] Prove resolved child execution and callbacks against a real Rust companion
   using the Go home. Port lifecycle-hook enable, disable and delivery with
