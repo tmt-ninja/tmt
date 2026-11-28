@@ -431,7 +431,7 @@ export function WorkHome() {
   return (
     <section className="work-home tmt-ui-page" data-work-home>
       <AppHeader workView="home" remote={{ deviceName: transport.backendName }} />
-      <div className="work-home-body">
+      <div className="work-home-body" data-shell-content-column>
         <div className="work-home-head">
           <h1 className="work-home-title">{t.title}</h1>
           <div className="work-home-projects" role="group" aria-label={t.projectFilter}>

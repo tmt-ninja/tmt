@@ -2161,7 +2161,10 @@ exec ${quote(peer)} ${quote(fixture.executables.cli.executable)} ${quote(scenari
         );
         await fixture.waitForCapture((screen) => screen.includes('asked · waiting'), board.pane);
         fixture.tmux(['send-keys', '-t', board.pane, 'Escape']);
-        await fixture.waitForCapture((screen) => screen.includes('⏎ send'), board.pane);
+        await fixture.waitForCapture(
+          (screen) => screen.includes('@ mention') && screen.includes('^L checklist'),
+          board.pane
+        );
         fixture.tmux(['send-keys', '-t', board.pane, 'Escape', 'Escape', 'q']);
         await fixture.waitForCapture(
           (screen) => screen.includes('PASSTHROUGH_BOARD_EXIT=0'),

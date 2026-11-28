@@ -1,5 +1,5 @@
 import { readFile, writeFile, realpath } from 'node:fs/promises';
-import { stageCompactCss } from './stage-compact-css.mjs';
+import { splitShellCss, stageCompactCss } from './stage-compact-css.mjs';
 import { build } from 'vite-plus';
 import { pathToFileURL } from 'node:url';
 const home = new URL('../', import.meta.url);
@@ -66,6 +66,9 @@ const bare = (source) =>
     .trim();
 /** The parts whose narrow-width rules a phone stage needs: the shell and the list (#5981). */
 const STAGE_PARTS = ['shell', 'list'];
+// Authored mockups can use the Shell component. Only the app-only enhancement leaves the frame.
+const shellSource = await readFile(new URL('src/shell.css', home), 'utf8');
+const { authorShell, appShell } = splitShellCss(shellSource);
 const fragments = await Promise.all(
   [
     'header',
@@ -107,7 +110,8 @@ const fragments = await Promise.all(
     'disclosure',
     'visually-hidden',
   ].map(async (name) => {
-    const css = await readFile(new URL(`src/${name}.css`, home), 'utf8');
+    const css =
+      name === 'shell' ? authorShell : await readFile(new URL(`src/${name}.css`, home), 'utf8');
     // A phone stage gets the part's narrow-width rules too, generated right after the part (#5981).
     return STAGE_PARTS.includes(name)
       ? `${css}\n${stageCompactCss(css.replaceAll('__compact-max-width__', tokens.header['compact-max-width']))}`
@@ -141,7 +145,7 @@ const shipped = (source) =>
 const beforeScopeCss = `${fragments.slice(0, 3).map(shipped).join('\n')}\n`;
 const afterScopeCss = `${fragments.slice(3).map(shipped).join('\n')}\n`;
 const scopeCss = shipped(await readFile(new URL('src/ds-scope.css', home), 'utf8'));
-export const authoredStaticCss = `${tokenCss}${beforeScopeCss}${scopeCss}\n${afterScopeCss}`;
+export const authoredStaticCss = `${tokenCss}${beforeScopeCss}${scopeCss}\n${afterScopeCss}${shipped(appShell)}`;
 /** The editorial layer (#5794), its own entry: the prose rules, then the table look applied to a bare
  * `table` in prose. The table rules are the marked region of table.css with the class rewritten, so
  * prose tables and `.tmt-ui-table` cannot differ. */
@@ -197,7 +201,7 @@ async function compileCss(source) {
 // the existing compressed-size budget while retaining readable, stable token block boundaries.
 const shippedTokens = tokenCss.replace(/^ +(--)/gm, '$1');
 const compileStaticCss = async () =>
-  `${shippedTokens}${await compileCss(beforeScopeCss)}\n/* DS scope rules */\n${await compileCss(scopeCss)}\n/* DS scope end */\n${await compileCss(afterScopeCss)}`;
+  `${shippedTokens}${await compileCss(beforeScopeCss)}\n/* DS scope rules */\n${await compileCss(scopeCss)}\n/* DS scope end */\n${await compileCss(afterScopeCss)}\n/* App shell rules */\n${await compileCss(shipped(appShell))}\n/* App shell end */\n`;
 const compileEditorialCss = async () =>
   `/* generate-static-css */\n${await compileCss(authoredEditorialCss)}`;
 /** The Work home parts (#6474), their own entry: only Work home loads them, so pages do not. */

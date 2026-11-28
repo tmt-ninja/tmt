@@ -321,6 +321,7 @@ export function LiveStructuredPage({
     binding?.blocksFit?.bind(binding),
     !write && held,
     !editable,
+    !!onAnnotateBlock,
   );
   settled.current = settle;
   useBlocker({

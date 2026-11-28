@@ -224,7 +224,7 @@ pub struct Page {
     pub usage: PageUsage,
 }
 /// What one whole-source write reports. A no-op publishes nothing and carries no publication.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Receipt {
     pub space_id: String,
@@ -235,7 +235,9 @@ pub struct Receipt {
     pub source_sha256: String,
     pub memory_limit: MemoryLimit,
     pub changed: bool,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_reclaimed_at_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reopened_questions: Vec<String>,
     pub update: UpdateSize,
     /// How much of the existing source this write replaced. It sizes the editing hint and is not
@@ -250,7 +252,7 @@ pub struct Receipt {
 }
 /// What the committed batch cost: how many updates, and their sealed envelope bytes (the manifest's
 /// `packetBytes`). A write from the text diff says `minimal`; a no-op has no batch, so none.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UpdateSize {
     pub count: usize,
@@ -369,7 +371,7 @@ pub struct UsageCounts {
     pub other_device_updates: usize,
 }
 /// The original operation and the last envelope of an admitted batch.
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PublicationReceipt {
     pub operation_id: String,
@@ -398,6 +400,7 @@ impl Receipt {
             source_sha256: hex(&crypto::digest(source.as_bytes())),
             memory_limit,
             changed: false,
+            history_reclaimed_at_ms: None,
             reopened_questions: Vec::new(),
             update: UpdateSize::NONE,
             scale: crate::edit_scale::EditScale::NONE,
@@ -1816,6 +1819,7 @@ pub fn publication_receipt(
                 source_sha256: evidence.source_sha256.clone(),
                 memory_limit: evidence.memory_limit,
                 changed: true,
+                history_reclaimed_at_ms: None,
                 update: UpdateSize::of(manifest),
                 scale: crate::edit_scale::EditScale::NONE,
                 reopened_questions: Vec::new(),

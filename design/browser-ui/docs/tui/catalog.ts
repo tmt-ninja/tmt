@@ -223,7 +223,7 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
     anatomy: sample('agents', [34, 36]),
     parts: [
       { name: 'Recipient and unread context', row: 35, text: 'worker' },
-      { name: 'Input action', row: 35, text: 'send' },
+      { name: 'Input action', row: 35, text: '@ mention' },
       { name: 'Row navigation', row: 36, text: '↑↓←→ move' },
       { name: 'Member action', row: 36, text: 'n new' },
     ],
@@ -298,7 +298,7 @@ const recordedExamples: Omit<RecordedComponent, 'source'>[] = [
       { name: 'Draft value', row: 32, text: 'draft line 1' },
       { name: 'Next draft line', row: 33, text: 'draft line 2' },
       { name: 'Recipient context', row: 35, text: 'worker' },
-      { name: 'Submission hint', row: 35, text: 'send' },
+      { name: 'Composer hint', row: 35, text: '@ mention' },
     ],
     states: [
       {

@@ -5150,6 +5150,7 @@ function mountShell(root, view, select, layerHost) {
 	menu.className = "tmt-ui-module-menu";
 	root.prepend(open, rail);
 	const bar = root.querySelector(":scope > .tmt-ui-shell-content > .tmt-ui-shell-bar");
+	const shellContent = bar.parentElement;
 	const railSearch = document.createElement("div");
 	railSearch.className = "tmt-ui-rail-search-section";
 	const goTo = document.createElement("span");
@@ -5238,20 +5239,83 @@ function mountShell(root, view, select, layerHost) {
 		if (shown) document.addEventListener("pointermove", away);
 		else document.removeEventListener("pointermove", away);
 	};
+	const wideRail = () => wide.matches && rail$.get();
+	const pillWidth = () => Number.parseFloat(win.getComputedStyle(root).getPropertyValue("--tmt-ui-rail-pill-width"));
+	const pill = () => root.hasAttribute("data-rail-pill");
+	const activeToggle = () => wideRail() && !pill() ? open : collapse;
+	let main = null;
+	let column = null;
+	const syncPill = () => {
+		const focused = document.activeElement;
+		const wasPill = pill();
+		const gutter = main && column?.getClientRects().length ? column.getBoundingClientRect().left - main.getBoundingClientRect().left : 0;
+		const width = pillWidth();
+		const need = width + 32;
+		const show = wideRail() && gutter >= need;
+		root.toggleAttribute("data-rail-pill", show);
+		rail.inert = wideRail() && !show && Number.isFinite(width);
+		if (show !== wasPill && (focused === open || rail.contains(focused))) activeToggle().focus({ preventScroll: true });
+	};
+	const geometry = new ResizeObserver(syncPill);
+	geometry.observe(root);
+	const findColumn = () => {
+		const shown = shellContent.querySelector(":scope > .tmt-ui-shell-main");
+		if (main !== shown) {
+			if (main) geometry.unobserve(main);
+			main = shown;
+			if (main) geometry.observe(main);
+		}
+		const next = main?.querySelector("[data-shell-content-column]") ?? null;
+		if (column === next) return;
+		if (column) geometry.unobserve(column);
+		column = next;
+		if (column) geometry.observe(column);
+		syncPill();
+	};
+	const content = new MutationObserver(findColumn);
+	content.observe(shellContent, {
+		childList: true,
+		subtree: true,
+		attributeFilter: ["data-shell-content-column"]
+	});
+	findColumn();
 	const applyRail = () => {
-		const collapsed = rail$.get() && wide.matches;
-		root.dataset.rail = collapsed ? "collapsed" : "expanded";
-		if (!collapsed) setPeek(false);
+		root.dataset.rail = wideRail() ? "collapsed" : "expanded";
+		if (!wideRail()) setPeek(false);
 		syncOpen();
+		syncPill();
 	};
 	const stopRail = rail$.subscribe(applyRail);
-	wide.addEventListener("change", applyRail);
-	/** Collapses or expands the side menu, keeping focus on the control that stays drawn. */
+	const stopMotion = () => {
+		root.removeAttribute("data-rail-motion");
+		root.removeAttribute("data-rail-from-pill");
+		root.style.removeProperty("--tmt-ui-rail-pill-height");
+	};
+	const onWidth = () => {
+		stopMotion();
+		applyRail();
+	};
+	const completeMotion = (event) => {
+		if (event.target === root && event.propertyName === "--tmt-ui-rail-progress") stopMotion();
+	};
+	root.addEventListener("transitionend", completeMotion);
+	wide.addEventListener("change", onWidth);
+	const animate = win.matchMedia("(prefers-reduced-motion: no-preference)");
 	const toggleRail = (next, keyboard) => {
 		const hadFocus = rail.contains(document.activeElement) || open === document.activeElement;
+		const measurePill = () => {
+			root.style.removeProperty("--tmt-ui-rail-pill-height");
+			root.style.setProperty("--tmt-ui-rail-pill-height", `${rail.offsetHeight}px`);
+		};
+		const moving = animate.matches && Number.isFinite(pillWidth());
+		root.toggleAttribute("data-rail-motion", moving);
+		const fromPill = moving && !next && pill();
+		if (fromPill) measurePill();
+		root.toggleAttribute("data-rail-from-pill", fromPill);
 		rail$.set(next);
+		if (moving && pill()) measurePill();
 		if (!hadFocus && !keyboard) return;
-		(next ? open : collapse).focus({ focusVisible: keyboard });
+		activeToggle().focus({ focusVisible: keyboard });
 	};
 	collapse.onclick = (event) => toggleRail(!rail$.get(), event.detail === 0);
 	const shortcut = (event) => {
@@ -5265,7 +5329,7 @@ function mountShell(root, view, select, layerHost) {
 	edge.className = "tmt-ui-rail-edge";
 	edge.setAttribute("aria-hidden", "true");
 	edge.addEventListener("pointerenter", (event) => {
-		if (event.pointerType !== "touch" && root.dataset.rail === "collapsed") setPeek(true);
+		if (event.pointerType !== "touch" && wideRail() && !Number.isFinite(pillWidth())) setPeek(true);
 	});
 	rail.addEventListener("focusout", (event) => {
 		if ("railPeek" in root.dataset && !rail.contains(event.relatedTarget)) setPeek(false);
@@ -5288,7 +5352,7 @@ function mountShell(root, view, select, layerHost) {
 		}
 	};
 	const showTip = (anchor) => {
-		const text = anchor.dataset.note;
+		const text = anchor.dataset.note ?? (pill() ? anchor.querySelector(".tmt-ui-rail-label")?.textContent : void 0);
 		if (!text || root.dataset.drawer === "open") return hideTip();
 		release();
 		const scope = layerHost?.root;
@@ -5314,7 +5378,7 @@ function mountShell(root, view, select, layerHost) {
 		tip.style.left = `${left - (origin?.left ?? 0)}px`;
 		tip.style.top = `${top - (origin?.top ?? 0)}px`;
 	};
-	const noted = (target) => target instanceof Element ? target.closest("[data-note]") : null;
+	const noted = (target) => target instanceof Element ? target.closest("[data-note], .tmt-ui-rail-item, .tmt-ui-rail-search") : null;
 	rail.addEventListener("pointerover", (event) => {
 		const anchor = noted(event.target);
 		if (anchor && anchor !== tipAnchor && anchor !== pressed) showTip(anchor);
@@ -5785,13 +5849,18 @@ function mountShell(root, view, select, layerHost) {
 			document.removeEventListener("keydown", close);
 			document.removeEventListener("keydown", shortcut);
 			document.removeEventListener("pointerdown", outside);
-			wide.removeEventListener("change", applyRail);
+			root.removeEventListener("transitionend", completeMotion);
+			wide.removeEventListener("change", onWidth);
 			stopRail();
 			goToMenu.dispose();
 			goTo.remove();
-			edge.remove();
-			delete root.dataset.rail;
 			setPeek(false);
+			edge.remove();
+			content.disconnect();
+			geometry.disconnect();
+			stopMotion();
+			root.removeAttribute("data-rail-pill");
+			delete root.dataset.rail;
 			hideTip();
 			open.remove();
 			tip.remove();

@@ -44,6 +44,8 @@ pub struct PageCapacity {
     pub detail: String,
     pub edit: bool,
     pub compactable: bool,
+    /// The proposed edit exceeds the compressed limit. Other bounds cannot trigger reclaim.
+    pub compressed_limit: bool,
 }
 /// A count for people: `5,001`.
 pub fn count(value: usize) -> String {
@@ -78,15 +80,17 @@ impl OwnerFault {
             detail,
             edit: false,
             compactable: false,
+            compressed_limit: false,
         })
     }
-    /// The page reads, but takes no further edit until its tail fits what the browser opens.
-    pub fn too_large_to_edit(page: &str, detail: String) -> Self {
+    /// The page reads, but another edit would exceed a page admission limit.
+    pub fn too_large_to_edit(page: &str, detail: String, compressed_limit: bool) -> Self {
         Self::PageCapacity(PageCapacity {
             page: page.to_owned(),
             detail,
             edit: true,
             compactable: false,
+            compressed_limit,
         })
     }
     /// The page reads, but the changes kept after its checkpoints fill what a write accepts:
@@ -97,6 +101,7 @@ impl OwnerFault {
             detail,
             edit: true,
             compactable: true,
+            compressed_limit: false,
         })
     }
 }

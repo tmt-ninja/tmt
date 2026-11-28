@@ -1222,11 +1222,9 @@ test('HTML outline follows and jumps within the bounded inner-scroll fallback', 
   );
 });
 
-// #6833: with the shell's side menu collapsed, a wide screen's outline is a strip of bars at the
-// right edge, one per heading, that floats the whole list; the bar leads with the way back to Work,
-// and a phone keeps its outline bar.
+// The wide shell gives each outline section a ring. A phone keeps its outline bar.
 for (const width of [1440, 390])
-  test(`with the side menu collapsed the outline is a strip of bars at ${width}`, async ({
+  test(`with the side menu collapsed the outline uses progress rings on desktop at ${width}`, async ({
     page,
   }) => {
     await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
@@ -1247,28 +1245,25 @@ for (const width of [1440, 390])
     }
     await expect(page.locator('.tmt-ui-shell')).toHaveAttribute('data-rail', 'collapsed');
     await expect(page.locator('.tmt-ui-topbar').getByRole('link', { name: 'Work' })).toBeVisible();
-    // » leads the bar at its padding, before the way back (view B).
-    const expand = page
-      .locator('.tmt-ui-topbar')
-      .getByRole('button', { name: 'Expand side menu', exact: true });
-    expect((await expand.boundingBox())!.x).toBeLessThanOrEqual(40);
+    const pill = page.locator('.tmt-ui-shell[data-rail-pill] > .tmt-ui-rail');
+    await expect(pill.getByRole('button', { name: 'Expand side menu', exact: true })).toBeVisible();
+    await expect(
+      page.locator('.tmt-ui-topbar').getByRole('button', { name: 'Expand side menu', exact: true }),
+    ).toBeHidden();
     await expect(strip).toHaveAttribute('aria-expanded', 'false');
-    // Overview in progress (half), Details under it done, Decisions waiting on a person; the
-    // section being read is the longest bar and an H3 is shorter than an H2.
-    const bars = strip.locator('.page-outline-bar');
-    expect(
-      await bars.evaluateAll((nodes) =>
-        nodes.map((node) => [
-          (node as HTMLElement).dataset.state,
-          node.getBoundingClientRect().width,
-          node.getBoundingClientRect().height,
-        ]),
-      ),
-    ).toEqual([
-      ['half', 26, 4],
-      ['done', 10, 3],
-      ['waiting', 16, 3],
-    ]);
+    // Overview has three of four complete, Details is complete, and Decisions waits for a person.
+    const rings = strip.locator('.page-outline-ring');
+    await expect(rings).toHaveCount(3);
+    await expect(rings.nth(0)).toHaveAttribute('data-state', 'working');
+    await expect(rings.nth(0)).toHaveAttribute('data-current', '');
+    await expect(rings.nth(0).locator('.page-outline-ring-progress')).toHaveAttribute(
+      'stroke-dasharray',
+      '0.75 1',
+    );
+    await expect(rings.nth(1)).toHaveAttribute('data-state', 'done');
+    await expect(rings.nth(1).locator('.page-outline-ring-symbol')).toBeVisible();
+    await expect(rings.nth(2)).toHaveAttribute('data-state', 'needs-you');
+    await expect(rings.nth(2).locator('.page-outline-ring-symbol')).toHaveCount(1);
     const stripBox = (await strip.boundingBox())!;
     expect(stripBox.x + stripBox.width).toBeGreaterThan(width - 60);
     // The page reads in a centred column, and the title starts where its text does.
@@ -1304,10 +1299,9 @@ for (const width of [1440, 390])
     await expect(
       page.locator('.structured-page-stage').getByRole('heading', { name: 'Details' }),
     ).toBeInViewport();
-    await expect(bars.nth(1)).toHaveAttribute('data-current', '');
-    await expect(bars.nth(1)).toHaveCSS('width', '26px');
+    await expect(rings.nth(1)).toHaveAttribute('data-current', '');
     // The last section is shorter than the window, so it never reaches the bar: at the end of the
-    // scroll, the last heading in view is current, and a jump to it marks its bar.
+    // scroll, the last heading in view is current, and a jump to it marks its ring.
     await strip.hover();
     await float.getByRole('button', { name: /^Decisions/ }).click();
     await expect(float).toBeHidden();
@@ -1328,15 +1322,15 @@ for (const width of [1440, 390])
           }),
       );
     await expect.poll(settled).toBe(true);
-    await expect(bars.nth(2)).toHaveAttribute('data-current', '');
-    await expect(bars.nth(1)).not.toHaveAttribute('data-current');
-    // Leaving closes it; from the keyboard Enter opens it and Escape closes it, back on the strip.
+    await expect(rings.nth(2)).toHaveAttribute('data-current', '');
+    await expect(rings.nth(1)).not.toHaveAttribute('data-current');
+    // Leaving closes the list, and keyboard focus opens it again. Escape returns to the strip.
     await strip.hover();
     await expect(float).toBeVisible();
     await page.mouse.move(700, 450);
     await expect(float).toBeHidden();
+    await page.keyboard.press('Tab');
     await strip.focus();
-    await page.keyboard.press('Enter');
     await expect(float).toBeVisible();
     await page.keyboard.press('Tab');
     await expect(float.getByRole('button').first()).toBeFocused();
@@ -1359,7 +1353,9 @@ test('with the side menu collapsed an HTML page keeps its strip over the right g
   const outline = page.getByRole('navigation', { name: 'Page outline' });
   const strip = outline.getByRole('button', { name: 'Outline', exact: true });
   await expect(strip).toBeVisible();
-  await expect(strip.locator('.page-outline-bar')).toHaveCount(3);
+  const rings = strip.locator('.page-outline-ring[data-state="plain"]');
+  await expect(rings).toHaveCount(3);
+  await expect(rings.locator('.page-outline-ring-dot')).toHaveCount(3);
   const stripBox = (await strip.boundingBox())!;
   const frame = (await page.locator('#ask-page-fixture iframe').boundingBox())!;
   // It sits in the gutter, before the frame's 28px comment marker lane.

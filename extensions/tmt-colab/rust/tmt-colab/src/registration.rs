@@ -1461,6 +1461,15 @@ impl Registration {
     pub(crate) fn author_key(&self) -> crate::Result<[u8; 32]> {
         Ok(self.keyring.local_writer()?.1)
     }
+    pub(crate) fn recover_edit(
+        &mut self,
+        body: &[u8],
+        now: u64,
+    ) -> crate::Result<crate::page::compact::RecoveredEdit> {
+        let intent = crate::page::ipc::RecoveryWrite::parse(body, &self.author_key()?)?;
+        let decoder = self.engine.decoder(&intent.page)?;
+        crate::page::compact::recover_edit(&mut self.store, &self.keyring, &intent, decoder, now)
+    }
     /// Root-local sealed batch commit; caller holds the sync mutex before this service.
     pub(crate) fn publish(
         &mut self,

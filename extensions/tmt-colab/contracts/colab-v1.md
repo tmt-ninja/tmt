@@ -3076,6 +3076,9 @@ An HTML page refuses creating block anchors but reads existing ones as orphaned 
 after a structured page is reverted. A block reference is cosmetic placement, never authority. The decoder admits only
 these exact fields; an explicit null quote is invalid. `vectors/discussion-v1.json`
 (`blockAnchorCases`) pins browser/native admission.
+The structured editor opens the same whole-block composer from the grip menu or, when
+there is room outside the block, the desktop Comment button. These actions require the
+same discussion admission as Selection mode.
 
 Quote anchors use the W3C Web Annotation TextQuoteSelector fields
 [`exact`, `prefix`, `suffix`](https://www.w3.org/TR/annotation-model/#text-quote-selector).
@@ -6424,8 +6427,8 @@ in its own transaction, owner-locally (never a statement, never synced or export
 `deletedAt` (the owner's clock, ms) and `by`: `{kind:"device", id}` for a browser's verified sender
 device, or `{kind:"cli", id}` for a local command, `id` being the TMT caller it ran as (the same source
 as a page's publisher agent) or `null`. A local delete body names that caller as `actor`; a serve from
-before schema 29 refuses such a body, and a CLI sends it only to a store at schema 29, which only a
-serve that accepts it migrates to. No title is kept. It takes no other list filter and has no human
+before schema 29 refuses such a body. The CLI sends it only to a store on the current schema,
+which a serve that accepts the body has migrated. No title is kept. It takes no other list filter and has no human
 form.
 
 All commands support human output and one `--json` document. Human retention
@@ -7448,6 +7451,30 @@ lowercase hex except the model envelope hash, which is canonical base64url. A re
 outcome exits 1 with its code: `COLAB_STALE_BASE`, `COLAB_CAPACITY`, `COLAB_PAGE_INACTIVE`,
 `COLAB_STATE_MISSING` or `COLAB_STREAM_GAP` (this device's stream moved on; read again).
 
+### Capacity-triggered content history recovery
+
+A local native `page patch`, `block batch` or `block text` whose otherwise admitted edit
+would exceed the 5,000,000-byte compressed page budget can request one recovery before
+any publication is frozen. The sole writer independently prepares the exact requested
+edit on the named revision and verifies this specific refusal. The owner must hold the
+current, writable, private epoch-one page with a single local writer, no other page device,
+no access for another recipient, no cloud dependency and no pinned content checkpoint.
+Attachment and policy changes, browser edits, partial merges and every other limit use
+ordinary refusal.
+
+The isolated decoder rebuilds only the local writer's content, preserving Yjs clocks.
+Before retrying the exact edit it verifies the same source, blocks, metadata (including
+attachment references), and own discussion. After rechecking the head, cuts and store
+generation, one transaction stages a signed stream cut and the admitted edit, prunes only
+the covered content payloads, retains old receipt hashes and records the outcome and audit.
+Recovery leaves the page identity, keys, membership and sharing/history policies intact.
+If the attempt cannot reduce history and fit the edit, or a fence moved, neither change
+commits. The owner sees the date of the last discard in a page notice. Dismissing it on
+this device leaves the dated record in About this page. The successful CLI
+receipt carries `historyReclaimedAtMs`, and human output says the history was discarded.
+Ordinary writes omit this field. Offline, the native writer runs the same preparation and
+transaction under the lifecycle lock. Running serve owns and serializes the live path.
+
 Serving writes use POST `/.tmt/colab/local/page-publish` with the version-2 write DTO
 `{version:2,action:"write",signedJob,packet,chain}` (publication section below). The
 server verifies the job and every envelope against its own local writer key, never a
@@ -8030,6 +8057,25 @@ write requires complete native evidence with chainHash equal to SHA256(raw chain
 and envelope signatures under the supplied key. Chain issuer/certificate/local-keyring
 admission is performed by the native library adapter. Status is bounded 64 KiB original-ID lookup,
 with no write fields or new effect. Version 1 is rejected by these codecs alone.
+The same local POST admits `{version:3,intent,signature}` through the identical private
+Unix-socket fence. It rejects device-context, event and upgrade requests before parsing.
+The intent has `space`, `page`, `revision`, `operationId` and a closed `edit` variant: `html`
+with bounded `source`, original source SHA-256 `base` as 32 bytes, and display-only `publisher`,
+or `blocks` with bounded `ops` and display-only `agent`. HTML is at most 2 MiB, a block
+batch is at most 1 MiB and 256 operations, and the HTTP body stays under the reserved route's
+limit. The signature is canonical base64url Ed25519 under the server's root-local writer,
+covering the LP frame of `tmt-colab-local-recovery-intent-v3` and the canonical typed intent JSON.
+The replay digest is SHA-256 of that exact canonical intent, including scope, operation ID,
+base and edit. A success returns `{receipt,blocks}`; `blocks` is the ordinary block edit receipt
+or null for HTML. The response and saved outcome are each bounded by 128 KiB. An identical unexpired retry returns the saved result, and reuse of that ID
+with a different digest is invalid. This private protocol has no Remote, paired-device,
+forwarded or browser variant. Version 2 continues to use its frozen-packet protocol.
+
+At most 256 recovery outcomes per space remain queryable for 24 hours. Expiry and oldest-first
+receipt eviction leave page history and the page's audit timestamp alone. After a reply is lost,
+the caller can read its exact ID and digest from a local store snapshot; absence is unknown,
+so the client never resends, falls back to the offline writer, or reports success from a guess.
+
 No-op creates no job/ID/sequence; own/checkpoint/HTML/asset jobs are unsupported. Schema 6 scopes
 content outcomes in the existing globally unique owner_operations ledger without changing
 legacy rows. Terminal identities and exact outcome/digest/scope/identity bytes share the

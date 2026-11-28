@@ -57,7 +57,7 @@ fn stored_binding_operations_do_not_discover_the_callers_host() {
             request.clone(),
             environment(),
             || Ok(world.paths.clone()),
-            |_| {
+            |_, _| {
                 calls.set(calls.get() + 1);
                 Err(cleanup_failure())
             },
@@ -128,7 +128,7 @@ fn caller_scoped_binding_operations_preserve_cleanup_error_and_state() {
             request.clone(),
             environment(),
             || Ok(world.paths.clone()),
-            |_| Err(cleanup_failure()),
+            |_, _| Err(cleanup_failure()),
         )
         .err()
         .expect("caller selection must fail");
@@ -158,7 +158,7 @@ fn explicit_add_preflight_does_not_discover_a_caller_even_when_it_refuses_legacy
         },
         environment(),
         || Ok(world.paths.clone()),
-        |_| panic!("explicit target acquired a caller host"),
+        |_, _| panic!("explicit target acquired a caller host"),
     )
     .err()
     .expect("legacy argument order refuses");

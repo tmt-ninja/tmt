@@ -75,6 +75,7 @@ export interface PageSnapshot extends PageSummary {
   /** Validated mounted-owner hint, absent from documents and reader projections. */
   readonly ticketRepository?: string;
   readonly attachments?: Projection['attachments'];
+  readonly historyReclaimedAtMs?: number;
   readonly todoNumbers?: PageView['todoNumbers'];
   readonly owner?: Projection['owner'];
   readonly priority?: Projection['priority'];

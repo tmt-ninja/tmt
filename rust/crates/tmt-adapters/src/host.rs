@@ -347,6 +347,14 @@ pub enum HostError {
     ServerIds(Box<dyn std::error::Error + Send + Sync>),
     /// TMT's own read of the caller's processes could not clean up.
     Process(CommandError),
+    /// A command that cannot do without the caller's pane ran out of `bound` checking its pane
+    /// on this external host: the driver's `caller` call (the protocol's bound) or core's
+    /// ancestry read ([`tmux::REQUIRED_CALLER_TIMEOUT`]). The pane was neither found nor ruled
+    /// out ([`Host::for_required_caller`]).
+    CallerBudget {
+        host: tmt_core::host::HostName,
+        bound: Duration,
+    },
 }
 
 impl HostError {
@@ -360,7 +368,8 @@ impl HostError {
             | Self::Driver(_)
             | Self::Refused { .. }
             | Self::Evidence { .. }
-            | Self::ServerIds(_) => false,
+            | Self::ServerIds(_)
+            | Self::CallerBudget { .. } => false,
         }
     }
 
@@ -373,7 +382,8 @@ impl HostError {
             | Self::Refused { .. }
             | Self::Evidence { .. }
             | Self::ServerIds(_)
-            | Self::Process(_) => false,
+            | Self::Process(_)
+            | Self::CallerBudget { .. } => false,
         }
     }
 
@@ -391,7 +401,8 @@ impl HostError {
             | Self::Refused { .. }
             | Self::Evidence { .. }
             | Self::ServerIds(_)
-            | Self::Process(_) => false,
+            | Self::Process(_)
+            | Self::CallerBudget { .. } => false,
         }
     }
 }
@@ -418,6 +429,11 @@ impl fmt::Display for HostError {
             Self::Evidence { driver, reason } => write!(output, "Host driver {driver}: {reason}."),
             Self::ServerIds(error) => write!(output, "Could not record the host server: {error}"),
             Self::Process(error) => error.fmt(output),
+            Self::CallerBudget { host, bound } => write!(
+                output,
+                "{}.",
+                tmux::caller_budget_message(&format!("Host driver {}", host.as_str()), *bound)
+            ),
         }
     }
 }
@@ -441,7 +457,10 @@ impl std::error::Error for HostError {
             Self::Driver(error) => Some(error),
             Self::ServerIds(error) => Some(error.as_ref()),
             Self::Process(error) => Some(error),
-            Self::Unavailable(_) | Self::Refused { .. } | Self::Evidence { .. } => None,
+            Self::Unavailable(_)
+            | Self::Refused { .. }
+            | Self::Evidence { .. }
+            | Self::CallerBudget { .. } => None,
         }
     }
 }
@@ -586,6 +605,17 @@ impl Host {
         Self::for_caller_with_drivers(environment, UnixCommandRunner, external::approved())
     }
 
+    /// The host of a command that cannot do without the caller's pane (`name`, `whoami`,
+    /// `unbind`, `ls --here`; #4260, #6926). The check gets [`tmux::REQUIRED_CALLER_TIMEOUT`],
+    /// as tmux does for the same commands: it bounds core's ancestry read, while the driver's
+    /// `caller` call keeps the protocol's own bound. Either running out is
+    /// [`HostError::CallerBudget`], naming that bound, never "no pane": the pane was neither
+    /// found nor ruled out. Evidence that was read and does not
+    /// match stays absence. Every other command keeps [`Host::for_caller`] and its second.
+    pub fn for_required_caller(environment: &CallerEnvironment) -> Result<Self, HostError> {
+        Self::for_required_caller_with_drivers(environment, UnixCommandRunner, external::approved())
+    }
+
     /// A recorded or explicit recovery socket uses only the built-in reader,
     /// without discovering caller environment, external approvals or state paths.
     pub fn for_workspace_socket() -> Self {
@@ -660,6 +690,26 @@ impl<R: CommandRunner + Clone> Host<R> {
         records: Vec<crate::driver_protocol::registry::DriverRecord>,
         deadline: Instant,
     ) -> Result<Self, HostError> {
+        Self::select_caller(environment, runner, records, deadline, false)
+    }
+
+    /// [`Host::for_required_caller`] with explicit drivers and runner.
+    pub fn for_required_caller_with_drivers(
+        environment: &CallerEnvironment,
+        runner: R,
+        records: Vec<crate::driver_protocol::registry::DriverRecord>,
+    ) -> Result<Self, HostError> {
+        let deadline = Instant::now() + tmux::REQUIRED_CALLER_TIMEOUT;
+        Self::select_caller(environment, runner, records, deadline, true)
+    }
+
+    fn select_caller(
+        environment: &CallerEnvironment,
+        runner: R,
+        records: Vec<crate::driver_protocol::registry::DriverRecord>,
+        deadline: Instant,
+        required: bool,
+    ) -> Result<Self, HostError> {
         let mut builtin = Self::of(HostKind::Tmux, runner.clone());
         builtin.tmux = builtin.tmux.with_caller(environment);
         if environment.driver_env.is_empty()
@@ -668,7 +718,24 @@ impl<R: CommandRunner + Clone> Host<R> {
             return Ok(builtin.with_drivers(records));
         }
         let probe = builtin.with_drivers(records.clone());
-        Ok(match probe.nearest_external(environment, deadline)? {
+        let nearest = if required && !environment.names_tmux() {
+            let callers = probe.external.callers(environment, None, deadline)?;
+            match (callers.found.into_iter().next(), callers.timed_out) {
+                (None, Some((host, ran_out))) => {
+                    let bound = match ran_out {
+                        external::RanOut::DriverCall => {
+                            tmt_driver_protocol::Op::Caller.bounds().deadline
+                        }
+                        external::RanOut::Ancestry => tmux::REQUIRED_CALLER_TIMEOUT,
+                    };
+                    return Err(HostError::CallerBudget { host, bound });
+                }
+                (found, _) => found,
+            }
+        } else {
+            probe.nearest_external(environment, deadline)?
+        };
+        Ok(match nearest {
             Some(caller) => {
                 let host = Self::of(HostKind::External(caller.host), runner).with_drivers(records);
                 host.external.set_caller(caller);

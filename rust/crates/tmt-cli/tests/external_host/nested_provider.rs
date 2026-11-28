@@ -421,7 +421,14 @@ fn a_main_start_replaces_a_live_non_main_runtime_without_changing_the_binding() 
         Some("f1"),
         &["talk", "worker", "after replacement", "--detach", "--json"],
     );
-    assert!(sent.status.success(), "{sent:?}");
+    // Evidence only (#6941): a refused delivery names the check that refused it.
+    assert!(
+        sent.status.success(),
+        "{sent:?}\ndriver calls: {:?}\ncheck: {}\ndelivery: {}",
+        fixture.calls(),
+        String::from_utf8_lossy(&fixture.tmt(&["check", "worker", "--json"]).stdout),
+        stored_delivery(&fixture, &sent.stdout)
+    );
     assert_eq!(fixture.requests("prompted").len(), 1);
     assert_eq!(fixture.requests("prompted")[0]["paneId"], "fake-1");
     drop(main);
@@ -933,4 +940,33 @@ fn first_hook_adoption_never_replaces_or_resurrects_an_observed_session() {
             }
         }
     }
+}
+
+/// The stored attempt row of the request `talk` output names, for a failure's evidence (#6941).
+fn stored_delivery(fixture: &Fixture, talk: &[u8]) -> String {
+    let Some(request) = serde_json::from_slice::<Value>(talk)
+        .ok()
+        .and_then(|document| document["requestId"].as_str().map(str::to_owned))
+    else {
+        return "no request id".into();
+    };
+    rusqlite::Connection::open(fixture.state().join("tmt.db"))
+        .and_then(|db| {
+            db.query_row(
+                "SELECT status, wake_state, sending_at_ms, settled_at_ms, receipt_deadline_ms
+                 FROM request_attempts WHERE request_id = ?1",
+                [&request],
+                |row| {
+                    Ok(format!(
+                        "status={:?} wake_state={:?} sending_at_ms={:?} settled_at_ms={:?} receipt_deadline_ms={:?}",
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                        row.get::<_, Option<i64>>(3)?,
+                        row.get::<_, Option<i64>>(4)?
+                    ))
+                },
+            )
+        })
+        .unwrap_or_else(|error| format!("unreadable: {error}"))
 }

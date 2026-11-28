@@ -1,5 +1,4 @@
 import {
-  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -23,8 +22,7 @@ const script = fileURLToPath(
   new URL('../../../scripts/hooks/codex-wait-guard.mjs', import.meta.url)
 );
 const repository = fileURLToPath(new URL('../../..', import.meta.url));
-const KEY = 'fake-key-for-tests';
-const CACHE = `tmt-codex-wait-guard-${process.getuid?.() ?? 0}`;
+const TOKEN = 'fake-ant-token-for-tests';
 
 let root: string;
 let bin: string;
@@ -43,15 +41,15 @@ beforeAll(async () => {
   mkdirSync(bin);
   // The seat lookup, so the test never asks the host's tmt.
   writeExecutable(path.join(bin, 'tmt'), '#!/bin/sh\necho \'{"name":"seat-1"}\'\n', 0o755);
-  // The fake key source: never the host Keychain. It prints $HOME/keychain with the trailing
-  // newline `security -w` adds, records its arguments, and otherwise fails like a missing item.
+  // The fake token source: never the host's `ant` login. It prints $HOME/ant-token with a
+  // trailing newline, records its arguments, and otherwise fails like a logged-out profile.
   writeExecutable(
-    path.join(bin, 'security'),
+    path.join(bin, 'ant'),
     `#!/bin/sh
-printf '%s\\n' "$*" >> "$HOME/security.log"
-if [ -f "$HOME/keychain" ]; then cat "$HOME/keychain"; echo; exit 0; fi
+printf '%s\\n' "$*" >> "$HOME/ant.log"
+if [ -f "$HOME/ant-token" ]; then cat "$HOME/ant-token"; echo; exit 0; fi
 echo "stderr-that-must-not-be-logged" >&2
-exit 44
+exit 1
 `,
     0o755
   );
@@ -101,22 +99,15 @@ type Run = {
 };
 
 /**
- * A case with its own HOME and TMPDIR. Its key cache starts filled (#6877): the guard's Keychain
- * read has a 500 ms bound, and spawning the fake `security` on a loaded runner can exceed it, so
- * the first judged call would lose its key and send no request. Cases about the Keychain or the
- * cache itself pass `{ keyCached: false }` and start with an empty cache.
+ * A case with its own HOME and TMPDIR, logged in to the fake `ant`. The token read shares the
+ * judge's 3.5 s deadline rather than a short bound of its own, so spawning the fake on a loaded
+ * runner cannot cost the first judged call its token (#6877).
  */
-function newCase({ keyCached = true }: { keyCached?: boolean } = {}) {
+function newCase() {
   const dir = mkdtempSync(path.join(root, 'case-'));
-  // The key cache lives under this case's own TMPDIR, never the host's.
   const tmp = path.join(dir, 'tmp');
   mkdirSync(tmp);
-  writeFileSync(path.join(dir, 'keychain'), KEY);
-  if (keyCached) {
-    // The layout the guard's own cacheKey() writes: a private directory and a 0600 file.
-    mkdirSync(path.join(tmp, CACHE), { mode: 0o700 });
-    writeFileSync(path.join(tmp, CACHE, 'key'), KEY, { mode: 0o600 });
-  }
+  writeFileSync(path.join(dir, 'ant-token'), TOKEN);
   const logDir = path.join(dir, 'state', 'tmt');
   received = [];
   const run = (
@@ -171,8 +162,7 @@ function newCase({ keyCached = true }: { keyCached?: boolean } = {}) {
       .split('\n')
       .filter(Boolean)
       .map((line) => JSON.parse(line));
-  const cacheFile = path.join(tmp, CACHE, 'key');
-  return { dir, logDir, cacheFile, guard, stats, lines, logText };
+  return { dir, tmp, logDir, guard, stats, lines, logText };
 }
 
 /** A scratch git repository holding a copy of the hook, for script files and the enforce flip. */
@@ -202,7 +192,8 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe('deny');
     expect(received).toHaveLength(1);
-    expect(received[0].headers['x-api-key']).toBe(KEY);
+    expect(received[0].headers.authorization).toBe(`Bearer ${TOKEN}`);
+    expect(received[0].headers['x-api-key']).toBeUndefined();
     expect(received[0].body).toMatchObject({
       model: 'claude-haiku-5-5',
       max_tokens: 1024,
@@ -227,10 +218,10 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     });
     expect(typeof line.judgeMs).toBe('number');
     expect(typeof line.hookMs).toBe('number');
-    // The log never holds the command, and nothing holds the key.
+    // The log never holds the command, and nothing holds the token.
     expect(c.logText()).not.toContain('gh pr checks');
-    expect(c.logText()).not.toContain(KEY);
-    expect(result.stdout + result.stderr).not.toContain(KEY);
+    expect(c.logText()).not.toContain(TOKEN);
+    expect(result.stdout + result.stderr).not.toContain(TOKEN);
     const month = new Date().toISOString().slice(0, 7);
     expect(statSync(c.logDir).mode & 0o777).toBe(0o700);
     expect(statSync(path.join(c.logDir, `codex-wait-guard-${month}.jsonl`)).mode & 0o777).toBe(
@@ -817,7 +808,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       (request: IncomingMessage, response: ServerResponse) => void,
       Record<string, string>,
     ][] = [
-      ['no key', verdict('deny'), { NO_KEY: '1' }],
+      ['no token', verdict('deny'), { NO_TOKEN: '1' }],
       ['http 500', reply({}, 500), {}],
       ['http 429', reply({}, 429), {}],
       ['max_tokens', reply({ content: [], stop_reason: 'max_tokens', usage }), {}],
@@ -843,8 +834,8 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
       ['timeout', () => {}, {}],
     ];
     for (const [reason, respond, environment] of cases) {
-      const c = newCase({ keyCached: !environment.NO_KEY });
-      if (environment.NO_KEY) rmSync(path.join(c.dir, 'keychain'));
+      const c = newCase();
+      if (environment.NO_TOKEN) rmSync(path.join(c.dir, 'ant-token'));
       answer = respond;
       const result = await c.guard(
         bash('while true; do gh run view 1; sleep 30; done'),
@@ -859,7 +850,7 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
           outputTokens: 1024,
         });
       }
-      if (reason === 'no key') {
+      if (reason === 'no token') {
         expect(received).toEqual([]);
         expect(c.logText()).not.toContain('stderr-that-must-not-be-logged');
       }
@@ -868,14 +859,13 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
     }
   });
 
-  it('never sends the key to a judge override off loopback', async () => {
+  it('never sends the token to a judge override off loopback', async () => {
     for (const override of [
       'https://judge.example.com/v1/messages',
       'http://10.0.0.1/v1',
       'not a url',
     ]) {
-      // An empty cache, so the absent security.log below proves the Keychain was not read.
-      const c = newCase({ keyCached: false });
+      const c = newCase();
       answer = verdict('deny');
       const result = await c.guard(bash('sleep 600'), {
         TMT_WAIT_GUARD_URL: override,
@@ -887,166 +877,41 @@ describe('scripts/hooks/codex-wait-guard.mjs', () => {
           reason: 'untrusted judge url',
         }),
       ]);
-      // The key is not even read for a foreign endpoint.
-      expect(existsSync(path.join(c.dir, 'security.log')), override).toBe(false);
+      // The token is not even read for a foreign endpoint.
+      expect(existsSync(path.join(c.dir, 'ant.log')), override).toBe(false);
     }
   });
 
-  it('caches the key privately, and re-reads the Keychain once on a 401', async () => {
-    const c = newCase({ keyCached: false });
+  it('reads the ant token for each judged call, keeps nothing on disk and never retries', async () => {
+    const c = newCase();
     answer = verdict('allow');
     await c.guard(bash('timeout 60 make build'));
     await c.guard(bash('timeout 60 make build'));
-    // One Keychain read, with `security -w`'s trailing newline trimmed, then the cache.
-    expect(readFileSync(path.join(c.dir, 'security.log'), 'utf8')).toBe(
-      'find-generic-password -s tmt-codex-hook-anthropic -w\n'
+    // One `ant` read per judged call, with its trailing newline trimmed; nothing is cached.
+    expect(readFileSync(path.join(c.dir, 'ant.log'), 'utf8')).toBe(
+      'auth print-credentials --access-token\n'.repeat(2)
     );
-    expect(readFileSync(c.cacheFile, 'utf8')).toBe(KEY);
-    expect(statSync(path.dirname(c.cacheFile)).mode & 0o777).toBe(0o700);
-    expect(statSync(c.cacheFile).mode & 0o777).toBe(0o600);
-    expect(readdirSync(path.dirname(c.cacheFile))).toEqual(['key']);
-
-    // A stale cached key gets a 401: the cache is dropped, the Keychain read once, one retry.
-    writeFileSync(c.cacheFile, 'stale-key', { mode: 0o600 });
-    received = [];
-    answer = (request, response) =>
-      (request.headers['x-api-key'] === KEY ? verdict('allow') : reply({}, 401))(request, response);
-    await c.guard(bash('timeout 60 make build'));
-    expect(received.map((request) => request.headers['x-api-key'])).toEqual(['stale-key', KEY]);
-    expect(readFileSync(c.cacheFile, 'utf8')).toBe(KEY);
-    expect(c.lines().at(-1)).toMatchObject({ verdict: 'allow' });
-
-    // A key the Keychain itself gives is not retried again.
-    received = [];
-    answer = reply({}, 403);
-    await c.guard(bash('timeout 60 make build'));
-    expect(received).toHaveLength(2);
-    expect(c.lines().at(-1)).toMatchObject({
-      verdict: 'fail_open',
-      reason: 'http 403',
-    });
-
-    // A cache readable by others is ignored and rewritten.
-    writeFileSync(c.cacheFile, 'leaked');
-    chmodSync(c.cacheFile, 0o644);
-    received = [];
-    answer = verdict('allow');
-    await c.guard(bash('timeout 60 make build'));
-    expect(received[0].headers['x-api-key']).toBe(KEY);
-    expect(statSync(c.cacheFile).mode & 0o777).toBe(0o600);
-    expect(c.logText()).not.toContain(KEY);
-  });
-
-  it('denies every spelling of the key cache in every mode, without asking the judge', async () => {
-    const c = newCase();
-    answer = verdict('allow');
-    await c.guard(bash('timeout 60 make build'));
-    const cacheDir = path.dirname(c.cacheFile);
-    symlinkSync(cacheDir, path.join(c.dir, 'innocent'));
-    const { repo, hook } = scratchRepository(c.dir);
-    writeFileSync(path.join(repo, 'scripts', 'peek.sh'), `cat "$TMPDIR/${CACHE}/key"\n`);
-    received = [];
-    // The temporary directory with two of its parents' names globbed, like /var/folders/*/*/T/*.
-    const parts = path.dirname(c.cacheFile).split(path.sep).slice(0, -1);
-    const parentsGlob = [...parts.slice(0, -3), '*', '*', parts.at(-1), '*'].join(path.sep);
-    const spellings: [Record<string, unknown>, string, string][] = [
-      [bash(`cat $TMPDIR/${CACHE}/key`), repository, script],
-      [bash('cat "${TMPDIR}"tmt-codex-wait-guard-*/key'), repository, script],
-      [bash('cat $TMPDIR/tmt-codex-*/key'), repository, script],
-      [bash('ls $TMPDIR/*'), repository, script],
-      [bash('ls /*/**'), repository, script],
-      [bash(`cat ${parentsGlob}/key`), repository, script],
-      [bash(`realpath ${path.join(c.dir, 'innocent')}/key`), repository, script],
-      [{ tool_name: 'apply_patch', tool_input: { command: `cat ${CACHE}` } }, repository, script],
-      [
-        {
-          tool_name: 'read_file',
-          tool_input: { path: path.join(c.dir, 'innocent', 'key') },
-        },
-        repository,
-        script,
-      ],
-      [bash('sh scripts/peek.sh'), repo, hook],
-      [bash('./scripts/peek.sh'), repo, hook],
-    ];
-    for (const [payload, cwd, guardScript] of spellings) {
-      const result = await c.guard({ ...payload, cwd }, {}, guardScript);
-      const decision = JSON.parse(result.stdout).hookSpecificOutput;
-      expect(decision.permissionDecision, JSON.stringify(payload)).toBe('deny');
-    }
-    expect(received).toEqual([]);
-    const lines = c.lines().slice(1);
-    expect(lines).toHaveLength(spellings.length);
-    for (const line of lines) {
-      expect(line).toMatchObject({
-        verdict: 'deny',
-        enforced: true,
-        reason: 'key cache',
-      });
-    }
-    // Ordinary temp-directory work, and this hook's own source, are not mistaken for the cache.
-    answer = verdict('allow');
-    await c.guard(bash('ls $TMPDIR/*.log'));
-    await c.guard(bash('node scripts/hooks/codex-wait-guard.mjs stats'));
-    expect(c.lines().slice(-2)).toEqual([
-      expect.objectContaining({ verdict: 'skip', reason: 'no-wait' }),
-      expect.objectContaining({ verdict: 'allow' }),
+    expect(received.map((request) => request.headers.authorization)).toEqual([
+      `Bearer ${TOKEN}`,
+      `Bearer ${TOKEN}`,
     ]);
-    // A glob under an unrelated directory cannot reach the cache: the 11-05 gui-3 shape (a brace
-    // group and a trailing `*` under a worktree in /private/tmp), and a `*` under the repository.
-    for (const command of [
-      'ls -ld /private/tmp/gui-3-blocks/wt/typescript/{colab-client,node_modules}/*',
-      `ls ${path.join(repository, 'typescript')}/*`,
-    ]) {
-      const result = await c.guard(bash(command));
-      expect(result.stdout, command).toBe('');
-      expect(c.lines().at(-1), command).toMatchObject({ verdict: 'skip' });
-    }
-  });
+    expect(readdirSync(c.tmp)).toEqual([]);
 
-  it('reads `/**` in a patch as text, not as a glob, and still denies the shell globs', async () => {
-    const c = newCase();
-    answer = () => {
-      throw new Error('the judge must not be called');
-    };
-    // A JSDoc block in a patch (a context line starts with a space) splits as ['', '**'] with the
-    // literal prefix '/', which a shell would expand but apply_patch never does.
-    const patch = [
-      '*** Begin Patch',
-      '*** Update File: typescript/app/src/example.ts',
-      '@@',
-      ' /**',
-      '- * Old summary.',
-      '+ * New summary.',
-      '  */',
-      ' export const example = 1;',
-      '*** End Patch',
-    ].join('\n');
-    const allowed = [
-      { tool_name: 'apply_patch', tool_input: { command: patch } },
-      {
-        tool_name: 'apply_patch',
-        tool_input: { command: '*** Add File: a.ts\n+/**\n+ * Doc.\n+ */' },
-      },
-    ];
-    for (const payload of allowed) {
-      const result = await c.guard(payload);
-      expect(result.stdout, JSON.stringify(payload)).toBe('');
-      expect(c.lines().at(-1), JSON.stringify(payload)).toMatchObject({ verdict: 'skip' });
-    }
+    // A rejected token fails open with one request: `ant` owns the refresh.
+    received = [];
+    answer = reply({}, 401);
+    await c.guard(bash('timeout 60 make build'));
+    expect(received).toHaveLength(1);
+    expect(c.lines().at(-1)).toMatchObject({ verdict: 'fail_open', reason: 'http 401' });
+
+    // No `ant` on PATH fails open without a request.
+    received = [];
+    answer = verdict('deny');
+    const result = await c.guard(bash('timeout 60 make build'), { PATH: '/usr/bin:/bin' });
+    expect(result.stdout).toBe('');
     expect(received).toEqual([]);
-    // The same glob in a shell reaches the cache, and the cache's name is denied in a patch too.
-    for (const payload of [
-      bash('ls /*/**'),
-      bash('ls $TMPDIR/tmt-*'),
-      { tool_name: 'apply_patch', tool_input: { command: `cat ${CACHE}` } },
-    ]) {
-      const result = await c.guard(payload);
-      expect(
-        JSON.parse(result.stdout).hookSpecificOutput.permissionDecision,
-        JSON.stringify(payload)
-      ).toBe('deny');
-    }
+    expect(c.lines().at(-1)).toMatchObject({ verdict: 'fail_open', reason: 'no token' });
+    expect(c.logText()).not.toContain(TOKEN);
   });
 
   it('sends redacted, capped input and repository scripts, never files outside the worktree', async () => {

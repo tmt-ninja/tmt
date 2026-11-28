@@ -580,7 +580,7 @@ fn verified_own_answers_change_registry_state_without_content_or_ask_publication
         .unwrap()
         // A real schema-27 store has neither table: later steps must replay too (#6739).
         .execute_batch(
-            "DROP TABLE page_deletions; DROP TABLE answer_forms; PRAGMA user_version=27;",
+            "DROP TABLE recovery_operations; ALTER TABLE pages DROP COLUMN history_reclaimed_at_ms; DROP TABLE page_deletions; DROP TABLE answer_forms; PRAGMA user_version=27;",
         )
         .unwrap();
     pilot.start();

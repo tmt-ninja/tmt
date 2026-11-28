@@ -857,12 +857,18 @@ approved host driver in the registry's order:
 The tmux template is built into the CLI: `sh -c` with the session and the command
 as positional arguments, so nothing is interpolated into the script. It opens a
 detached window in the session, or creates a missing session detached with the
-command as its first window. It then sets the pane option `@tmt.opened` on the
-pane it opened, and prints that pane's ID. An empty session or command is
-refused before tmux is reached (exit 2), because tmux reads an empty session
-target as any session. A session name holds no `.` or `:`, which tmux rewrites.
-A command that ends before the mark is set leaves no pane to mark, and the
-template exits non-zero.
+command as its first window. The pane runs the command in a child shell while
+catching `INT` and `TERM` in the outer wrapper (never ignoring them, so the
+launched agent keeps default signal disposition), and once the command ends it
+replaces the outer wrapper in place (`exec`) with the user's login shell
+(`$SHELL -l`, falling back to `/bin/sh -l`). That leaves a usable shell in the
+pane at the same `pane_pid` when the agent exits, fails, or is stopped by
+`SIGINT`/`SIGTERM`. It then sets the pane option `@tmt.opened` on the pane it
+opened, and prints that pane's ID. An empty session or command is refused before
+tmux is reached (exit 2), because tmux reads an empty session target as any
+session. A session name holds no `.` or `:`, which tmux rewrites. Because the
+pane stays alive at the fallback shell after the command ends, a command that
+exits quickly still leaves the pane open and marked `@tmt.opened`.
 
 The `pty` template opens no pane, and the built-in host has no sessions. `{command}` must
 itself be one built-in-host launch, `tmt run --host pty NAME TOOL …`, and the template runs

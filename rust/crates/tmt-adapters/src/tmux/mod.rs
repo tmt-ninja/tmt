@@ -49,10 +49,21 @@ fn valid_pane_id(value: &str) -> bool {
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(1);
 /// The one command that checks supplied `TMUX`/`TMUX_PANE` for a command that cannot do without
 /// the caller's pane (#4260). A loaded machine, or a wrapper in front of tmux, can take longer
-/// than [`OPERATION_TIMEOUT`] to answer; waiting is better than a wrong "no pane". Keep
-/// [`CALLER_BUDGET_MESSAGE`] in step.
+/// than [`OPERATION_TIMEOUT`] to answer; waiting is better than a wrong "no pane". An external
+/// host's driver gets the same budget for the same commands (#6926), and both report running out
+/// of it through [`caller_budget_message`].
 pub(crate) const REQUIRED_CALLER_TIMEOUT: Duration = Duration::from_secs(5);
-const CALLER_BUDGET_MESSAGE: &str = "tmux did not answer within 5 s while checking the caller pane";
+
+/// What a command that cannot do without the caller's pane reports when `host` (tmux, or an
+/// external host's driver) did not answer within `bound`: the pane was neither found nor ruled
+/// out. tmux's bound is [`REQUIRED_CALLER_TIMEOUT`]; an external host names the bound that ran
+/// out, the protocol's own for its `caller` call (#6926).
+pub(crate) fn caller_budget_message(host: &str, bound: Duration) -> String {
+    format!(
+        "{host} did not answer within {} s while checking the caller pane",
+        bound.as_secs()
+    )
+}
 const OPERATION_MAX_OUTPUT: usize = 1024 * 1024;
 const SERVER_ID_OPTION: &str = "@tmt.server-id";
 const AGENT_METADATA_OPTION: &str = "@tmt.agent";
@@ -111,7 +122,7 @@ impl TmuxError {
     fn caller_budget(cause: CommandError) -> Self {
         Self {
             kind: TmuxFailure::Command,
-            message: CALLER_BUDGET_MESSAGE.into(),
+            message: caller_budget_message("tmux", REQUIRED_CALLER_TIMEOUT).into(),
             cause: Some(cause),
         }
     }
