@@ -160,6 +160,8 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-48` Compose internal managed-installation setup, refresh, upgrade and database maintenance commands.
 - [ ] `CLI-49` Compose internal allowance, consumption, flush and Digest callbacks.
 
+- [ ] `CLI-50` Diagnose intermittent private-tmux deadlines in parallel Go gates. `TestPrivateDiscoveryAndMarkedPaneWithoutMetadata` and `TestDiscoverAndMarkedOnPrivateTmux` exercise the 2 s discovery budget (tmux `list-panes`, then batched `ps` start evidence) and marked binding rechecks. `TestPrivateFocusAndSwapExactInvokingClient` and `TestFocusSwapGeometryMatchesNative` exercise the 3 s invoking-client proof and 4 s swap budget (client/target rechecks, geometry, conditional swap, and post-swap proof). Individual tmux and process observations have a 1 s budget. The adapter focus fixture also bounds its helper at 12 s and waits 18 s for its report. The CLI geometry failure returned `RECONCILIATION_FAILED` in `left` during the Talk rebase and in `right` in go-4's serial nativecompat retry. Four traced nativecompat repeats of all four fixtures passed on d20d511651. The slowest targeted `ps` start read took 708 ms, while sampled tmux subprocesses stayed under 18 ms. Capture the failing stage, then test reusing one process-tree snapshot per caller proof without dropping the before/after evidence or extending deadlines.
+
 ### Native test mappings from merged main
 
 - `rust/crates/tmt-adapters/src/request_frame.rs` frame guidance, byte stability and sender escaping → `go/internal/output/output_test.go` coverage in `TestRequestFrameOneClosingGuidance` and `TestRequestFrameNativeSenderEscaping`.
