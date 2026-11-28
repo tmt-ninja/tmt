@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import childProcess, { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
-import { createRequire } from 'node:module';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import ts from 'typescript';
 import { runInNewContext } from 'node:vm';
@@ -2587,6 +2587,27 @@ describe('CI diff and command integration', () => {
       runCiScope([base, head], { cwd: root, stdout, stderr: capture() });
       return outputs(stdout.text());
     };
+    const originalSpawn = childProcess.spawnSync;
+    const timedSpawn = (...args: Parameters<typeof originalSpawn>) => {
+      const began = performance.now();
+      try {
+        return originalSpawn(...args);
+      } finally {
+        const [command, argv] = args;
+        if (command === 'git' || command === 'ruby') {
+          const label =
+            command === 'ruby'
+              ? 'ruby Psych'
+              : `git ${argv?.[0] === '-c' ? 'commit' : (argv?.[0] ?? '(no args)')}`;
+          process.stderr.write(
+            `[6930 subprocess] ${label} ${(performance.now() - began).toFixed(1)} ms\n`
+          );
+        }
+      }
+    };
+    // The wrapper forwards every argument and result of the overloaded builtin.
+    childProcess.spawnSync = timedSpawn as typeof originalSpawn;
+    syncBuiltinESMExports();
     try {
       git(['init', '--quiet']);
       mkdirSync(path.join(root, 'typescript'));
@@ -2604,6 +2625,8 @@ describe('CI diff and command integration', () => {
       const relevantLockHead = commit();
       expect(outputFor(unrelatedLockHead, relevantLockHead).colab_app).toBe('true');
     } finally {
+      childProcess.spawnSync = originalSpawn;
+      syncBuiltinESMExports();
       rmSync(root, { recursive: true, force: true });
     }
   }, 5000);
