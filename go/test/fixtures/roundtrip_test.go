@@ -88,6 +88,15 @@ func TestFakeProviderSubmitsCorrelatedReply(t *testing.T) {
 		t.Fatal(err)
 	}
 	observer := runtime.Observer{Process: process.Runner{}}
+	starting := binding
+	starting.Session = core.BindingSessionState{RuntimeState: "unknown"}
+	if ok, err := observer.ProveLaunchChild(t.Context(), identity, starting, probe, *binding.Session.Runtime, core.DriverCodex); err != nil || !ok {
+		t.Fatalf("startup child proof = %t, %v", ok, err)
+	}
+	if ok, err := observer.ProveLaunchChild(t.Context(), identity, starting, probe, *binding.Session.Runtime, core.DriverClaude); err != nil || ok {
+		t.Fatalf("startup accepted a different driver = %t, %v", ok, err)
+	}
+
 	main, err := observer.ProveBoundMain(t.Context(), identity, binding, probe)
 	if err != nil || main.Name != "codex" || uint64(main.Incarnation.PID) != observed.PID ||
 		main.Incarnation.Start != *observed.Incarnation {

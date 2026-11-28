@@ -22,8 +22,30 @@ type BoundProvider struct {
 // This does not establish Idle, permission or channel readiness.
 func (o Observer) ProveBoundMain(ctx context.Context, identity core.Identity, binding core.Binding, probe core.EndpointProbe) (BoundProvider, error) {
 	session := binding.Session
-	if session.RuntimeState != "running" || session.Runtime == nil || session.PlainProgram != nil ||
-		binding.PanePID == 0 || binding.PanePID > math.MaxInt32 || session.Runtime.PID == 0 || session.Runtime.PID > math.MaxInt32 {
+	if session.RuntimeState != "running" || session.Runtime == nil || session.PlainProgram != nil {
+		return BoundProvider{}, nil
+	}
+	return o.provePaneProcess(ctx, identity, binding, probe, *session.Runtime, session.LaunchOwner)
+}
+
+// ProveLaunchChild checks the captured child of this launch against a fresh
+// exact binding probe and the selected driver. It needs no recorded runtime
+// because it runs before admission. An interpreter, background process, or
+// different process with the same name cannot satisfy the proof.
+func (o Observer) ProveLaunchChild(ctx context.Context, identity core.Identity, binding core.Binding,
+	probe core.EndpointProbe, child core.ProcessIncarnation, driver core.DriverName,
+) (bool, error) {
+	if !driver.Valid() || (binding.Session.RuntimeState != "unknown" && binding.Session.RuntimeState != "ended") {
+		return false, nil
+	}
+	proven, err := o.provePaneProcess(ctx, identity, binding, probe, child, nil)
+	return err == nil && proven.Name == string(driver), err
+}
+
+func (o Observer) provePaneProcess(ctx context.Context, identity core.Identity, binding core.Binding,
+	probe core.EndpointProbe, process core.ProcessIncarnation, owner *core.ProcessIncarnation,
+) (BoundProvider, error) {
+	if binding.PanePID == 0 || binding.PanePID > math.MaxInt32 || process.PID == 0 || process.PID > math.MaxInt32 {
 		return BoundProvider{}, nil
 	}
 	owned, pane := core.EvaluateBinding(identity, &binding, probe)
@@ -31,7 +53,7 @@ func (o Observer) ProveBoundMain(ctx context.Context, identity core.Identity, bi
 		*pane.Incarnation != *binding.PaneIncarnation {
 		return BoundProvider{}, nil
 	}
-	expected := Incarnation{PID: int(session.Runtime.PID), Start: session.Runtime.StartIdentity}
+	expected := Incarnation{PID: int(process.PID), Start: process.StartIdentity}
 	if !expected.Valid() {
 		return BoundProvider{}, nil
 	}
@@ -44,7 +66,7 @@ func (o Observer) ProveBoundMain(ctx context.Context, identity core.Identity, bi
 	if name == "" {
 		return BoundProvider{}, nil
 	}
-	if owner := session.LaunchOwner; owner != nil {
+	if owner != nil {
 		if owner.PID == 0 || owner.PID > math.MaxInt32 {
 			return BoundProvider{}, nil
 		}
