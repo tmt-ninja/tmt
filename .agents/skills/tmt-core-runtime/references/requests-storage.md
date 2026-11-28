@@ -157,8 +157,14 @@ carry one oversized first item, while provider hooks leave it held.
   mode joins the row's change-cursor comparison. `settle_request_delivery(Sent)` of a passthrough
   runs `answer_oldest_open` in the same transaction: the retained original text becomes the first
   final (`store_final`, shared with `submit_response`, no originator hint) of the oldest open
-  request from that agent to the sender; any other settlement stores nothing. The same send creates a
-  `request_passthrough` row (one per passthrough, cascading with the request): `pending`, or `bound` at
+  request from that agent to the sender; any other settlement stores nothing. The claim
+  (`claim_wake_until`), before anything is typed, creates the `request_passthrough` row (one per
+  passthrough, cascading with the request) as `pending`, its `delivered_at_ms` the claim time, so a
+  prompt hook that commits before the delivery settles still binds it (#6921). Settling
+  `Unavailable` withdraws a row still `pending`; `Uncertain` keeps it, so an uncertain paste, which had
+  no capture before #6921, binds only a turn whose prompt is exactly its text inside `BIND_WINDOW_MS`.
+  A claim whose process dies before any settlement ages out the same way. `Sent` leaves a
+  prompt-bound row as it is and binds one still `pending` at
   once with `folded = 1` (schema 69) when `RequestRecords::running_turn` shows a verified `Working` turn
   of a driver whose descriptor declares `folds_queued_text` (Claude only, until another is measured)
   whose `since_ms` is not after the send's start (`RunningTurn::holds_text_typed_at`), since no prompt will

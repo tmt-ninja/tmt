@@ -542,22 +542,15 @@ fn a_text_folded_into_a_running_turn_shares_that_turns_final_with_the_message_th
     started(&mut storage, &path, &id, Some("t1"), "first job");
     // A second text typed while t1 runs: the send found the turn running, so it bound at once.
     typed(&storage, &id, "folded", "and the other job", 500);
-    let connection = storage.connection().unwrap();
-    connection
-        .execute(
-            "DELETE FROM request_passthrough WHERE request_id='folded'",
-            [],
-        )
-        .unwrap();
-    super::super::requests::passthrough::start_capture(
-        connection,
+    super::super::requests::passthrough::fold(
+        storage.connection().unwrap(),
         "folded",
-        now() - 500,
-        Some(&RunningTurn {
+        &RunningTurn {
             session: SESSION.into(),
             turn: Some("t1".into()),
             since_ms: now() - 2_000,
-        }),
+        },
+        now() - 500,
     )
     .unwrap();
     let bound = capture(&storage, "folded");
@@ -598,22 +591,15 @@ fn a_folded_capture_is_overtaken_like_any_bound_one_when_a_later_turn_starts() {
     let (_directory, path, id) = fixture();
     let mut storage = Storage::open(&path).unwrap();
     typed(&storage, &id, "folded", "queued job", 500);
-    let connection = storage.connection().unwrap();
-    connection
-        .execute(
-            "DELETE FROM request_passthrough WHERE request_id='folded'",
-            [],
-        )
-        .unwrap();
-    super::super::requests::passthrough::start_capture(
-        connection,
+    super::super::requests::passthrough::fold(
+        storage.connection().unwrap(),
         "folded",
-        now() - 500,
-        Some(&RunningTurn {
+        &RunningTurn {
             session: SESSION.into(),
             turn: None,
             since_ms: now() - 2_000,
-        }),
+        },
+        now() - 500,
     )
     .unwrap();
     // The provider queued the text as the next turn instead: that turn starting means the
@@ -1526,4 +1512,220 @@ fn marked_passthrough_links_the_existing_batch_and_capture_without_double_pinnin
         "The linked answer."
     );
     assert!(revision(&storage, "marked") > 0);
+}
+
+/// A kept passthrough from `person` whose paste to `agent` was just claimed, through the
+/// request service a real delivery uses: nothing is typed or settled yet (#6921).
+fn claimed_keep(storage: &mut Storage, agent: &str, person: &str, id: &str, text: &str) {
+    use tmt_core::request::{
+        Originator, PrepareRequest, RequestKind, RequestOrigin, RequestRoute, RequestService,
+        digest::{DeliveryMode, DeliveryPolicy},
+    };
+    let at = now();
+    let typed = PrepareRequest {
+        origin: RequestOrigin::Person,
+        room_id: None,
+        kind: RequestKind::Request,
+        request_id: id.into(),
+        message: text.into(),
+        route: RequestRoute::Inbox {
+            recipient_identity_id: agent.into(),
+        },
+        wait: false,
+        expires_at_ms: at + 3_600_000,
+        originator: Originator::Explicit(person.into()),
+        recipient_identity_id: Some(agent.into()),
+        preamble: None,
+    };
+    let policy = DeliveryPolicy {
+        mode: DeliveryMode::Passthrough,
+        automatic: true,
+        ..DeliveryPolicy::default()
+    };
+    let mut service = RequestService::new(&mut *storage, now);
+    service
+        .enqueue_delivery(typed, format!("attempt-{id}"), 7, policy)
+        .unwrap();
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE request_attempts SET keep_reply=1 WHERE request_id=?1",
+            [id],
+        )
+        .unwrap();
+    assert!(
+        RequestService::new(&mut *storage, now)
+            .claim_wake(id)
+            .unwrap()
+            .claimed
+    );
+}
+
+fn settle_delivery(storage: &mut Storage, id: &str, state: tmt_core::request::WakeState) {
+    tmt_core::request::RequestService::new(&mut *storage, now)
+        .settle_request_delivery(id, state)
+        .unwrap();
+}
+
+fn turn(storage: &mut Storage, path: &std::path::Path, agent: &str, person: &str, prompt: &str) {
+    let start = TurnBoundary::Started {
+        turn: Some("turn"),
+        prompt,
+        keep_owner: Some(person),
+    };
+    assert!(event(
+        storage,
+        path,
+        agent,
+        SESSION,
+        Some(start),
+        None,
+        true
+    ));
+}
+
+fn turn_ends(storage: &mut Storage, path: &std::path::Path, agent: &str, text: &str) {
+    let finish = TurnBoundary::Ended {
+        turn: Some("turn"),
+        continuation: false,
+    };
+    assert!(event(
+        storage,
+        path,
+        agent,
+        SESSION,
+        Some(finish),
+        Some(text),
+        true
+    ));
+}
+
+/// The kept replies `person` reads for `agent`, as `(request, text)`.
+fn kept_texts(
+    storage: &Storage,
+    person: &str,
+    agent: &str,
+    request: &str,
+) -> (usize, Option<String>) {
+    let listed = storage
+        .list_kept_replies(person, Some(agent), None, 10)
+        .unwrap()["items"]
+        .as_array()
+        .unwrap()
+        .len();
+    let text = storage
+        .show_kept_reply(person, request)
+        .unwrap()
+        .map(|kept| kept["text"].as_str().unwrap().to_owned());
+    (listed, text)
+}
+
+#[test]
+fn a_prompt_reported_before_the_delivery_settles_binds_and_keeps_its_final() {
+    use tmt_core::request::WakeState;
+    let (_directory, path, mut storage, agent, person) = kept_fixture();
+    claimed_keep(
+        &mut storage,
+        &agent,
+        &person,
+        "fast",
+        "Keep this passthrough reply",
+    );
+    // The provider's prompt hook commits between the paste and the delivery's settlement.
+    turn(
+        &mut storage,
+        &path,
+        &agent,
+        &person,
+        "Keep this passthrough reply",
+    );
+    let bound = capture(&storage, "fast");
+    assert_eq!((bound.state, bound.folded), (CaptureState::Bound, false));
+    assert_eq!(bound.bound_turn.as_deref(), Some("turn"));
+    settle_delivery(&mut storage, "fast", WakeState::Sent);
+    assert_eq!(capture(&storage, "fast").state, CaptureState::Bound);
+    turn_ends(&mut storage, &path, &agent, "Mock answer 1");
+    let answered = capture(&storage, "fast");
+    assert_eq!(answered.state, CaptureState::Answered);
+    assert_eq!(answered.answer.unwrap().text, "Mock answer 1");
+    assert_eq!(
+        kept_texts(&storage, &person, &agent, "fast"),
+        (1, Some("Mock answer 1".into()))
+    );
+    storage.close().unwrap();
+}
+
+#[test]
+fn an_uncertain_delivery_keeps_its_capture_for_an_exact_prompt_only() {
+    use tmt_core::request::WakeState;
+    let (_directory, path, mut storage, agent, person) = kept_fixture();
+    claimed_keep(&mut storage, &agent, &person, "unsure", "Maybe typed");
+    settle_delivery(&mut storage, "unsure", WakeState::Uncertain);
+    assert_eq!(capture(&storage, "unsure").state, CaptureState::Pending);
+    turn(&mut storage, &path, &agent, &person, "Something else");
+    assert_eq!(capture(&storage, "unsure").state, CaptureState::Pending);
+    let other = TurnBoundary::Started {
+        turn: Some("turn-2"),
+        prompt: "Maybe typed",
+        keep_owner: Some(&person),
+    };
+    assert!(event(
+        &mut storage,
+        &path,
+        &agent,
+        SESSION,
+        Some(other),
+        None,
+        true
+    ));
+    let bound = capture(&storage, "unsure");
+    assert_eq!(bound.state, CaptureState::Bound);
+    assert_eq!(bound.bound_turn.as_deref(), Some("turn-2"));
+    storage.close().unwrap();
+}
+
+#[test]
+fn an_unsent_delivery_withdraws_its_capture_and_a_matching_prompt_binds_nothing() {
+    use tmt_core::request::WakeState;
+    let (_directory, path, mut storage, agent, person) = kept_fixture();
+    claimed_keep(&mut storage, &agent, &person, "refused", "Never typed");
+    settle_delivery(&mut storage, "refused", WakeState::Unavailable);
+    let read = |storage: &Storage| {
+        super::super::requests::passthrough::capture(storage.connection().unwrap(), "refused")
+            .unwrap()
+    };
+    assert!(read(&storage).is_none());
+    turn(&mut storage, &path, &agent, &person, "Never typed");
+    turn_ends(&mut storage, &path, &agent, "Not for it");
+    assert!(read(&storage).is_none());
+    assert_eq!(kept_texts(&storage, &person, &agent, "refused"), (0, None));
+    storage.close().unwrap();
+}
+
+#[test]
+fn an_abandoned_claim_binds_nothing_once_its_window_has_passed() {
+    let (_directory, path, mut storage, agent, person) = kept_fixture();
+    // The delivering process died after the claim: no settlement will ever come.
+    claimed_keep(&mut storage, &agent, &person, "abandoned", "Lost paste");
+    storage
+        .connection()
+        .unwrap()
+        .execute(
+            "UPDATE request_passthrough SET delivered_at_ms=?2 WHERE request_id=?1",
+            params!["abandoned", (now() - BIND_WINDOW_MS - 1) as i64],
+        )
+        .unwrap();
+    turn(&mut storage, &path, &agent, &person, "Lost paste");
+    turn_ends(&mut storage, &path, &agent, "A later answer");
+    // It was never bound and has aged out: it reads `no_answer` like any unbound capture.
+    let lapsed = capture(&storage, "abandoned");
+    assert_eq!(lapsed.state, CaptureState::Pending);
+    assert_eq!(lapsed.state_at(now()), CaptureState::NoAnswer);
+    assert!(lapsed.bound_turn.is_none() && lapsed.answer.is_none());
+    assert_eq!(
+        kept_texts(&storage, &person, &agent, "abandoned"),
+        (0, None)
+    );
+    storage.close().unwrap();
 }

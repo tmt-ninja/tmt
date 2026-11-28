@@ -484,7 +484,7 @@ fn a_distinct_final_survives_a_missing_prompt_after_the_previous_stop() {
         [],
     )
     .unwrap();
-    super::super::requests::passthrough::start_capture(db, "unbound-input", sent_at, None).unwrap();
+    super::super::requests::passthrough::start_capture(db, "unbound-input", sent_at).unwrap();
     // Reproduce the owner report: no new prompt/batch was admitted, but the
     // same verified provider process supplies a different ordinary final.
     let second = w.event("the next turn's distinct final", false);

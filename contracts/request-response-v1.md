@@ -649,7 +649,11 @@ message of the turn it started, matched by prompt and never by time alone. `requ
 and `requests.show` items with `mode: "passthrough"` carry
 `passthrough: {state, deliveredAtMs, boundAtMs?, folded, settledAtMs?, answer?}`:
 
-- `pending`: typed, and no turn has started with that prompt. At turn start Core compares the
+- `pending`: claimed for typing, and no turn has started with that prompt. The capture exists
+  from the claim, before the text is typed (`deliveredAtMs` is that moment), so a prompt the
+  provider reports before the delivery settles still binds. A delivery that is refused or
+  unavailable removes a capture still `pending`; an uncertain one keeps it, and it binds only a
+  turn whose prompt is exactly its text. At turn start Core compares the
   prompt the provider's hook reports with each pending text of that agent after the pane's own
   `!` conversion and newline normalisation (the ends may be trimmed). The oldest match binds;
   identical pending texts bind first in, first out, so a busy agent that queues the prompt

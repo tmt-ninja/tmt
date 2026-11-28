@@ -417,14 +417,23 @@ pub trait RequestRecords {
         &self,
         identity_id: &str,
     ) -> Result<Option<passthrough::RunningTurn>, Self::Error>;
-    /// Starts the capture of a passthrough whose text has just been typed; `folded_into` is the
-    /// running turn it joined, which it binds to at once.
-    fn create_passthrough_capture(
+    /// Starts the `pending` capture of a passthrough whose paste was just claimed, before any
+    /// text is typed, so a turn the text starts binds to it however soon its prompt arrives.
+    fn start_passthrough_capture(
         &mut self,
         request_id: &str,
-        delivered_at_ms: u64,
-        folded_into: Option<&passthrough::RunningTurn>,
+        claimed_at_ms: u64,
     ) -> Result<(), Self::Error>;
+    /// The typed text joined `turn`, already running when the send began: a capture still
+    /// `pending` binds to it at once (`folded`). One a prompt has bound is left as it is.
+    fn fold_passthrough_capture(
+        &mut self,
+        request_id: &str,
+        turn: &passthrough::RunningTurn,
+        now_ms: u64,
+    ) -> Result<(), Self::Error>;
+    /// Nothing was typed: a capture still `pending` is removed.
+    fn withdraw_passthrough_capture(&mut self, request_id: &str) -> Result<(), Self::Error>;
     fn write_delivery_policy(
         &mut self,
         request_id: &str,
