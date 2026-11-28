@@ -228,7 +228,7 @@ enum Owner {
 }
 
 #[derive(Debug)]
-pub(super) struct Binding {
+pub(super) struct TicketBinding {
     owner: Owner,
     number: String,
     status: Status,
@@ -237,7 +237,7 @@ pub(super) struct Binding {
     key: String,
 }
 
-impl Binding {
+impl TicketBinding {
     pub(super) fn chip(&self, count: usize) -> String {
         let chip = format!("{} {}", self.status.mark(), self.number);
         if count > 1 {
@@ -252,7 +252,7 @@ impl Binding {
 pub(in crate::board) struct Snapshot {
     space: String,
     references: Arc<References>,
-    bindings: Vec<Binding>,
+    bindings: Vec<TicketBinding>,
 }
 
 fn text(value: &Value, max_bytes: usize) -> Option<String> {
@@ -301,7 +301,7 @@ impl Snapshot {
                     .filter(|id| canonical_identity(id))
                     && status != Status::Done
                 {
-                    bindings.push(Binding {
+                    bindings.push(TicketBinding {
                         owner: Owner::Page(owner.into()),
                         number,
                         status,
@@ -343,7 +343,7 @@ impl Snapshot {
                     && todo["assignee"] == owner
                     && status != Status::Done
                 {
-                    bindings.push(Binding {
+                    bindings.push(TicketBinding {
                         owner: Owner::Todo(owner),
                         number,
                         status,
@@ -354,7 +354,7 @@ impl Snapshot {
                 }
             }
         }
-        let order = |binding: &Binding| {
+        let order = |binding: &TicketBinding| {
             (
                 binding.status.rank(),
                 Reverse(binding.high),
@@ -369,7 +369,10 @@ impl Snapshot {
         })
     }
 
-    fn bindings<'a>(&'a self, roster: &'a OpsRoster) -> BTreeMap<&'a str, (&'a Binding, usize)> {
+    fn bindings<'a>(
+        &'a self,
+        roster: &'a OpsRoster,
+    ) -> BTreeMap<&'a str, (&'a TicketBinding, usize)> {
         let mut unique = BTreeMap::new();
         for (id, member) in &roster.members {
             unique
@@ -443,7 +446,7 @@ impl State {
     pub fn bindings<'a>(
         &'a self,
         roster: &'a OpsRoster,
-    ) -> BTreeMap<&'a str, (&'a Binding, usize)> {
+    ) -> BTreeMap<&'a str, (&'a TicketBinding, usize)> {
         self.snapshot
             .as_ref()
             .filter(|_| !self.stale)
