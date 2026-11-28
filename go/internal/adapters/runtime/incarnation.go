@@ -74,7 +74,7 @@ const probeLimit = 512
 
 // Observe takes a fixed-path, fixed-locale ps observation with a bounded
 // runner. ps-v1 is second-resolution evidence. It does not establish ownership.
-// NOT PORTED (#6938): native process-table reads before the bounded ps fallback.
+// NOT PORTED (GO2-01): native process-table reads before the bounded ps fallback.
 func (o Observer) Observe(ctx context.Context, pid int) (Observation, error) {
 	if !validPID(pid) {
 		return Observation{}, nil

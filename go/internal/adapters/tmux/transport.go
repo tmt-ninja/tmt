@@ -100,7 +100,7 @@ func waitForSubmit(ctx context.Context, delay time.Duration) error {
 }
 
 // Launch opens a window in an existing, exact session on the selected socket.
-// NOT PORTED (#6938): creating a missing session requires a private-server
+// NOT PORTED (GO2-02): creating a missing session requires a private-server
 // guarantee that the current launch port cannot express.
 func (c Client) Launch(ctx context.Context, spec ports.LaunchSpec) (ports.PaneRef, error) {
 	id, err := c.launchWindow(ctx, spec, "#{pane_id}")

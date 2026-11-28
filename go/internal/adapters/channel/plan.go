@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -126,8 +127,6 @@ func PreflightClaude(ctx context.Context, runner ports.Process, root home.Root, 
 }
 
 // PreflightCodex accepts only the builds qualified by the channel contract.
-// NOT PORTED (#6938): optional folder-trust prediction from provider config.
-// The provider owns any trust prompt and this adapter uses launch flags only.
 func PreflightCodex(ctx context.Context, runner ports.Process, root home.Root, executable string) error {
 	if !filepath.IsAbs(root.Dir) {
 		return ErrEnrollment
@@ -144,6 +143,15 @@ func PreflightCodex(ctx context.Context, runner ports.Process, root home.Root, e
 	default:
 		return fmt.Errorf("%w: %q", ErrProviderVersion, line)
 	}
+}
+
+// PreflightCodexPlan qualifies a selected channel instance and returns the
+// native informational advisory for its effective working directory.
+func PreflightCodexPlan(ctx context.Context, runner ports.Process, root home.Root, plan CodexPlan) (string, error) {
+	if err := PreflightCodex(ctx, runner, root, plan.selected.Path); err != nil {
+		return "", err
+	}
+	return codex.FolderTrustAdvisory(plan.cwd), nil
 }
 
 func providerVersion(ctx context.Context, runner ports.Process, executable string) (string, error) {

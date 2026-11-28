@@ -13,6 +13,8 @@ import (
 // Driver prepares interactive Codex launches with an embedded runtime by default.
 type Driver struct {
 	Executable string
+	// HookExecutable opts in after the caller has wired the Codex callbacks.
+	HookExecutable string
 }
 
 var _ ports.Driver = Driver{}
@@ -55,9 +57,16 @@ func (d Driver) launchCommand(launch ports.AgentLaunch, embedded bool) (ports.Pr
 	if embedded && embeddedByDefault(launch.Extra) {
 		args = append(args, "--no-daemon")
 	}
-	// NOT PORTED (#6938): the managed write grant and settings-derived scope,
-	// invocation-only hook/skill files and qualified channel startup.
-	return drivers.Command(d.Name(), d.Executable, launch, append(args, launch.Extra...))
+	// NOT PORTED (GO2-07, GO2-08, GO2-09, GO2-10): managed launch scope,
+	// managed skills, callback wiring and qualified channel startup.
+	command, err := drivers.Command(d.Name(), d.Executable, launch, append(args, launch.Extra...))
+	if err == nil && d.HookExecutable != "" {
+		// An unsupported provider config layer leaves the original launch intact.
+		if composed, hookErr := AddLaunchHooks(command, d.HookExecutable); hookErr == nil {
+			command = composed
+		}
+	}
+	return command, err
 }
 
 func embeddedByDefault(extra []string) bool {

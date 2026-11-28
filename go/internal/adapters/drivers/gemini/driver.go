@@ -26,7 +26,7 @@ func (d Driver) LaunchCommand(launch ports.AgentLaunch) (ports.ProcessSpec, erro
 	if launch.Model != "" {
 		args = append(args, "--model", launch.Model)
 	}
-	// NOT PORTED (#6938): launch-only Gemini skill discovery has no
+	// NOT PORTED (GO2-03): launch-only Gemini skill discovery has no
 	// qualified adapter; the native basic driver uses a global skill root.
 	return drivers.Command(d.Name(), d.Executable, launch, append(args, launch.Extra...))
 }

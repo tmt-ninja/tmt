@@ -6,6 +6,7 @@ toolchain go1.27.4
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/pelletier/go-toml/v2 v2.4.3
 	github.com/rivo/uniseg v0.4.7
 	golang.org/x/sys v0.50.0
 	golang.org/x/term v0.48.0

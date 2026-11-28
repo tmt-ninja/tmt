@@ -43,6 +43,21 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 
 ## go-2 (sys, process, tmux, host, drivers, channel)
 
+- [ ] GO2-01: Native process-table reads before the bounded ps fallback.
+- [ ] GO2-02: Launch into a missing session only with private-server ownership.
+- [ ] GO2-03: Launch-only Gemini skill discovery from native's shared skill root. Native Gemini registers no runtime or launch hooks.
+- [ ] GO2-04: Claude Digest continuation.
+- [ ] GO2-05: Claude managed skill injection.
+- [ ] GO2-06: Claude channel enrollment composition for a verified binding and launch owner.
+- [ ] GO2-07: Codex managed write grant and settings-derived scope.
+- [ ] GO2-08: Codex invocation-only managed skills.
+- [ ] GO2-09: Enable Codex invocation hooks through the verified lifecycle and Digest callbacks.
+- [ ] GO2-10: Compose qualified Codex channel startup and emit the native preflight advisory.
+- [ ] GO2-11: Enforce the native 256 KiB Codex WebSocket inbound frame cap in addition to the 1 MiB message cap.
+- [ ] GO2-12: Exact invoking tmux client focus and directional pane swap.
+- [ ] GO2-13: Bounded discovery and exact marked-pane snapshots.
+- [ ] GO2-14: Built-in terminal attach over an admitted PTY connection.
+
 ## go-3 (cli, output)
 
 - [ ] `CLI-01` Implement `resume` and `run --resume` with a verified remembered session, plus forget, retry, move, fresh start and driver switching.

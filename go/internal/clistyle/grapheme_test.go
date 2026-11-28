@@ -42,7 +42,7 @@ func TestFitKeepsJoinedEmojiInBothEnds(t *testing.T) {
 	}
 }
 
-// NOT PORTED (#6938): uniseg v0.4.7 uses older Unicode data than Rust
+// NOT PORTED (PORTING.md, Lead: Unicode): uniseg v0.4.7 uses older Unicode data than Rust
 // unicode-width 0.2.2. These Unicode 16 emoji measure one cell in Go and two
 // in Rust until the approved Go dependency updates its width tables.
 func TestExpectedWidthDifferenceForUnicode16Emoji(t *testing.T) {
