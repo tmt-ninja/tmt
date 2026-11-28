@@ -69,24 +69,44 @@ const (
 	SettlementDefinitelyFailed
 )
 
+type RequestDeliveryMode string
+
+const (
+	RequestDeliveryRequest     RequestDeliveryMode = "request"
+	RequestDeliveryPassthrough RequestDeliveryMode = "passthrough"
+)
+
+func (m RequestDeliveryMode) Valid() bool {
+	return m == RequestDeliveryRequest || m == RequestDeliveryPassthrough
+}
+
+type RequestDeliveryPolicy struct {
+	Urgent    bool
+	Kind      DigestKind
+	Automatic bool
+	Mode      RequestDeliveryMode
+}
+
 type PrepareRequest struct {
-	RequestID     RequestID
-	AttemptID     AttemptID
-	Kind          RequestKind
-	Origin        RequestOrigin
-	Route         RequestRoute
-	Originator    Originator
-	Recipient     *IdentityID
-	Message       string
-	Wait          bool
-	ExpiresAtMs   uint64
-	RetentionDays uint64
+	RequestID      RequestID
+	AttemptID      AttemptID
+	Kind           RequestKind
+	Origin         RequestOrigin
+	Route          RequestRoute
+	Originator     Originator
+	Recipient      *IdentityID
+	Message        string
+	Wait           bool
+	ExpiresAtMs    uint64
+	RetentionDays  uint64
+	DeliveryPolicy *RequestDeliveryPolicy
 }
 
 type PreparedRequest struct {
-	RequestID RequestID
-	AttemptID AttemptID
-	Receipt   Receipt
+	RequestID     RequestID
+	AttemptID     AttemptID
+	Receipt       Receipt
+	DigestUntilMs *uint64
 }
 
 type RequestAttempt struct {

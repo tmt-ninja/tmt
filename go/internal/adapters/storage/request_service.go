@@ -50,6 +50,14 @@ func (s *RequestService) prepare(ctx context.Context, in core.PrepareRequest, en
 	if err := validatePrepared(in, enqueue); err != nil {
 		return core.PreparedRequest{}, err
 	}
+	var calendar digestCalendar
+	if in.DeliveryPolicy != nil && in.DeliveryPolicy.Automatic && in.Route.Kind == core.RequestRouteInbox {
+		var err error
+		calendar, err = s.store.loadDigestCalendar(ctx)
+		if err != nil {
+			return core.PreparedRequest{}, err
+		}
+	}
 	var prepared core.PreparedRequest
 	var refused error
 	err := s.transact(ctx, false, func(r records, now uint64) error {
@@ -59,6 +67,13 @@ func (s *RequestService) prepare(ctx context.Context, in core.PrepareRequest, en
 		}
 		if err := pruneRequests(r, now); err != nil {
 			return err
+		}
+		hold, err := incomingDigestHold(r, in, calendar, now)
+		if err != nil {
+			return err
+		}
+		if hold != nil {
+			attempt.WaitActive = false
 		}
 		requests, responses := requestRows{r}, responseRows{r}
 		existing, err := responses.FindByRequest(in.RequestID)
@@ -71,12 +86,17 @@ func (s *RequestService) prepare(ctx context.Context, in core.PrepareRequest, en
 		if err := requests.Insert(attempt, in.Message); err != nil {
 			return err
 		}
+		if in.DeliveryPolicy != nil {
+			if err := insertRequestDeliveryPolicy(r, in.RequestID, *in.DeliveryPolicy); err != nil {
+				return err
+			}
+		}
 		if in.Originator.IdentityID != nil {
 			if err := raiseAttention(r, in.RequestID, *in.Originator.IdentityID, false); err != nil {
 				return err
 			}
 		}
-		if enqueue {
+		if enqueue || hold != nil {
 			status, err := queueAttempt(r, attempt, now)
 			if err != nil {
 				return err
@@ -87,7 +107,14 @@ func (s *RequestService) prepare(ctx context.Context, in core.PrepareRequest, en
 			}
 		}
 		prepared = core.PreparedRequest{RequestID: in.RequestID, AttemptID: in.AttemptID}
-		if in.Kind == core.RequestKindRequest {
+		if hold != nil {
+			if err := recordIncomingDigestHold(r, in, *hold, now); err != nil {
+				return err
+			}
+			prepared.DigestUntilMs = &hold.until
+		}
+		if in.Kind == core.RequestKindRequest &&
+			(in.DeliveryPolicy == nil || in.DeliveryPolicy.Mode == core.RequestDeliveryRequest) {
 			prepared.Receipt = core.EncodeReceipt(in.RequestID, in.AttemptID, in.Route)
 		}
 		return nil
@@ -104,6 +131,9 @@ func validatePrepared(in core.PrepareRequest, enqueue bool) error {
 	}
 	if in.RequestID == "" || in.AttemptID == "" || !safeTime(in.ExpiresAtMs) || !core.ValidRetentionDays(in.RetentionDays) {
 		return requestState()
+	}
+	if p := in.DeliveryPolicy; p != nil && (!p.Mode.Valid() || !p.Kind.Valid() || p.Kind == core.DigestKindResult) {
+		return requestFailure("REQUEST_INPUT_INVALID", "Invalid request delivery policy.", 1)
 	}
 	switch in.Kind {
 	case core.RequestKindRequest:

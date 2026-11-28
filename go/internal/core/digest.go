@@ -230,3 +230,13 @@ func (v DigestState) Valid() bool {
 		return false
 	}
 }
+
+type DigestWakeClock struct {
+	NextAdmissionMs     uint64
+	ScanAfterIdentityID *IdentityID
+}
+
+type DigestWakeCandidates struct {
+	IdentityIDs []IdentityID
+	Clock       DigestWakeClock
+}

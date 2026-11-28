@@ -29,7 +29,9 @@ func (s *Storage) SchemaVersion(ctx context.Context) (uint64, error) {
 func (s *Storage) WakeAdmissionMs(ctx context.Context) (uint64, error) {
 	var next uint64
 	err := s.transact(ctx, true, func(r records) error {
-		return r.one("SELECT COALESCE((SELECT next_admission_ms FROM orchestration_wake_clock WHERE id=1),0)").Scan(&next)
+		clock, err := digestWakeClock(r)
+		next = clock.NextAdmissionMs
+		return err
 	})
 	return next, err
 }
