@@ -88,7 +88,9 @@ func TestResumeForegroundUsesSavedCodexSession(t *testing.T) {
 		Command: ports.ProcessSpec{Path: "/bin/sh", Args: []string{"-c", `PATH="$5:/usr/bin:/bin"
 HOME="$6"
 CODEX_HOME="$6/fake-codex-home"
-export PATH HOME CODEX_HOME
+CLAUDE_CONFIG_DIR="$6/fake-claude-home"
+GEMINI_CLI_HOME="$6/fake-gemini-home"
+export PATH HOME CODEX_HOME CLAUDE_CONFIG_DIR GEMINI_CLI_HOME
 for provider in claude codex gemini; do
   expected="$5/$provider"
   if [ "$(command -v "$provider")" != "$expected" ] || [ ! -f "$expected" ] || [ ! -x "$expected" ] || [ -L "$expected" ]; then
