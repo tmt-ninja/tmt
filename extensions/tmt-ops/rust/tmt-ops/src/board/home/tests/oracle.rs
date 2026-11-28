@@ -1951,7 +1951,7 @@ macro_rules! oracle_groups {
         $group!(7, 608, orchestration_frames($styles));
         $group!(7, 12, agents_work_frames($styles));
         $group!(7, 12, opening_frames($styles));
-        $group!(8, 20, kept_replies_frames($styles));
+        $group!(8, 44, kept_replies_frames($styles));
     };
 }
 

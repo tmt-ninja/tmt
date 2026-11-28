@@ -171,6 +171,17 @@ pub(super) struct State {
     pub pane: Option<Rect>,
 }
 
+#[cfg(test)]
+impl State {
+    pub(in crate::board) fn set_outgoing_request(&mut self, request: &str) {
+        for session in self.sessions.values_mut() {
+            for entry in &mut session.outgoing {
+                entry.set_request(request);
+            }
+        }
+    }
+}
+
 struct Rendered {
     pane_start: Option<usize>,
     width: usize,
@@ -672,6 +683,108 @@ pub(super) fn render_retained(
     );
 }
 
+fn kept_fence_strip(
+    fence: super::markdown::Fence,
+    width: u16,
+    look: Look,
+) -> Option<(Line<'static>, Vec<super::member_links::Link>)> {
+    use crate::board::member_links::{FenceKey, Link, Target};
+    const INDENT: usize = 5;
+    let body_width = usize::from(width).saturating_sub(INDENT).max(1);
+    let text = fence.body?;
+    let key = FenceKey::next();
+    let code = look.role(Role::Code).patch(look.role(Role::Track));
+    let keycap = code.patch(look.role(Role::Keycap));
+    let copy = if body_width >= 8 { "  ⎘ copy" } else { "⎘" };
+    let copy_width = copy.width();
+    let run = fence
+        .command
+        .filter(|_| body_width >= copy_width + "▶ Run…  ".width());
+    let run_width = run.as_ref().map_or(0, |_| "▶ Run…  ".width());
+    let left = body_width - copy_width - run_width;
+    let language = if !fence.language.is_empty() && fence.language.width() + 1 < left {
+        format!(" {}", fence.language)
+    } else {
+        String::new()
+    };
+    let mut spans = vec![
+        Span::raw(" ".repeat(INDENT)),
+        Span::styled(language.clone(), code.patch(look.role(Role::Dim))),
+        Span::styled(" ".repeat(left - language.width()), code),
+    ];
+    let mut links = Vec::new();
+    if let Some(command) = run {
+        spans.push(Span::styled("▶ Run…", keycap));
+        spans.push(Span::styled("  ", code));
+        links.push(Link {
+            column: INDENT + left,
+            width: "▶ Run…".width(),
+            target: Target::FenceRun { key, command },
+            occurrence: 0,
+            source: None,
+        });
+    }
+    spans.push(Span::styled(copy, keycap));
+    links.push(Link {
+        column: INDENT + left + run_width,
+        width: copy_width,
+        target: Target::FenceCopy {
+            key,
+            text: std::sync::Arc::from(text),
+        },
+        occurrence: 0,
+        source: None,
+    });
+    Some((Line::from(spans), links))
+}
+
+fn kept_expanded_lines(
+    app: &App,
+    detail: &super::kept_replies::KeptReplyDetail,
+    member_name: &str,
+    width: u16,
+    look: Look,
+    now: u64,
+) -> (Vec<Line<'static>>, Vec<Vec<super::member_links::Link>>) {
+    const INDENT: usize = 5;
+    let body_width = width.saturating_sub(INDENT as u16).max(1);
+    let age = crate::requests::age(now, detail.at_ms);
+    let mut lines = vec![Line::styled(
+        super::view::fit(
+            &format!("     {} · {age}", sanitize(member_name)),
+            usize::from(width),
+        ),
+        look.role(Role::Muted),
+    )];
+    let mut line_links = vec![Vec::new()];
+    let body = if detail.truncated {
+        format!("{}\n\n[Truncated by Core retention]", detail.text)
+    } else {
+        detail.text.clone()
+    };
+    let mapped = super::markdown::render_conversation(
+        &body,
+        body_width.into(),
+        look,
+        Some(&app.references),
+        None,
+    );
+    let mut fences = mapped.fences.into_iter().peekable();
+    for (index, line) in mapped.lines.into_iter().enumerate() {
+        if let Some((_, fence)) = fences.next_if(|(line_idx, _)| *line_idx == index)
+            && let Some((strip_line, links)) = kept_fence_strip(fence, width, look)
+        {
+            lines.push(strip_line);
+            line_links.push(links);
+        }
+        let mut spans = vec![Span::raw(" ".repeat(INDENT))];
+        spans.extend(line.spans);
+        lines.push(Line::from(spans));
+        line_links.push(Vec::new());
+    }
+    (lines, line_links)
+}
+
 pub(in crate::board) fn paint_kept_replies(
     frame: &mut Frame,
     app: &App,
@@ -680,6 +793,8 @@ pub(in crate::board) fn paint_kept_replies(
     look: Look,
     interactive: bool,
 ) -> Rect {
+    use ratatui::style::Modifier;
+
     if app.kept_replies.member_id.as_deref() != Some(member_id)
         || app.kept_replies.items.is_empty()
         || body.height <= 4
@@ -687,16 +802,46 @@ pub(in crate::board) fn paint_kept_replies(
         return body;
     }
     let max_kept = body.height.saturating_sub(3);
-    let visible_rows = app
+    let visible_items = app
         .kept_replies
         .items
         .len()
         .min(4)
         .min(usize::from(max_kept.saturating_sub(2)));
-    if visible_rows == 0 {
+    if visible_items == 0 {
         return body;
     }
-    let total_height = 2 + visible_rows as u16;
+    let now = crate::status::now_ms();
+    let member_name = app
+        .conversation_target()
+        .and_then(|target| app.target_row(&target))
+        .and_then(|row| row["name"].as_str().map(str::to_owned))
+        .unwrap_or_else(|| "agent".into());
+    let expanded_detail = app
+        .kept_replies
+        .expanded_key
+        .as_deref()
+        .zip(app.kept_replies.reader.as_ref())
+        .and_then(|(key, detail)| (detail.key == key).then_some(detail));
+    let mut expanded_block = expanded_detail.map(|detail| {
+        kept_expanded_lines(
+            app,
+            detail,
+            &member_name,
+            body.width.saturating_sub(1),
+            look,
+            now,
+        )
+    });
+    let max_extra = usize::from(max_kept.saturating_sub(2 + visible_items as u16));
+    if let Some((lines, links)) = expanded_block.as_mut() {
+        lines.truncate(max_extra);
+        links.truncate(max_extra);
+    }
+    let extra_rows = expanded_block
+        .as_ref()
+        .map_or(0, |(lines, _)| lines.len() as u16);
+    let total_height = 2 + visible_items as u16 + extra_rows;
     let kept_area = Rect::new(
         body.x.saturating_add(1),
         body.y,
@@ -707,91 +852,167 @@ pub(in crate::board) fn paint_kept_replies(
         return body;
     }
     let rule_area = Rect::new(kept_area.x, kept_area.y, kept_area.width, 1);
-    let note = if app.kept_replies.focused {
-        "⏎ open · x remove · Esc back"
-    } else {
+    let expanded_selected = app
+        .kept_replies
+        .selected_key
+        .as_deref()
+        .is_some_and(|key| app.kept_replies.expanded_key.as_deref() == Some(key));
+    let note = if !app.kept_replies.focused {
         "↑ select"
+    } else if app.kept_replies.unpin_focused {
+        "⏎ unpin · ← back"
+    } else if expanded_selected {
+        "⏎ collapse · → unpin"
+    } else {
+        "⏎ expand · → unpin"
     };
     let title = "⚑ Kept replies";
-    let rule_line = if title.width() + note.width() + 4 <= usize::from(rule_area.width) {
+    let mut rule_spans = vec![Span::styled(
+        title,
+        look.role(Role::Waiting).add_modifier(Modifier::BOLD),
+    )];
+    if title.width() + note.width() + 4 <= usize::from(rule_area.width) {
         let fill = usize::from(rule_area.width) - title.width() - note.width() - 2;
-        format!("{title} {} {note}", "─".repeat(fill))
+        rule_spans.push(Span::styled(
+            format!(" {} ", "─".repeat(fill)),
+            look.role(Role::Dim),
+        ));
+        rule_spans.push(Span::styled(note, look.role(Role::Muted)));
     } else if title.width() + 2 <= usize::from(rule_area.width) {
         let fill = usize::from(rule_area.width) - title.width() - 1;
-        format!("{title} {}", "─".repeat(fill))
-    } else {
-        super::view::fit(title, usize::from(rule_area.width))
-    };
-    strip::paint_left(
-        frame.buffer_mut(),
-        rule_area,
-        Line::styled(
-            rule_line,
-            look.role(if app.kept_replies.focused {
-                Role::Accent
-            } else {
-                Role::Dim
-            }),
-        ),
-    );
-    let now = crate::status::now_ms();
-    for (index, item) in app.kept_replies.items.iter().take(visible_rows).enumerate() {
-        let row_rect = Rect::new(
-            kept_area.x,
-            kept_area.y + 1 + index as u16,
-            kept_area.width,
-            1,
-        );
+        rule_spans.push(Span::styled(
+            format!(" {}", "─".repeat(fill)),
+            look.role(Role::Dim),
+        ));
+    }
+    strip::paint_left(frame.buffer_mut(), rule_area, Line::from(rule_spans));
+
+    let mut y = kept_area.y + 1;
+    let mut painted_lines = Vec::new();
+    let mut painted_links = Vec::new();
+    for item in app.kept_replies.items.iter().take(visible_items) {
+        let row_rect = Rect::new(kept_area.x, y, kept_area.width, 1);
         let selected = app
             .kept_replies
             .selected_key
             .as_deref()
             .is_some_and(|key| key == item.key);
-        let marker = if selected { "▸ " } else { "  " };
+        let expanded = app.kept_replies.expanded_key.as_deref() == Some(item.key.as_str());
+        let marker = if expanded {
+            "▾ "
+        } else if selected {
+            "▸ "
+        } else {
+            "  "
+        };
         let age = crate::requests::age(now, item.at_ms);
+        let unpin_label = " ⚑ unpin ";
+        let show_unpin = usize::from(row_rect.width) >= unpin_label.width() + 12;
+        let text_budget = if show_unpin {
+            usize::from(row_rect.width).saturating_sub(unpin_label.width() + 2)
+        } else {
+            usize::from(row_rect.width)
+        };
         let text = super::view::fit(
             &format!("{marker}{age}  {}", sanitize(&item.excerpt)),
-            usize::from(row_rect.width),
+            text_budget,
         );
-        let style = if selected && app.kept_replies.focused {
+        let row_focused = selected && app.kept_replies.focused && !app.kept_replies.unpin_focused;
+        let style = if row_focused {
             look.role(Role::Selection)
         } else if selected {
             look.role(Role::Accent)
         } else {
             look.role(Role::Text)
         };
-        strip::paint_left(frame.buffer_mut(), row_rect, Line::styled(text, style));
+        let mut row_spans = vec![Span::styled(text.clone(), style)];
+        let mut unpin_rect = None;
+        if show_unpin {
+            let pad = text_budget.saturating_sub(text.width()) + 1;
+            row_spans.push(Span::styled(" ".repeat(pad), style));
+            let keycap_role =
+                if selected && app.kept_replies.focused && app.kept_replies.unpin_focused {
+                    Role::KeycapSelected
+                } else {
+                    Role::Keycap
+                };
+            let button_style = look
+                .role(Role::Code)
+                .patch(look.role(Role::Track))
+                .patch(look.role(keycap_role));
+            row_spans.push(Span::styled(unpin_label, button_style));
+            let trailing =
+                usize::from(row_rect.width).saturating_sub(text_budget + 1 + unpin_label.width());
+            if trailing > 0 {
+                row_spans.push(Span::styled(" ".repeat(trailing), style));
+            }
+            unpin_rect = Some(Rect::new(
+                row_rect.x + (text_budget + 1) as u16,
+                row_rect.y,
+                unpin_label.width() as u16,
+                1,
+            ));
+        }
+        strip::paint_left(frame.buffer_mut(), row_rect, Line::from(row_spans));
+        painted_lines.push(Line::default());
+        painted_links.push(Vec::new());
         if interactive {
             app.kept_replies
                 .hits
                 .borrow_mut()
                 .push(super::kept_replies::RowHit {
                     area: row_rect.intersection(kept_area),
+                    unpin: unpin_rect.map(|rect| rect.intersection(kept_area)),
                     member_id: member_id.to_owned(),
                     key: item.key.clone(),
                 });
         }
+        y += 1;
+        if expanded && let Some((lines, links)) = expanded_block.take() {
+            for (line, links) in lines.into_iter().zip(links) {
+                let line_rect = Rect::new(kept_area.x, y, kept_area.width, 1);
+                strip::paint_left(frame.buffer_mut(), line_rect, line);
+                painted_lines.push(Line::default());
+                painted_links.push(links);
+                y += 1;
+            }
+        }
     }
-    let conv_rule_rect = Rect::new(
-        kept_area.x,
-        kept_area.y + 1 + visible_rows as u16,
-        kept_area.width,
-        1,
-    );
+    if interactive && painted_links.iter().any(|links| !links.is_empty()) {
+        let links_area = Rect::new(
+            kept_area.x,
+            kept_area.y + 1,
+            kept_area.width,
+            painted_lines.len() as u16,
+        );
+        super::member_links::paint_hits(
+            frame,
+            app,
+            links_area,
+            0,
+            painted_lines.len(),
+            &painted_links,
+            super::member_links::Paint {
+                reader: false,
+                role: Role::Text,
+                transcript: None,
+            },
+        );
+    }
+    let conv_rule_rect = Rect::new(kept_area.x, y, kept_area.width, 1);
     let conv_title = "Conversation";
-    let conv_rule = if conv_title.width() + 2 <= usize::from(conv_rule_rect.width) {
-        format!(
-            "{conv_title} {}",
-            "─".repeat(usize::from(conv_rule_rect.width) - conv_title.width() - 1)
-        )
-    } else {
-        super::view::fit(conv_title, usize::from(conv_rule_rect.width))
-    };
-    strip::paint_left(
-        frame.buffer_mut(),
-        conv_rule_rect,
-        Line::styled(conv_rule, look.role(Role::Dim)),
-    );
+    let mut conv_spans = vec![Span::styled(
+        conv_title,
+        look.role(Role::Text).add_modifier(Modifier::BOLD),
+    )];
+    if conv_title.width() + 2 <= usize::from(conv_rule_rect.width) {
+        let fill = usize::from(conv_rule_rect.width) - conv_title.width() - 1;
+        conv_spans.push(Span::styled(
+            format!(" {}", "─".repeat(fill)),
+            look.role(Role::Dim),
+        ));
+    }
+    strip::paint_left(frame.buffer_mut(), conv_rule_rect, Line::from(conv_spans));
     Rect::new(
         body.x,
         body.y + total_height,
@@ -986,24 +1207,32 @@ fn render_target(
     } else {
         0
     };
-    let state_text = if kept_count > 0 {
-        format!(
-            "{state_words} · {} · {role} · ⚑ {kept_count} kept",
-            sanitize(&squad)
-        )
-    } else {
-        format!("{state_words} · {} · {role}", sanitize(&squad))
+    let base_text = format!("{state_words} · {} · {role}", sanitize(&squad));
+    let kept_suffix = (kept_count > 0).then(|| format!("⚑ {kept_count} kept"));
+    let full_text = match kept_suffix.as_deref() {
+        Some(kept) => format!("{base_text} · {kept}"),
+        None => base_text.clone(),
     };
-    let state_text = if !full && !runtime_known {
+    let fitted = if !full && !runtime_known {
         super::view::fit(
-            &state_text,
+            &full_text,
             usize::from(area.width).saturating_sub(timer_text.width()),
         )
     } else {
-        state_text
+        full_text.clone()
     };
-    let state_width = state_text.width();
-    let mut state_spans = vec![Span::styled(state_text, look.role(Role::Muted))];
+    let mut state_spans = if let Some(kept) = kept_suffix.as_deref()
+        && fitted == full_text
+    {
+        vec![
+            Span::styled(base_text, look.role(Role::Muted)),
+            Span::styled(" · ", look.role(Role::Dim)),
+            Span::styled(kept.to_owned(), look.role(Role::Waiting)),
+        ]
+    } else {
+        vec![Span::styled(fitted, look.role(Role::Muted))]
+    };
+    let state_width: usize = state_spans.iter().map(Span::width).sum();
     if !full && !runtime_known {
         let used = state_spans.iter().map(Span::width).sum::<usize>();
         state_spans.push(Span::raw(" ".repeat(

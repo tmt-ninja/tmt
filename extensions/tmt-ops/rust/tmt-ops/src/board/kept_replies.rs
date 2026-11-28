@@ -6,6 +6,17 @@ use std::cell::RefCell;
 
 pub(in crate::board) const DEFAULT_LIST_LIMIT: usize = 32;
 
+fn unpin_excerpt(raw: &str) -> String {
+    let clean: String = raw.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut chars = clean.chars();
+    let head: String = chars.by_ref().take(24).collect();
+    if chars.next().is_some() {
+        format!("{}…", head.trim_end())
+    } else {
+        head
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Source {
     Request,
@@ -41,10 +52,6 @@ impl KeepReplyMark {
             _ => None,
         }
     }
-
-    pub(in crate::board) fn active_mark(self) -> bool {
-        matches!(self, Self::Pending | Self::Kept)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -69,6 +76,7 @@ pub(crate) struct KeptReplyDetail {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) struct RowHit {
     pub area: Rect,
+    pub unpin: Option<Rect>,
     pub member_id: String,
     pub key: String,
 }
@@ -79,8 +87,11 @@ pub(in crate::board) struct KeptRepliesState {
     pub items: Vec<KeptReplySummary>,
     pub supported: Option<bool>,
     pub focused: bool,
+    pub unpin_focused: bool,
     pub selected_key: Option<String>,
+    pub expanded_key: Option<String>,
     pub reader: Option<KeptReplyDetail>,
+    pub notified_unkept: std::collections::HashSet<String>,
     pub hits: RefCell<Vec<RowHit>>,
 }
 
@@ -94,7 +105,9 @@ impl KeptRepliesState {
             self.member_id = member_id;
             self.items.clear();
             self.focused = false;
+            self.unpin_focused = false;
             self.selected_key = None;
+            self.expanded_key = None;
             self.reader = None;
             self.invalidate_hits();
         }
@@ -105,13 +118,22 @@ impl KeptRepliesState {
             return;
         }
         self.items = items;
+        if let Some(expanded) = self.expanded_key.as_deref()
+            && !self.items.iter().any(|item| item.key == expanded)
+        {
+            self.expanded_key = None;
+            self.reader = None;
+        }
         self.reconcile_selection();
     }
 
     pub(in crate::board) fn reconcile_selection(&mut self) {
         if self.items.is_empty() {
             self.focused = false;
+            self.unpin_focused = false;
             self.selected_key = None;
+            self.expanded_key = None;
+            self.reader = None;
             return;
         }
         if let Some(key) = self.selected_key.as_deref()
@@ -119,6 +141,7 @@ impl KeptRepliesState {
         {
             return;
         }
+        self.unpin_focused = false;
         self.selected_key = self
             .focused
             .then(|| self.items.first().map(|item| item.key.clone()))
@@ -128,10 +151,12 @@ impl KeptRepliesState {
     pub(in crate::board) fn focus(&mut self) -> bool {
         if self.items.is_empty() {
             self.focused = false;
+            self.unpin_focused = false;
             self.selected_key = None;
             return false;
         }
         self.focused = true;
+        self.unpin_focused = false;
         self.reconcile_selection();
         if self.selected_key.is_none() {
             self.selected_key = self.items.first().map(|item| item.key.clone());
@@ -141,6 +166,7 @@ impl KeptRepliesState {
 
     pub(in crate::board) fn unfocus(&mut self) {
         self.focused = false;
+        self.unpin_focused = false;
     }
 
     pub(in crate::board) fn move_selection(&mut self, delta: isize) -> bool {
@@ -179,8 +205,12 @@ impl KeptRepliesState {
             .or_else(|| pos.checked_sub(1).and_then(|prev| self.items.get(prev)))
             .map(|item| item.key.clone());
         self.items.remove(pos);
+        self.unpin_focused = false;
         if self.selected_key.as_deref() == Some(key) {
             self.selected_key = next_key;
+        }
+        if self.expanded_key.as_deref() == Some(key) {
+            self.expanded_key = None;
         }
         if self.reader.as_ref().is_some_and(|detail| detail.key == key) {
             self.reader = None;
@@ -194,7 +224,7 @@ impl KeptRepliesState {
         member_id: &str,
         column: u16,
         row: u16,
-    ) -> Option<String> {
+    ) -> Option<(String, bool)> {
         self.hits
             .borrow()
             .iter()
@@ -205,7 +235,12 @@ impl KeptRepliesState {
                     && row >= hit.area.y
                     && row < hit.area.bottom()
             })
-            .map(|hit| hit.key.clone())
+            .map(|hit| {
+                let on_unpin = hit
+                    .unpin
+                    .is_some_and(|rect| rect.contains((column, row).into()));
+                (hit.key.clone(), on_unpin)
+            })
     }
 }
 
@@ -371,10 +406,22 @@ impl super::app::App {
         match (key.code, key.modifiers) {
             (KeyCode::Up, KeyModifiers::NONE) => {
                 self.kept_replies.move_selection(-1);
+                self.kept_replies.unpin_focused = false;
                 Some(super::app::Effect::None)
             }
             (KeyCode::Down, KeyModifiers::NONE) => {
                 self.kept_replies.move_selection(1);
+                self.kept_replies.unpin_focused = false;
+                Some(super::app::Effect::None)
+            }
+            (KeyCode::Right, KeyModifiers::NONE) => {
+                if self.kept_replies.selected_item().is_some() {
+                    self.kept_replies.unpin_focused = true;
+                }
+                Some(super::app::Effect::None)
+            }
+            (KeyCode::Left, KeyModifiers::NONE) => {
+                self.kept_replies.unpin_focused = false;
                 Some(super::app::Effect::None)
             }
             (KeyCode::Esc, KeyModifiers::NONE) => {
@@ -383,17 +430,26 @@ impl super::app::App {
             }
             (KeyCode::Enter, KeyModifiers::NONE) => {
                 let item = self.kept_replies.selected_item()?;
+                if self.kept_replies.unpin_focused {
+                    return Some(super::app::Effect::Act(super::app::Request::KeptRemove {
+                        member_id,
+                        key: item.key.clone(),
+                    }));
+                }
+                if self.kept_replies.expanded_key.as_deref() == Some(item.key.as_str()) {
+                    self.kept_replies.expanded_key = None;
+                    self.kept_replies.reader = None;
+                    return Some(super::app::Effect::None);
+                }
                 Some(super::app::Effect::Act(super::app::Request::KeptShow {
                     member_id,
                     key: item.key.clone(),
                 }))
             }
-            (KeyCode::Char('x'), KeyModifiers::NONE) => {
-                let item = self.kept_replies.selected_item()?;
-                Some(super::app::Effect::Act(super::app::Request::KeptRemove {
-                    member_id,
-                    key: item.key.clone(),
-                }))
+            // Swallow single-letter keys while the kept strip has focus so
+            // board-level member actions (like `x` close) cannot fire.
+            (KeyCode::Char(_), KeyModifiers::NONE | KeyModifiers::SHIFT) => {
+                Some(super::app::Effect::None)
             }
             _ => None,
         }
@@ -413,9 +469,21 @@ impl super::app::App {
         if !in_pane {
             return None;
         }
-        let key = self.kept_replies.hit_at(&member_id, column, row)?;
+        let (key, on_unpin) = self.kept_replies.hit_at(&member_id, column, row)?;
         self.kept_replies.focused = true;
         self.kept_replies.selected_key = Some(key.clone());
+        self.kept_replies.unpin_focused = on_unpin;
+        if on_unpin {
+            return Some(super::app::Effect::Act(super::app::Request::KeptRemove {
+                member_id,
+                key,
+            }));
+        }
+        if self.kept_replies.expanded_key.as_deref() == Some(key.as_str()) {
+            self.kept_replies.expanded_key = None;
+            self.kept_replies.reader = None;
+            return Some(super::app::Effect::None);
+        }
         Some(super::app::Effect::Act(super::app::Request::KeptShow {
             member_id,
             key,
@@ -432,32 +500,8 @@ impl super::app::App {
         }
         match result {
             Ok(detail) => {
-                let Some(target) = self.conversation_target() else {
-                    return;
-                };
-                let from = self
-                    .target_row(&target)
-                    .and_then(|row| row["name"].as_str())
-                    .unwrap_or("agent")
-                    .to_owned();
-                let body = if detail.truncated {
-                    format!("{}\n\n[Truncated by Core retention]", detail.text)
-                } else {
-                    detail.text
-                };
-                let reply = super::row_detail::Reply {
-                    key: None,
-                    from,
-                    age: crate::requests::age(crate::status::now_ms(), detail.at_ms),
-                    body,
-                    at_ms: Some(detail.at_ms),
-                    acquired: true,
-                    source: false,
-                };
-                self.row_details.reader = Some(super::row_detail::Reader::new(
-                    super::row_detail::Target::Row(target),
-                    Some(reply),
-                ));
+                self.kept_replies.expanded_key = Some(detail.key.clone());
+                self.kept_replies.reader = Some(detail);
             }
             Err(error) => {
                 self.set_notice(Some(error), true);
@@ -473,8 +517,18 @@ impl super::app::App {
     ) {
         match result {
             Ok(_) => {
+                let excerpt = self
+                    .kept_replies
+                    .items
+                    .iter()
+                    .find(|item| item.key == key)
+                    .map(|item| item.excerpt.clone());
                 if self.kept_replies.remove_confirmed(member_id, key) {
-                    self.set_notice(Some("Kept reply removed.".into()), false);
+                    let notice = excerpt.map_or_else(
+                        || "Unpinned kept reply.".into(),
+                        |text| format!("Unpinned \"{}\".", unpin_excerpt(&text)),
+                    );
+                    self.set_notice(Some(notice), false);
                 }
             }
             Err(error) => {
@@ -488,8 +542,14 @@ impl super::app::App {
 pub(in crate::board) mod tests {
     use super::*;
 
-    pub(in crate::board) const HOME_SCENES: &[&str] =
-        &["kept-reply-draft", "kept-reply-list", "kept-reply-yield"];
+    pub(in crate::board) const HOME_SCENES: &[&str] = &[
+        "kept-reply-draft",
+        "kept-reply-list",
+        "kept-reply-expanded",
+        "kept-reply-unpin",
+        "kept-reply-not-kept",
+        "kept-reply-yield",
+    ];
 
     pub(in crate::board) fn home_scene(
         scene: &str,
@@ -523,7 +583,7 @@ pub(in crate::board) mod tests {
                     input.keep_reply = true;
                 }
             }
-            "kept-reply-list" | "kept-reply-yield" => {
+            "kept-reply-list" | "kept-reply-expanded" | "kept-reply-unpin" | "kept-reply-yield" => {
                 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
                 app.loading_since = None;
                 app.selected_request = crate::board::refresh::SelectedRequest::Unmanaged;
@@ -561,6 +621,56 @@ pub(in crate::board) mod tests {
                 );
                 app.focus = 1;
                 app.kept_replies.focus();
+                if scene == "kept-reply-expanded" {
+                    app.kept_replies.expanded_key = Some("k2".into());
+                    app.kept_replies.reader = Some(KeptReplyDetail {
+                        key: "k2".into(),
+                        member_id: member_id.clone(),
+                        source: Source::Request,
+                        at_ms: now_ms.saturating_sub(120_000),
+                        text: "Use the 64-entry cap per person.\n\n```sh\ntmt x list --json\n```"
+                            .into(),
+                        truncated: false,
+                    });
+                } else if scene == "kept-reply-unpin" {
+                    app.kept_replies.unpin_focused = true;
+                }
+            }
+            "kept-reply-not-kept" => {
+                use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+                app.loading_since = None;
+                app.selected_request = crate::board::refresh::SelectedRequest::Unmanaged;
+                app.focus_composer();
+                if let Some(input) = app.input.as_mut() {
+                    input.text = "Can you confirm the cap?".into();
+                    input.keep_reply = true;
+                }
+                let _ = app.key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+                app.finish_draft(true);
+                let _ = app.key(KeyEvent::new(KeyCode::Esc, KeyModifiers::NONE));
+                app.conversation
+                    .borrow_mut()
+                    .set_outgoing_request("req-unkept-1");
+                let mut terminal =
+                    ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+                terminal
+                    .draw(|frame| crate::board::view::render(frame, &app))
+                    .unwrap();
+                if let Some(selected) = app.conversation_finals() {
+                    app.apply_sent(
+                        crate::board::home_leads::SentKey {
+                            sender: selected.sender,
+                            agent: selected.agent,
+                        },
+                        Ok(vec![serde_json::json!({
+                            "requestId": "req-unkept-1",
+                            "preparedAtMs": now_ms,
+                            "text": "Can you confirm the cap?",
+                            "keepReply": "notKept",
+                            "passthrough": { "state": "not_bound", "folded": false }
+                        })]),
+                    );
+                }
             }
             other => panic!("unknown kept reply scene: {other}"),
         }
@@ -613,10 +723,11 @@ pub(in crate::board) mod tests {
         let state = KeptRepliesState::default();
         state.hits.borrow_mut().push(RowHit {
             area: Rect::new(10, 5, 20, 1),
+            unpin: None,
             member_id: "m1".into(),
             key: "k1".into(),
         });
-        assert_eq!(state.hit_at("m1", 10, 5).as_deref(), Some("k1"));
+        assert_eq!(state.hit_at("m1", 10, 5), Some(("k1".into(), false)));
         assert_eq!(state.hit_at("m1", 30, 5), None);
         assert_eq!(state.hit_at("m2", 15, 5), None);
     }
@@ -678,6 +789,7 @@ pub(in crate::board) mod tests {
         );
         assert_eq!(app.kept_replies.selected_key.as_deref(), Some("k1"));
 
+        // Enter on row fetches detail to expand inline (no full-screen reader).
         assert_eq!(
             app.kept_replies_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
             Some(crate::board::app::Effect::Act(
@@ -687,9 +799,44 @@ pub(in crate::board) mod tests {
                 }
             ))
         );
+        app.finished_kept_show(
+            &member_id,
+            Ok(KeptReplyDetail {
+                key: "k1".into(),
+                member_id: member_id.clone(),
+                source: Source::Request,
+                at_ms: 100,
+                text: "inline body".into(),
+                truncated: false,
+            }),
+        );
+        assert!(app.row_details.reader.is_none());
+        assert_eq!(app.kept_replies.expanded_key.as_deref(), Some("k1"));
 
+        // Enter again collapses inline.
         assert_eq!(
-            app.kept_replies_key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            app.kept_replies_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
+            Some(crate::board::app::Effect::None)
+        );
+        assert_eq!(app.kept_replies.expanded_key, None);
+        assert!(app.kept_replies.reader.is_none());
+
+        // Single-letter board keys like `x` must not fire while the kept strip is focused.
+        assert_eq!(
+            app.key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            crate::board::app::Effect::None
+        );
+        assert!(!app.modal_open());
+        assert_eq!(app.kept_replies.items.len(), 2);
+
+        // Right focuses the unpin button; Enter unpins.
+        assert_eq!(
+            app.kept_replies_key(KeyEvent::new(KeyCode::Right, KeyModifiers::NONE)),
+            Some(crate::board::app::Effect::None)
+        );
+        assert!(app.kept_replies.unpin_focused);
+        assert_eq!(
+            app.kept_replies_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE)),
             Some(crate::board::app::Effect::Act(
                 crate::board::app::Request::KeptRemove {
                     member_id: member_id.clone(),
@@ -702,10 +849,11 @@ pub(in crate::board) mod tests {
         app.finished_kept_remove(&member_id, "k1", Err("not found".into()));
         assert_eq!(app.kept_replies.items.len(), 2);
 
-        // Confirmed remove drops only k1.
+        // Confirmed remove drops only k1 and emits the unpin notice.
         app.finished_kept_remove(&member_id, "k1", Ok("k1".into()));
         assert_eq!(app.kept_replies.items.len(), 1);
         assert_eq!(app.kept_replies.selected_key.as_deref(), Some("k2"));
+        assert_eq!(app.notice.as_deref(), Some("Unpinned \"excerpt k1\"."));
 
         // Esc unfocuses kept list.
         assert_eq!(
@@ -713,5 +861,36 @@ pub(in crate::board) mod tests {
             Some(crate::board::app::Effect::None)
         );
         assert!(!app.kept_replies.focused);
+        assert!(!app.kept_replies.unpin_focused);
+    }
+
+    #[test]
+    fn not_kept_mark_emits_one_notice_with_reason() {
+        let mut app = crate::board::app::workspace::tests::board();
+        app.loading_since = None;
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(160, 36)).unwrap();
+        terminal
+            .draw(|frame| crate::board::view::render(frame, &app))
+            .unwrap();
+        let selected = app.conversation_finals().unwrap();
+        let key = crate::board::home_leads::SentKey {
+            sender: selected.sender,
+            agent: selected.agent,
+        };
+        let sent = vec![serde_json::json!({
+            "requestId": "req-unkept-1",
+            "keepReply": "notKept",
+            "passthrough": { "state": "not_bound", "folded": false }
+        })];
+        app.apply_sent(key.clone(), Ok(sent.clone()));
+        assert_eq!(
+            app.notice.as_deref(),
+            Some("Reply not kept: no bound session. ^T retries.")
+        );
+        // Repeating the same refresh does not re-emit the notice once cleared.
+        app.set_notice(None, false);
+        app.apply_sent(key, Ok(sent));
+        assert_eq!(app.notice, None);
     }
 }

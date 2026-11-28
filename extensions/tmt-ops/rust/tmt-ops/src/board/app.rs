@@ -1181,13 +1181,6 @@ impl NewlineKey {
             Self::Alt => "Alt+Enter new line",
         }
     }
-    /// The key as the line under the input spells it.
-    pub(in crate::board) fn glyph(self) -> &'static str {
-        match self {
-            Self::Shift => "Shift+⏎",
-            Self::Alt => "Alt+⏎",
-        }
-    }
 }
 
 impl App {

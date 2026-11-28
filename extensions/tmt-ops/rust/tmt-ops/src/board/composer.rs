@@ -125,30 +125,9 @@ impl App {
                 super::workspace::OpsTarget::Member { .. }
             ))
         );
-        let row = identity.and_then(|identity| {
-            // The usual recipient is the painted conversation target; use its
-            // held row directly instead of walking the roster on every frame.
-            target
-                .as_ref()
-                .and_then(|target| self.target_row(target))
-                .filter(|row| row["id"].as_str() == Some(identity))
-                .or_else(|| {
-                    self.workspace_snapshot().and_then(|snapshot| {
-                        snapshot
-                            .rows
-                            .values()
-                            .find(|row| row["id"].as_str() == Some(identity))
-                    })
-                })
-                .or_else(|| {
-                    self.rows()
-                        .into_iter()
-                        .map(|(_, row)| row)
-                        .find(|row| row["id"].as_str() == Some(identity))
-                })
-        });
         super::input_field::Info {
             name: projection.recipient,
+            focused: projection.focused,
             shell: self
                 .input
                 .as_ref()
@@ -156,16 +135,12 @@ impl App {
                 && projection
                     .text
                     .is_some_and(|text| shell_prefix(text.as_str()).is_some()),
-            newline: self.newline_key(),
-            checklist: projection.focused
-                && !self.modal_open()
+            checklist: !self.modal_open()
                 && !self.bindings().contains_key("ctrl-l")
                 && self.conversation_checklist_key().is_some(),
-            checklist_reference: projection.focused && self.checklist_reference_key().is_some(),
             keep_reply: projection.keep_reply,
-            keep_reply_key: if projection.focused
-                && self.keep_reply_capable()
-                && self.input.as_ref().is_some_and(|input| {
+            keep_reply_key: if self.keep_reply_capable()
+                && self.input.as_ref().is_none_or(|input| {
                     matches!(input.compose, Compose::Talk { .. })
                         && shell_prefix(input.text.as_str()).is_none()
                 }) {
@@ -175,9 +150,6 @@ impl App {
             },
             unread: (!member_header)
                 .then(|| identity.map_or_else(Default::default, |id| self.unread_count(id))),
-            open: row
-                .and_then(|row| row["waitingOnYou"].as_array())
-                .map(Vec::len),
             context: identity
                 .and_then(|id| self.references.agents.get(id))
                 .and_then(|agent| agent.context),

@@ -142,7 +142,7 @@ impl<'a> Paint<'a> {
         muted: bool,
         anchor: String,
     ) {
-        self.header_with_mark(sender, recipient, stamp, muted, false, anchor);
+        self.header_with_mark(sender, recipient, stamp, muted, None, anchor);
     }
 
     fn header_with_mark(
@@ -151,29 +151,39 @@ impl<'a> Paint<'a> {
         recipient: &str,
         stamp: &str,
         muted: bool,
-        marked: bool,
+        mark: Option<crate::board::kept_replies::KeepReplyMark>,
         anchor: String,
     ) {
+        use crate::board::kept_replies::KeepReplyMark;
+        let show_mark = matches!(
+            mark,
+            Some(KeepReplyMark::Pending | KeepReplyMark::Kept | KeepReplyMark::NotKept)
+        );
         let mut line = exchange_view::header(
             sender,
             recipient,
             stamp,
             self.read_only,
-            if marked {
+            if show_mark {
                 self.width.saturating_sub(2)
             } else {
                 self.width
             },
             self.look,
         );
-        if marked {
+        if show_mark {
             let at = usize::from(
                 line.spans
                     .first()
                     .is_some_and(|span| span.content.as_ref() == " "),
             );
+            let role = if matches!(mark, Some(KeepReplyMark::NotKept)) {
+                Role::Dim
+            } else {
+                Role::Accent
+            };
             line.spans
-                .insert(at, Span::styled("⚑ ", self.look.role(Role::Accent)));
+                .insert(at, Span::styled("⚑ ", self.look.role(role)));
         }
         if muted {
             mute(&mut line, self.look);
@@ -562,7 +572,9 @@ impl Session {
                             } else {
                                 exchange_view::Sender::Agent(&sender)
                             };
-                            let marked = own && self.request_keep_reply_marked(&input.request);
+                            let mark = own
+                                .then(|| self.request_keep_reply_mark(&input.request))
+                                .flatten();
                             paint.header_with_mark(
                                 who,
                                 &context.name,
@@ -573,7 +585,7 @@ impl Session {
                                     model::Kind::Input(input) => self.input_time(&input.request), _ => None,
                                 })),
                                 !own,
-                                marked,
+                                mark,
                                 format!("input {}", entry.id),
                             );
                         }
@@ -833,25 +845,35 @@ impl Session {
             committed::Block::Failure(_) => None,
         }
     }
-    fn request_keep_reply_marked(&self, request: &str) -> bool {
+    fn request_keep_reply_mark(
+        &self,
+        request: &str,
+    ) -> Option<crate::board::kept_replies::KeepReplyMark> {
         if let Some(send) = self.sent.iter().find(|send| send.request == request) {
-            return send
-                .keep_reply
-                .is_some_and(crate::board::kept_replies::KeepReplyMark::active_mark);
+            return send.keep_reply;
         }
         self.outgoing
             .iter()
             .any(|entry| entry.request() == Some(request) && entry.keep_reply())
+            .then_some(crate::board::kept_replies::KeepReplyMark::Pending)
     }
 
     fn timeline_local(&self, paint: &mut Paint<'_>, entry: &outgoing::Entry) {
         let context = &self.transcript_context;
+        let mark = entry
+            .request()
+            .and_then(|request| self.request_keep_reply_mark(request))
+            .or_else(|| {
+                entry
+                    .keep_reply()
+                    .then_some(crate::board::kept_replies::KeepReplyMark::Pending)
+            });
         paint.header_with_mark(
             exchange_view::Sender::You(&context.reader),
             &context.name,
             &entry_stamp("", Some(entry.started_ms)),
             false,
-            entry.keep_reply(),
+            mark,
             format!("local send {}", entry.sequence()),
         );
         paint.body(

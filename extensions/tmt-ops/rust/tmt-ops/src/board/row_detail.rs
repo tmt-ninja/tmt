@@ -767,9 +767,30 @@ impl App {
         self.row_details
             .agent_sent
             .retain(|(current, _)| current != &key);
-        self.row_details
-            .agent_sent
-            .push((key, result.unwrap_or_default()));
+        let sent = result.unwrap_or_default();
+        for item in &sent {
+            let Some(request) = item["requestId"].as_str() else {
+                continue;
+            };
+            let mark = crate::board::kept_replies::KeepReplyMark::from_wire(&item["keepReply"]);
+            let reason = if mark == Some(crate::board::kept_replies::KeepReplyMark::NotKept) {
+                if item["passthrough"]["folded"].as_bool() == Some(true) {
+                    Some("turn folded")
+                } else if item["passthrough"]["state"].as_str() == Some("not_bound") {
+                    Some("no bound session")
+                } else {
+                    Some("not captured")
+                }
+            } else {
+                None
+            };
+            if let Some(reason) = reason
+                && self.kept_replies.notified_unkept.insert(request.to_owned())
+            {
+                self.set_notice(Some(format!("Reply not kept: {reason}. ^T retries.")), true);
+            }
+        }
+        self.row_details.agent_sent.push((key, sent));
     }
     pub(super) fn apply_finals(&mut self, key: FinalsKey, result: Result<Vec<Value>, String>) {
         if let Ok(replies) = &result {

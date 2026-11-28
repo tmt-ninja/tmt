@@ -158,6 +158,19 @@ impl Entry {
             |accepted| Some(accepted.request.as_str()),
         )
     }
+    #[cfg(test)]
+    pub(super) fn set_request(&mut self, request: &str) {
+        self.outcome = Some(Ok(Accepted {
+            request: request.to_owned(),
+            disposition: Disposition::Sent,
+            message_state_label: None,
+            can_send_now: false,
+            working: false,
+            passthrough: false,
+            fallback: None,
+            warning: None,
+        }));
+    }
     fn bytes(&self) -> usize {
         self.ticket.text.len() + self.lead_in.as_ref().map_or(0, |reply| reply.body.len())
     }
