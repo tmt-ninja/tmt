@@ -10,7 +10,6 @@ import (
 	"io/fs"
 	"math"
 	"path/filepath"
-	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/core"
@@ -197,17 +196,11 @@ func (p processRecord) incarnation() runtime.Incarnation {
 }
 
 func processState(ctx context.Context, observer runtime.Observer, process processRecord) runtime.State {
-	expected := process.incarnation()
-	if !expected.Valid() {
+	state := observeRecorded(ctx, observer, process)
+	if state == runtime.Suspended {
 		return runtime.Unknown
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	observed, err := observer.Observe(ctx, expected.PID)
-	if err != nil || ctx.Err() != nil {
-		return runtime.Unknown
-	}
-	return observed.Match(expected)
+	return state
 }
 
 func launchGeneration() string {
