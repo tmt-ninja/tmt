@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -68,5 +69,24 @@ func TestGuardRefusesNativeDatabaseFile(t *testing.T) {
 	}
 	if _, err := Resolve(envOf(map[string]string{EnvHome: dir}), user); !errors.Is(err, ErrNativeRoot) {
 		t.Fatalf("got %v, want ErrNativeRoot", err)
+	}
+}
+
+func TestCompanionEnvPinsTMTHomeToGoRoot(t *testing.T) {
+	root := Root{Dir: filepath.Join(t.TempDir(), "go-root")}
+	in := []string{"PATH=/bin", "TMT_HOME=/Users/someone/.config/tmt", "TMT_GO_HOME=/elsewhere", "HOME=/h"}
+	got := map[string][]string{}
+	for _, kv := range CompanionEnv(in, root) {
+		k, v, _ := strings.Cut(kv, "=")
+		got[k] = append(got[k], v)
+	}
+	if len(got["TMT_HOME"]) != 1 || got["TMT_HOME"][0] != root.Dir {
+		t.Fatalf("TMT_HOME = %v, want exactly [%s]", got["TMT_HOME"], root.Dir)
+	}
+	if len(got[EnvHome]) != 1 || got[EnvHome][0] != root.Dir {
+		t.Fatalf("%s = %v", EnvHome, got[EnvHome])
+	}
+	if got["PATH"][0] != "/bin" || got["HOME"][0] != "/h" {
+		t.Fatal("other variables must pass through")
 	}
 }

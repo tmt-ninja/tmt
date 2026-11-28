@@ -90,6 +90,10 @@ func stdlib(imp string) bool {
 	return !strings.Contains(first, ".")
 }
 
+// coreAllowedModule admits golang.org/x/text for NFKC and contextual casing,
+// the Go counterpart of the ICU crates tmt-core uses (pure tables, no I/O).
+func coreAllowedModule(imp string) bool { return strings.HasPrefix(imp, "golang.org/x/text/") }
+
 // coreForbidden are effects the pure domain may not reach.
 var coreForbidden = []string{"os", "os/exec", "os/signal", "database/sql", "net", "syscall", "unsafe", "io/fs", "path/filepath"}
 
@@ -118,8 +122,8 @@ func TestLayerRules(t *testing.T) {
 				if internal && !under(target, "internal/core") {
 					fail("core imports only core")
 				}
-				if !internal && !stdlib(imp) {
-					fail("core imports only the standard library")
+				if !internal && !stdlib(imp) && !coreAllowedModule(imp) {
+					fail("core imports only the standard library and golang.org/x/text")
 				}
 				if !f.test {
 					for _, bad := range coreForbidden {
@@ -153,7 +157,7 @@ func TestLayerRules(t *testing.T) {
 }
 
 // Dependencies outside the standard library need the lead's OK; this list is the record.
-var allowedModules = []string{module, "modernc.org/", "golang.org/x/sys", "golang.org/x/term"}
+var allowedModules = []string{module, "modernc.org/", "golang.org/x/sys", "golang.org/x/term", "golang.org/x/text"}
 
 func TestApprovedDependencies(t *testing.T) {
 	for _, f := range load(t) {

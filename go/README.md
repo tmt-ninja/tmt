@@ -24,10 +24,15 @@ The plan, ownership and open questions are on #6938.
 | `internal/cli`, `internal/output`, `internal/clistyle` | go-3 |
 | `internal/adapters/{install,skills,release,config,api,mcp,framedstdio,exthooks,extcmd,channel,tick,digest}` | go-4 |
 
-`internal/archtest` enforces: core imports only the standard library with no I/O;
+`internal/archtest` enforces: core imports only the standard library and `golang.org/x/text`, with no I/O;
 ports imports only core; adapters never import cli; only `internal/sys` uses
 `unsafe`, `syscall` or `x/sys`; only adapters import `internal/sys`; production code
 never imports `go/test`; modules outside the standard library are on an approved list.
+
+## Install for daily use
+
+`go/scripts/install-local.sh` (go-4) builds `tmt-go` and places it at `~/.local/bin/tmt-go`,
+beside the native `tmt`, never replacing or aliasing it.
 
 ## Branch flow
 

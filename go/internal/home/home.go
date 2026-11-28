@@ -96,3 +96,18 @@ func within(child, parent string) bool {
 	rel, err := filepath.Rel(parent, child)
 	return err == nil && rel != "." && !strings.HasPrefix(rel, "..")
 }
+
+// CompanionEnv returns env for a companion child (tmt-ops, tmt-colab, ...):
+// TMT_HOME is always the tmt-go root, never the caller's, so a companion can
+// never reach native state; TMT_GO_HOME is pinned too. Every launcher of a
+// companion or external tmt-<name> command builds its environment here.
+func CompanionEnv(env []string, root Root) []string {
+	out := make([]string, 0, len(env)+2)
+	for _, kv := range env {
+		if strings.HasPrefix(kv, "TMT_HOME=") || strings.HasPrefix(kv, EnvHome+"=") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return append(out, "TMT_HOME="+root.Dir, EnvHome+"="+root.Dir)
+}
