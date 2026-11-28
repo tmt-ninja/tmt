@@ -81,6 +81,8 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return output.Publish(stdout, stderr, app.runRequest(ctx, root, invocation), invocation.json)
 	case "check":
 		return output.Publish(stdout, stderr, app.check(ctx, root, invocation), invocation.json)
+	case "__hook":
+		return output.Publish(stdout, stderr, app.runHook(ctx, root, invocation), invocation.json)
 	}
 	// NOT PORTED (#6938): compose the remaining commands over storage and host ports.
 	failure := &output.Failure{

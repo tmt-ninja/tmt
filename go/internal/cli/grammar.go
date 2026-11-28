@@ -109,6 +109,7 @@ var options = []optionSpec{
 	{name: "receipt", value: true, help: "Receipt supplied by talk"},
 	{name: "from", value: true, help: "Only requests from this identity"},
 	{name: "request", value: true, help: "Answer this open request ID"},
+	{name: "activity-only", hidden: true},
 }
 
 var grammar = commandSpec{
@@ -169,12 +170,16 @@ func init() {
 	grammar.children = append(grammar.children, commandSpec{name: "upgrade", visibleAlias: "update"})
 	for _, name := range []string{
 		"team", "__allowance", "__channel-server", "__complete", "__completion-script",
-		"__consumption-sample", "__flush", "__hook", "__native-compact-database",
+		"__consumption-sample", "__flush", "__native-compact-database",
 		"__native-install", "__native-refresh-integrations", "__native-refresh-skills",
 		"__native-rename-database", "__native-schema", "__native-upgrade-extensions",
 		"__pty-serve", "__reply-notice-worker", "__request-observer",
 	} {
 		grammar.children = append(grammar.children, commandSpec{name: name, hidden: true})
 	}
+	grammar.children = append(grammar.children, commandSpec{
+		name: "__hook", hidden: true, summary: "Internal bounded provider lifecycle callback",
+		operands: []operandSpec{required("provider")}, options: []string{"activity-only"},
+	})
 	grammar.children = append(grammar.children, commandSpec{name: "__digest-hook", aliases: []string{"__focus-hook"}, hidden: true})
 }

@@ -149,3 +149,19 @@ func TestRunSeparatesLaunchOptionsFromProviderArguments(t *testing.T) {
 		t.Fatalf("invalid name: failure = %+v", failure)
 	}
 }
+
+func TestProviderHookIsHiddenAndDispatchesSilently(t *testing.T) {
+	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(hookLaunchEnv, "")
+	inv, failure := parse([]string{"__hook", "claude", "--activity-only"})
+	if failure != nil || !slices.Equal(inv.path, []string{"__hook"}) || !inv.has("activity-only") {
+		t.Fatalf("hidden hook = %+v, %v", inv, failure)
+	}
+	if _, failure := parse([]string{"help", "__hook"}); failure == nil || failure.Code != "USAGE_ERROR" {
+		t.Fatalf("hidden hook help = %+v", failure)
+	}
+	var stdout, stderr bytes.Buffer
+	if status := Main([]string{"__hook", "claude"}, &stdout, &stderr); status != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("hook exit = %d, stdout = %q, stderr = %q", status, &stdout, &stderr)
+	}
+}
