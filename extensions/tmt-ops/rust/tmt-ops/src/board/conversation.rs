@@ -171,6 +171,17 @@ pub(super) struct State {
     pub pane: Option<Rect>,
 }
 
+impl App {
+    pub(in crate::board) fn has_outgoing_keep_request(&self, request: &str) -> bool {
+        self.conversation.borrow().sessions.values().any(|session| {
+            session
+                .outgoing
+                .iter()
+                .any(|entry| entry.request() == Some(request) && entry.keep_reply())
+        })
+    }
+}
+
 #[cfg(test)]
 impl State {
     pub(in crate::board) fn set_outgoing_request(&mut self, request: &str) {
@@ -683,108 +694,6 @@ pub(super) fn render_retained(
     );
 }
 
-fn kept_fence_strip(
-    fence: super::markdown::Fence,
-    width: u16,
-    look: Look,
-) -> Option<(Line<'static>, Vec<super::member_links::Link>)> {
-    use crate::board::member_links::{FenceKey, Link, Target};
-    const INDENT: usize = 5;
-    let body_width = usize::from(width).saturating_sub(INDENT).max(1);
-    let text = fence.body?;
-    let key = FenceKey::next();
-    let code = look.role(Role::Code).patch(look.role(Role::Track));
-    let keycap = code.patch(look.role(Role::Keycap));
-    let copy = if body_width >= 8 { "  ⎘ copy" } else { "⎘" };
-    let copy_width = copy.width();
-    let run = fence
-        .command
-        .filter(|_| body_width >= copy_width + "▶ Run…  ".width());
-    let run_width = run.as_ref().map_or(0, |_| "▶ Run…  ".width());
-    let left = body_width - copy_width - run_width;
-    let language = if !fence.language.is_empty() && fence.language.width() + 1 < left {
-        format!(" {}", fence.language)
-    } else {
-        String::new()
-    };
-    let mut spans = vec![
-        Span::raw(" ".repeat(INDENT)),
-        Span::styled(language.clone(), code.patch(look.role(Role::Dim))),
-        Span::styled(" ".repeat(left - language.width()), code),
-    ];
-    let mut links = Vec::new();
-    if let Some(command) = run {
-        spans.push(Span::styled("▶ Run…", keycap));
-        spans.push(Span::styled("  ", code));
-        links.push(Link {
-            column: INDENT + left,
-            width: "▶ Run…".width(),
-            target: Target::FenceRun { key, command },
-            occurrence: 0,
-            source: None,
-        });
-    }
-    spans.push(Span::styled(copy, keycap));
-    links.push(Link {
-        column: INDENT + left + run_width,
-        width: copy_width,
-        target: Target::FenceCopy {
-            key,
-            text: std::sync::Arc::from(text),
-        },
-        occurrence: 0,
-        source: None,
-    });
-    Some((Line::from(spans), links))
-}
-
-fn kept_expanded_lines(
-    app: &App,
-    detail: &super::kept_replies::KeptReplyDetail,
-    member_name: &str,
-    width: u16,
-    look: Look,
-    now: u64,
-) -> (Vec<Line<'static>>, Vec<Vec<super::member_links::Link>>) {
-    const INDENT: usize = 5;
-    let body_width = width.saturating_sub(INDENT as u16).max(1);
-    let age = crate::requests::age(now, detail.at_ms);
-    let mut lines = vec![Line::styled(
-        super::view::fit(
-            &format!("     {} · {age}", sanitize(member_name)),
-            usize::from(width),
-        ),
-        look.role(Role::Muted),
-    )];
-    let mut line_links = vec![Vec::new()];
-    let body = if detail.truncated {
-        format!("{}\n\n[Truncated by Core retention]", detail.text)
-    } else {
-        detail.text.clone()
-    };
-    let mapped = super::markdown::render_conversation(
-        &body,
-        body_width.into(),
-        look,
-        Some(&app.references),
-        None,
-    );
-    let mut fences = mapped.fences.into_iter().peekable();
-    for (index, line) in mapped.lines.into_iter().enumerate() {
-        if let Some((_, fence)) = fences.next_if(|(line_idx, _)| *line_idx == index)
-            && let Some((strip_line, links)) = kept_fence_strip(fence, width, look)
-        {
-            lines.push(strip_line);
-            line_links.push(links);
-        }
-        let mut spans = vec![Span::raw(" ".repeat(INDENT))];
-        spans.extend(line.spans);
-        lines.push(Line::from(spans));
-        line_links.push(Vec::new());
-    }
-    (lines, line_links)
-}
-
 pub(in crate::board) fn paint_kept_replies(
     frame: &mut Frame,
     app: &App,
@@ -824,14 +733,14 @@ pub(in crate::board) fn paint_kept_replies(
         .zip(app.kept_replies.reader.as_ref())
         .and_then(|(key, detail)| (detail.key == key).then_some(detail));
     let mut expanded_block = expanded_detail.map(|detail| {
-        kept_expanded_lines(
-            app,
+        let projection = app.kept_expanded_projection(
             detail,
             &member_name,
             body.width.saturating_sub(1),
             look,
             now,
-        )
+        );
+        (projection.lines, projection.links)
     });
     let max_extra = usize::from(max_kept.saturating_sub(2 + visible_items as u16));
     if let Some((lines, links)) = expanded_block.as_mut() {

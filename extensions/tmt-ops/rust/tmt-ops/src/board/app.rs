@@ -5159,6 +5159,7 @@ impl App {
     pub fn mouse(&mut self, event: MouseEvent, now: Instant) -> Effect {
         if event.kind == MouseEventKind::Moved {
             self.member_link_mouse(event);
+            self.kept_replies_mouse(event);
             self.move_pointer(event);
             return Effect::None;
         }
@@ -5450,9 +5451,8 @@ impl App {
             }
         }
 
-        if event.kind == MouseEventKind::Down(MouseButton::Left)
-            && !self.loading()
-            && let Some(effect) = self.kept_replies_click(event.column, event.row)
+        if !self.loading()
+            && let Some(effect) = self.kept_replies_mouse(event)
         {
             return effect;
         }

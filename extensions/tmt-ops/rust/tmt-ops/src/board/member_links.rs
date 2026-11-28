@@ -290,6 +290,16 @@ pub(super) struct State {
     #[cfg(test)]
     builds: usize,
 }
+
+#[cfg(test)]
+impl State {
+    pub(in crate::board) fn fence_copy_hit(&self) -> Option<(FenceKey, Rect)> {
+        self.hits.iter().find_map(|hit| match hit.target {
+            Target::FenceCopy { key, .. } => Some((key, hit.area)),
+            _ => None,
+        })
+    }
+}
 #[derive(PartialEq, Eq)]
 pub(super) struct TranscriptFocusTrace {
     reader_hits: usize,

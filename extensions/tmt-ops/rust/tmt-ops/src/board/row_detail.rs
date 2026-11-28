@@ -773,11 +773,19 @@ impl App {
                 continue;
             };
             let mark = crate::board::kept_replies::KeepReplyMark::from_wire(&item["keepReply"]);
-            let reason = if mark == Some(crate::board::kept_replies::KeepReplyMark::NotKept) {
+            if mark == Some(crate::board::kept_replies::KeepReplyMark::Pending) {
+                self.kept_replies
+                    .pending_keep_requests
+                    .insert(request.to_owned());
+            }
+            let saw_pending = mark == Some(crate::board::kept_replies::KeepReplyMark::NotKept)
+                && (self.kept_replies.pending_keep_requests.remove(request)
+                    || self.has_outgoing_keep_request(request));
+            let reason = if saw_pending {
                 if item["passthrough"]["folded"].as_bool() == Some(true) {
                     Some("turn folded")
-                } else if item["passthrough"]["state"].as_str() == Some("not_bound") {
-                    Some("no bound session")
+                } else if item["passthrough"]["state"].as_str() == Some("no_answer") {
+                    Some("no answer")
                 } else {
                     Some("not captured")
                 }
