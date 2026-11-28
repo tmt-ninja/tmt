@@ -1,3 +1,3 @@
-// Package orchestration ports the matching tmt-adapters module; unassigned until phase 2.
-// Owner: tmt-go-lead.
+// Package orchestration owns the shared API and CLI orchestration read projections.
+// Owner: go-4.
 package orchestration

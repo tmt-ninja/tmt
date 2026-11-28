@@ -90,6 +90,8 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return publish(stdout, stderr, failure, invocation.json)
 	}
 	switch invocation.path[0] {
+	case "orch":
+		return publish(stdout, stderr, runOrch(ctx, root, invocation), invocation.json)
 	case "storage":
 		return publish(stdout, stderr, runStorage(ctx, root), invocation.json)
 	case "extension":

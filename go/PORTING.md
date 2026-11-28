@@ -167,11 +167,12 @@ E2E measurement is pending.
 - [ ] Port lifecycle-hook enable, disable and delivery with executable verification
   and bounded context contributions.
 - [ ] Complete orchestration overview, plans, preview, jobs, talks and routes.
-  API Why is wired. Its paging, uncertainty and unchanged change-cursor
+  Why shares its JSON projection between the API and CLI. Its paging,
+  uncertainty and unchanged change-cursor
   assertions map to `why_reads_actual_transactional_events_and_preserves_uncertainty`
   in `rust/crates/tmt-cli/tests/orchestration.rs`. Why advertises Digest claims
-  and settlements. Hold and sending producers and orchestration CLI entry
-  points remain pending. Then port workspace capture and restore and the remaining
+  and settlements. Hold and sending producers and other orchestration CLI
+  entry points remain pending. Then port workspace capture and restore and the remaining
   external-command dispatch markers.
 - [ ] Port Go guide reference topics in native order. Complete setup, owned skill
   registry and provider integration that are currently unported in the managed

@@ -239,6 +239,7 @@ func init() {
 	// Public help also reserves the names of commands whose execution is pending.
 	grammar.children = append(grammar.children, commandSpec{name: "upgrade", visibleAlias: "update"})
 	registerPublicHelpTopics(&grammar)
+	registerOrchGrammar()
 	for _, name := range []string{
 		"team", "__allowance", "__channel-server",
 		"__consumption-sample", "__flush", "__native-compact-database",

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/orchestration"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/tick"
@@ -216,9 +217,9 @@ func (s *requestSession) respond(body []byte) (SessionResponse, error) {
 		if fault := s.open(ctx); fault != nil {
 			return encodeFault(fault)
 		}
-		result, err := readWhy(ctx, s.store, query)
-		if err != nil {
-			return encodeFault(orchestrationFault(err))
+		result, failure := orchestration.ReadWhy(ctx, s.store, query)
+		if failure != nil {
+			return encodeFault(operationFault(failure))
 		}
 		value = result
 	case "digest.wake.step":

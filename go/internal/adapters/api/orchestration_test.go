@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/orchestration"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
 
@@ -58,10 +59,10 @@ func TestWhyReadsTransactionalEventsAndPreservesUncertainty(t *testing.T) {
 		}
 	})
 	const subject = `"subject":{"kind":"identity","id":"` + whyIdentity + `"}`
-	read := func(fields string) journalView {
+	read := func(fields string) orchestration.JournalView {
 		t.Helper()
 		result, err := session.respond(whyRequest(`{"view":"why",` + subject + fields + `}`))
-		var page journalView
+		var page orchestration.JournalView
 		if err != nil || result.Status != 0 || json.Unmarshal(result.Body, &page) != nil {
 			t.Fatalf("result = %d %s, %v", result.Status, result.Body, err)
 		}
