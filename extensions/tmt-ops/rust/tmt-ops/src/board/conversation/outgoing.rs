@@ -86,6 +86,7 @@ pub struct Ticket {
     pub text: String,
     pub squad: String,
     pub keep_reply: bool,
+    pub run: Option<u64>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -117,6 +118,14 @@ impl Completed {
         match &self.outcome {
             Ok(accepted) => {
                 let name = crate::board::notes::sanitize(&self.to);
+                if accepted.disposition == Disposition::Sent
+                    && self
+                        .ticket
+                        .as_ref()
+                        .is_some_and(|ticket| ticket.run.is_some())
+                {
+                    return format!("Sent the result to {name}.");
+                }
                 if let Some(text) = &accepted.message_state_label {
                     return format!("{name}: {text}");
                 }
@@ -728,6 +737,15 @@ impl App {
     }
 
     pub(in crate::board) fn begin_outgoing(&mut self, input: &Input, text: &str) {
+        self.begin_outgoing_for(input, text, None);
+    }
+
+    pub(in crate::board) fn begin_outgoing_for(
+        &mut self,
+        input: &Input,
+        text: &str,
+        run: Option<u64>,
+    ) {
         if !matches!(
             input.compose,
             crate::board::app::Compose::Talk { .. }
@@ -759,6 +777,7 @@ impl App {
             sequence: state.sequence,
             text,
             squad: input.squad.clone(),
+            run,
             keep_reply: input.keep_reply
                 && matches!(input.compose, crate::board::app::Compose::Talk { .. }),
         };
@@ -868,8 +887,13 @@ impl App {
         if !current {
             return;
         }
-        self.finish_draft(completed.accepted());
-        self.set_notice(Some(completed.notice()), false);
+        let notice = completed.notice();
+        if let Some(run) = ticket.run {
+            self.standalone.result_sent(run, &notice);
+        } else {
+            self.finish_draft(completed.accepted());
+        }
+        self.set_notice(Some(notice), false);
         let ticket = completed.ticket.unwrap();
         let mut state = self.conversation.borrow_mut();
         let identity = (Some(ticket.key.0.clone()), ticket.key.1.clone());

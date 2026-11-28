@@ -1,6 +1,9 @@
-use super::{App, Completed, Page, Task, json};
-use crate::board::{app::Effect, workspace::OpsTarget};
-use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use super::{App, Completed, Page, Task, Value, json, result_message};
+use crate::board::{
+    app::{Effect, Request},
+    workspace::OpsTarget,
+};
+use ratatui::crossterm::event::{Event, KeyCode, KeyEvent, KeyModifiers};
 
 pub(in crate::board) const SCENES: &[&str] = &[
     "run-command",
@@ -82,6 +85,7 @@ pub(in crate::board) fn capture(scene: &str, look: crate::look::Look) -> App {
             run,
             "cargo test -p tmt-ops header::spinner\n   Compiling tmt-ops v0.1.0-dev\n",
             false,
+            false,
         );
         return app;
     }
@@ -154,14 +158,35 @@ pub(in crate::board) fn capture_talk_run(state: &str, look: crate::look::Look, w
     assert_eq!(request["command"], "pwd");
     app.standalone.elapsed.set(12);
     app.standalone
-        .progress(run, "/work/core-ops-spinner\n", false);
+        .progress(run, "/work/core-ops-spinner\n", false, false);
     if state == "talk-run-running" {
         return app;
     }
     let mut finished = result();
     finished["command"] = "pwd".into();
     finished["stdout"] = "/work/core-ops-spinner\n".into();
+    if state == "talk-run-failed-stderr" {
+        finished["exitCode"] = 101.into();
+        finished["endedMs"] = (finished["startedMs"].as_u64().unwrap() + 9_000).into();
+        finished["stderr"] = "error: test failed\n".into();
+    } else if state == "talk-run-long-scrolled" {
+        finished["stdout"] = (1..=100)
+            .map(|line| format!("output line {line:03}\n"))
+            .collect::<String>()
+            .into();
+    }
     app.standalone_completed(Completed::Run(run, Ok(finished)));
+    if state == "talk-run-long-scrolled" {
+        let mut screen =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 36)).unwrap();
+        screen
+            .draw(|frame| {
+                crate::board::view::prepare(&mut app, frame.area());
+                crate::board::view::render(frame, &mut app);
+            })
+            .unwrap();
+        press(&mut app, KeyCode::PageDown);
+    }
     assert!(app.input.as_ref().unwrap().text.as_str().is_empty());
     if state == "talk-run-closed" {
         assert_eq!(
@@ -170,6 +195,142 @@ pub(in crate::board) fn capture_talk_run(state: &str, look: crate::look::Look, w
         );
     }
     app
+}
+
+pub(in crate::board) fn run_hits(app: &App) -> Value {
+    let hits = app.standalone.hits.borrow();
+    json!({
+        "outer": [hits.outer.x, hits.outer.y, hits.outer.width, hits.outer.height],
+        "output": [hits.content.x, hits.content.y, hits.content.width, hits.content.height],
+        "buttons": hits.buttons.iter().map(|area|
+            area.map(|area| [area.x, area.y, area.width, area.height])).collect::<Vec<_>>(),
+    })
+}
+
+#[test]
+fn talk_run_sends_exact_bounded_output_to_its_original_member() {
+    let mut app = capture_talk_run("talk-run-result", crate::look::Look::default(), 160);
+    let frozen = app
+        .standalone
+        .run_recipient
+        .as_ref()
+        .unwrap()
+        .draft
+        .draft_key
+        .clone()
+        .unwrap();
+    let Some(Page::Finished { result, .. }) = &mut app.standalone.page else {
+        panic!("finished Talk run");
+    };
+    result["stdout"] = (1..=202)
+        .map(|line| format!("row {line:03}\n"))
+        .collect::<String>()
+        .into();
+    result["stderr"] = "\x1b[31merror · ```\x1b[0m\n".into();
+    let kept = (4..=202)
+        .map(|line| format!("row {line:03}\n"))
+        .collect::<String>();
+    let expected = format!(
+        "! pwd\n✓ exited 0 · 41s\n(3 earlier lines omitted)\n\n~~~\n{kept}stderr · error · ```\n~~~"
+    );
+    let tight = result_message("pwd", result, 120).unwrap();
+    assert!(tight.len() <= 120 && tight.contains("earlier lines omitted"));
+    app.input.as_mut().unwrap().text = "a different unsent draft".into();
+    app.focus = 0;
+    let effect = press(&mut app, KeyCode::Char('s'));
+    let Effect::Act(request @ Request::Chat { .. }) = effect else {
+        panic!("result is a normal Talk send");
+    };
+    let Request::Chat {
+        sender,
+        recipient,
+        name,
+        text,
+        keep_reply,
+        ..
+    } = &request
+    else {
+        unreachable!()
+    };
+    assert_eq!((sender, recipient), (&frozen.0, &frozen.1));
+    assert_eq!(text, &expected);
+    assert!(!keep_reply);
+    assert_eq!(press(&mut app, KeyCode::Char('s')), Effect::None);
+    let ticket = app
+        .outgoing_ticket(&request)
+        .expect("normal outgoing journal ticket");
+    assert_eq!(ticket.run, Some(app.standalone.run_id));
+    app.finished_send(super::super::conversation::outgoing::Completed {
+        ticket: Some(ticket),
+        outcome: Ok(crate::send::Accepted {
+            request: "request-result".into(),
+            disposition: crate::send::Disposition::Sent,
+            message_state_label: None,
+            can_send_now: false,
+            working: false,
+            passthrough: true,
+            fallback: None,
+            warning: None,
+        }),
+        what: "Message".into(),
+        to: name.clone(),
+    });
+    assert_eq!(
+        app.standalone.notice.as_deref(),
+        Some(format!("Sent the result to {name}.").as_str())
+    );
+    assert_eq!(
+        app.input.as_ref().unwrap().text.as_str(),
+        "a different unsent draft"
+    );
+    assert_eq!(press(&mut app, KeyCode::Char('s')), Effect::None);
+}
+
+#[test]
+fn result_output_scrolls_by_visible_rows_and_keeps_the_chrome_fixed() {
+    use ratatui::{
+        Terminal,
+        backend::TestBackend,
+        crossterm::event::{MouseEvent, MouseEventKind},
+    };
+
+    let mut app = capture_talk_run("talk-run-failed-stderr", crate::look::Look::default(), 160);
+    let mut terminal = Terminal::new(TestBackend::new(100, 36)).unwrap();
+    let mut paint = |app: &App| {
+        terminal
+            .draw(|frame| app.standalone.render(frame, app, frame.area()))
+            .unwrap();
+    };
+    paint(&app);
+    let compact = app.standalone.outer().height;
+    let Some(Page::Finished { result, .. }) = &mut app.standalone.page else {
+        panic!("finished Talk run");
+    };
+    result["stdout"] = (1..=100)
+        .map(|line| format!("row {line:03}\n"))
+        .collect::<String>()
+        .into();
+    paint(&app);
+    let output = app.standalone.hits.borrow().content;
+    assert!(compact < app.standalone.outer().height);
+    assert_eq!(app.standalone.scroll, 0);
+    press(&mut app, KeyCode::PageDown);
+    assert_eq!(app.standalone.scroll, output.height as usize);
+    press(&mut app, KeyCode::Down);
+    assert_eq!(app.standalone.scroll, output.height as usize + 1);
+    press(&mut app, KeyCode::Home);
+    assert_eq!(app.standalone.scroll, 0);
+    app.standalone_event(&Event::Mouse(MouseEvent {
+        kind: MouseEventKind::ScrollDown,
+        column: output.x,
+        row: output.y,
+        modifiers: KeyModifiers::NONE,
+    }));
+    assert_eq!(app.standalone.scroll, 3);
+    press(&mut app, KeyCode::End);
+    assert_eq!(app.standalone.scroll, app.standalone.scroll_end.get());
+    paint(&app);
+    assert_eq!(app.standalone.hits.borrow().content, output);
 }
 
 #[test]
@@ -284,7 +445,7 @@ fn running_output_follows_the_tail_until_scrolled_then_yields_to_the_final_resul
     let rows: String = (1..=24)
         .map(|index| format!("live row {index:02}\n"))
         .collect();
-    app.standalone.progress(id, &rows, false);
+    app.standalone.progress(id, &rows, false, false);
     let tail = paint(&mut app);
     assert!(tail.contains("live row 24"));
     assert!(tail.contains("running 0:12") && tail.contains("Stop"));
@@ -292,24 +453,24 @@ fn running_output_follows_the_tail_until_scrolled_then_yields_to_the_final_resul
     press(&mut app, KeyCode::PageUp);
     let scrolled = paint(&mut app);
     assert!(!scrolled.contains("live row 24"));
-    app.standalone.progress(id, "live row 25\n", false);
-    assert_eq!(paint(&mut app), scrolled);
-    app.standalone.progress(id + 1, "stale row\n", false);
+    app.standalone.progress(id, "live row 25\n", false, false);
+    let held = paint(&mut app);
+    assert!(!held.contains("live row 24") && !held.contains("live row 25"));
+    app.standalone.progress(id + 1, "stale row\n", false, false);
     press(&mut app, KeyCode::End);
     let tail = paint(&mut app);
     assert!(tail.contains("live row 25"));
     assert!(!tail.contains("stale row"));
     press(&mut app, KeyCode::PageUp);
     assert!(!paint(&mut app).contains("live row 25"));
-    // Output is delivered before the next paint, while the held viewport still
-    // has its old end. One page forward must stop at row 25.
-    app.standalone.progress(id, "live row 26\n", false);
+    // A page forward clamps to the fresh end, even before the next paint.
+    app.standalone.progress(id, "live row 26\n", false, false);
     press(&mut app, KeyCode::PageDown);
     let advanced = paint(&mut app);
     assert!(advanced.contains("live row 25"));
-    assert!(!advanced.contains("live row 26"));
+    assert!(advanced.contains("live row 26"));
     press(&mut app, KeyCode::Down);
-    app.standalone.progress(id, "live row 27\n", false);
+    app.standalone.progress(id, "live row 27\n", false, false);
     assert!(paint(&mut app).contains("live row 27"));
     app.standalone_completed(Completed::Run(id, Ok(result())));
     let finished = paint(&mut app);
@@ -413,12 +574,11 @@ fn run_window_result_reports_exit_and_duration_with_enter_to_keep_and_escape_to_
         .map(|cell| cell.symbol())
         .collect();
     for expected in [
-        "✓ exited 0 after 41s",
+        "exited 0 · 41s",
         "Keep in list",
         "Run again",
-        "Close",
         "Edit",
-        "↑↓ scroll · k keep · r run again · e edit · Esc close",
+        "k keep · r run again · e edit · Esc close",
     ] {
         assert!(text.contains(expected), "missing {expected:?}");
     }
@@ -461,7 +621,7 @@ fn run_result_hints_shorten_from_the_left_and_share_the_button_row() {
     let footer = (1..36).find(|y| row(*y).contains("Keep in list")).unwrap();
     assert!(row(footer).contains("e edit · Esc close"));
     assert!(!row(footer).contains("↑↓ scroll"));
-    assert!(row(footer - 1).contains("output row"));
+    assert!(row(footer - 1).contains("lines · showing"));
 }
 
 #[test]
@@ -604,70 +764,62 @@ fn closing_talk_run_restores_the_scrolled_transcript_without_pinning_output() {
     };
     use ratatui::{Terminal, backend::TestBackend};
 
-    for close in [KeyCode::Esc, KeyCode::Right] {
-        let mut app = board();
-        app.view.as_mut().unwrap().replies = vec![json!({
-            "recipientId": MEMBER, "requestId": "retained",
-            "response": (0..80).map(|n| format!("Retained paragraph {n:02}\n\n")).collect::<String>(),
-        })];
-        app.focus_composer();
-        let mut screen = Terminal::new(TestBackend::new(160, 36)).unwrap();
-        let mut paint = |app: &mut App| {
-            screen
-                .draw(|frame| {
-                    crate::board::view::prepare(app, frame.area());
-                    crate::board::view::render(frame, app);
-                })
-                .unwrap();
-            screen
-                .backend()
-                .buffer()
-                .content
-                .iter()
-                .map(|cell| cell.symbol())
-                .collect::<String>()
-        };
-        paint(&mut app);
-        app.scroll_pane(Pane::Replies, Step::Top);
-        app.scroll_pane(Pane::Replies, Step::Lines(8));
-        let before = paint(&mut app);
-        let offset = app.scrolls.offset(Pane::Replies);
-        assert!(offset > 0);
+    let mut app = board();
+    app.view.as_mut().unwrap().replies = vec![json!({
+        "recipientId": MEMBER, "requestId": "retained",
+        "response": (0..80).map(|n| format!("Retained paragraph {n:02}\n\n")).collect::<String>(),
+    })];
+    app.focus_composer();
+    let mut screen = Terminal::new(TestBackend::new(160, 36)).unwrap();
+    let mut paint = |app: &mut App| {
+        screen
+            .draw(|frame| {
+                crate::board::view::prepare(app, frame.area());
+                crate::board::view::render(frame, app);
+            })
+            .unwrap();
+        screen
+            .backend()
+            .buffer()
+            .content
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect::<String>()
+    };
+    paint(&mut app);
+    app.scroll_pane(Pane::Replies, Step::Top);
+    app.scroll_pane(Pane::Replies, Step::Lines(8));
+    let before = paint(&mut app);
+    let offset = app.scrolls.offset(Pane::Replies);
+    assert!(offset > 0);
 
-        app.input.as_mut().unwrap().text = "!pwd".into();
-        let Effect::Standalone(Task::Target(generation, member)) = press(&mut app, KeyCode::Enter)
-        else {
-            panic!("Talk resolves the member");
-        };
-        let Effect::Standalone(Task::Run(run, _)) = app.standalone_completed(Completed::Target(
-            generation,
-            member,
-            Ok(json!({
-                "cwd":"/work", "bindingId":"00000000-0000-4000-8000-000000006755",
-                "paneIncarnation":"fixture",
-            })),
-        )) else {
-            panic!("the directory admits the Run");
-        };
-        let mut done = result();
-        done["command"] = "pwd".into();
-        done["stdout"] = "private output from the Run window".into();
-        app.standalone_completed(Completed::Run(run, Ok(done)));
-        assert!(paint(&mut app).contains("private output from the Run window"));
-        let dismissed = if close == KeyCode::Esc {
-            press(&mut app, KeyCode::Esc)
-        } else {
-            press(&mut app, KeyCode::Right);
-            press(&mut app, KeyCode::Right);
-            press(&mut app, KeyCode::Enter)
-        };
-        assert_eq!(dismissed, Effect::Standalone(Task::Discard));
-        let after = paint(&mut app);
-        assert_eq!(app.scrolls.offset(Pane::Replies), offset);
-        assert!(!after.contains("private output from the Run window"));
-        for line in (0..80).map(|n| format!("Retained paragraph {n:02}")) {
-            assert_eq!(after.contains(&line), before.contains(&line), "{line}");
-        }
+    app.input.as_mut().unwrap().text = "!pwd".into();
+    let Effect::Standalone(Task::Target(generation, member)) = press(&mut app, KeyCode::Enter)
+    else {
+        panic!("Talk resolves the member");
+    };
+    let Effect::Standalone(Task::Run(run, _)) = app.standalone_completed(Completed::Target(
+        generation,
+        member,
+        Ok(json!({
+            "cwd":"/work", "bindingId":"00000000-0000-4000-8000-000000006755",
+            "paneIncarnation":"fixture",
+        })),
+    )) else {
+        panic!("the directory admits the Run");
+    };
+    let mut done = result();
+    done["command"] = "pwd".into();
+    done["stdout"] = "private output from the Run window".into();
+    app.standalone_completed(Completed::Run(run, Ok(done)));
+    assert!(paint(&mut app).contains("private output from the Run window"));
+    let dismissed = press(&mut app, KeyCode::Esc);
+    assert_eq!(dismissed, Effect::Standalone(Task::Discard));
+    let after = paint(&mut app);
+    assert_eq!(app.scrolls.offset(Pane::Replies), offset);
+    assert!(!after.contains("private output from the Run window"));
+    for line in (0..80).map(|n| format!("Retained paragraph {n:02}")) {
+        assert_eq!(after.contains(&line), before.contains(&line), "{line}");
     }
 }
 
