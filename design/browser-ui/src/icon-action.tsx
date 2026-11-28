@@ -1,10 +1,10 @@
 import { useId, useLayoutEffect, useImperativeHandle, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import type { KeyboardEventHandler, ReactNode, Ref } from 'react';
 import type { BrowserActionProps } from './action.js';
 import { useBusyMark } from './busy-mark.js';
 import { bindIconActionTooltip, type IconActionTooltipPlacement } from './icon-action-tooltip.js';
 import { browserUiClasses as c } from './static.js';
+import { scopePortal } from './ui/scope.js';
 
 export type BrowserIconActionProps = Omit<
   BrowserActionProps,
@@ -127,7 +127,7 @@ export function BrowserIconAction({
             </span>
           )}
         </button>
-        {tooltipHost ? createPortal(tooltipNode, tooltipHost) : tooltipNode}
+        {tooltipHost ? scopePortal(tooltipNode, tooltipHost) : tooltipNode}
       </span>
       {disabledReason !== undefined && (
         <span className={c.fieldDescription} id={disabledReasonId}>

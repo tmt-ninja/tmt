@@ -113,7 +113,7 @@ function violations(
   const graph = graphs.find((candidate) => inside(file, candidate.directory));
   const uiGraph = graph?.directory === path.join(sourceRoot, 'ui');
   const neutral = NEUTRAL.map((name) => path.join(sourceRoot, name));
-  const scopedAdapters = ['browser-shell.tsx', 'dialog.tsx', 'drawer.tsx'];
+  const scopedAdapters = ['browser-shell.tsx', 'dialog.tsx', 'drawer.tsx', 'icon-action.tsx'];
   const shellPortal = ['browser-shell.tsx', 'ui/scope.tsx'].some(
     (name) => file === path.join(sourceRoot, name)
   );
@@ -258,7 +258,7 @@ it('keeps each declared graph to its own packages, stylesheet and admitted graph
     const source = `import { admitsOverlayEscape } from '${edge.startsWith('.') ? edge : `./${edge}`}';`;
     expect(violations(file, source, false)).toEqual([]);
   }
-  for (const name of ['browser-shell.tsx', 'dialog.tsx', 'drawer.tsx'])
+  for (const name of ['browser-shell.tsx', 'dialog.tsx', 'drawer.tsx', 'icon-action.tsx'])
     expect(
       violations(path.join(production, name), "import {useDsScope} from './ui/scope.js';", false)
     ).toEqual([]);
@@ -314,6 +314,7 @@ it('admits the bare portal peer only in the exact scoped React adapters', () => 
   for (const other of ['ui/scope.tsx'])
     expect(violations(path.join(production, other), source, false)).toEqual([]);
   for (const other of [
+    'icon-action.tsx',
     'header.tsx',
     'nested/browser-shell.tsx',
     'ui/browser-shell.tsx',
