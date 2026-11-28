@@ -162,3 +162,13 @@ func Publish(stdout, stderr io.Writer, report Report, asJSON bool) int {
 	}
 	return report.ExitStatus()
 }
+
+var requestSenderEscape = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;")
+
+// RequestFrame appends the reply command to an exact retained message.
+// Validated request IDs and receipts are converted to text by the callers.
+func RequestFrame(message, sender, requestID, receipt string) string {
+	return fmt.Sprintf("%s\n\n<tmt-reply from=\"%s\">\ntmt-go reply %s --receipt %s --message <text>\n</tmt-reply>\n"+
+		"Submit your response with the command above. Chat output alone does not complete the request. Your reply is the answer: do not repeat it in your pane or say you replied elsewhere. Report submission errors.",
+		message, requestSenderEscape.Replace(sender), requestID, receipt)
+}

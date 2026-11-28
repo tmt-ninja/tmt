@@ -9,6 +9,7 @@ import (
 	"unicode"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -145,7 +146,7 @@ func checklistBlock(item core.DigestItem) string {
 	if item.Prompt != nil {
 		body = *item.Prompt + separator + inspect
 		if safeID && item.Source == core.DigestSourceIncoming && item.Reply != nil {
-			body = checklistRequestFrame(*item.Prompt, plain, item.RequestID, item.Reply.Receipt)
+			body = output.RequestFrame(*item.Prompt, plain, string(item.RequestID), string(item.Reply.Receipt))
 		}
 	}
 	return fmt.Sprintf("▚ %s · %s\n%s", item.Kind, name, body)
@@ -205,13 +206,4 @@ func digestLine(text string, limit int, ellipsis bool) string {
 func displayControl(c rune) bool {
 	return unicode.IsControl(c) || c == '\u061c' || c == '\u200e' || c == '\u200f' ||
 		(c >= '\u2028' && c <= '\u202e') || (c >= '\u2066' && c <= '\u2069')
-}
-
-// Keep the receipt presentation identical to Talk until both callers share a formatter.
-var checklistSenderEscape = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;")
-
-func checklistRequestFrame(message, sender string, id core.RequestID, receipt core.Receipt) string {
-	return fmt.Sprintf("%s\n\n<tmt-reply from=\"%s\">\ntmt-go reply %s --receipt %s --message <text>\n</tmt-reply>\n"+
-		"Submit your response with the command above. Chat output alone does not complete the request. Your reply is the answer: do not repeat it in your pane or say you replied elsewhere. Report submission errors.",
-		message, checklistSenderEscape.Replace(sender), id, receipt)
 }

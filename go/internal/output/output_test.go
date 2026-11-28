@@ -87,3 +87,14 @@ func TestPublishReportsOutputFailureOnce(t *testing.T) {
 		t.Fatalf("stderr = %q", &stderr)
 	}
 }
+
+func TestRequestFramePreservesMessageAndEscapesSender(t *testing.T) {
+	const message = "alpha\ncafé ; literal\n"
+	const caller = "<Alice> & \"friend\" 'reviewer'"
+	const want = message + "\n\n<tmt-reply from=\"&lt;Alice&gt; &amp; &quot;friend&quot; &apos;reviewer&apos;\">\n" +
+		"tmt-go reply req_example --receipt v2_example --message <text>\n</tmt-reply>\n" +
+		"Submit your response with the command above. Chat output alone does not complete the request. Your reply is the answer: do not repeat it in your pane or say you replied elsewhere. Report submission errors."
+	if got := RequestFrame(message, caller, "req_example", "v2_example"); got != want {
+		t.Fatalf("request frame = %q", got)
+	}
+}

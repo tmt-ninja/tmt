@@ -2,9 +2,7 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/delivery"
@@ -166,7 +164,7 @@ func (app application) liveTalk(ctx context.Context, plan talkPlan, recipient co
 		return failure
 	}
 
-	frame := liveRequestFrame(plan.message, sender, prepared)
+	frame := output.RequestFrame(plan.message, sender, string(prepared.RequestID), string(prepared.Receipt))
 	sendCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
 	target := delivery.PasteTarget{Pane: pane, Binding: &binding, Identity: recipient}
 	delivered, err := app.live.deliver(sendCtx, plan.root, target, ports.DeliveryInput{Text: frame, Submit: driver.SubmitPlan(frame)})
@@ -199,12 +197,4 @@ func (app application) liveTalk(ctx context.Context, plan talkPlan, recipient co
 		failure.Request.DeliveryState = "not_delivered"
 		return failure
 	}
-}
-
-var requestSenderEscape = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;")
-
-func liveRequestFrame(message, sender string, prepared core.PreparedRequest) string {
-	return fmt.Sprintf("%s\n\n<tmt-reply from=\"%s\">\ntmt-go reply %s --receipt %s --message <text>\n</tmt-reply>\n"+
-		"Submit your response with the command above. Chat output alone does not complete the request. Your reply is the answer: do not repeat it in your pane or say you replied elsewhere. Report submission errors.",
-		message, requestSenderEscape.Replace(sender), prepared.RequestID, prepared.Receipt)
 }

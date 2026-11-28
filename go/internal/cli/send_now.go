@@ -92,15 +92,12 @@ func (app application) sendNow(ctx context.Context, root home.Root, selected ide
 		attempt.Route.Recipient == nil || *attempt.Route.Recipient != proof.RecipientID || attempt.AttemptID == "" {
 		return sendNowFailure(nil)
 	}
-	prepared := core.PreparedRequest{
-		RequestID: id, AttemptID: attempt.AttemptID,
-		Receipt: core.EncodeReceipt(id, attempt.AttemptID, attempt.Route),
-	}
+	receipt := core.EncodeReceipt(id, attempt.AttemptID, attempt.Route)
 	sender := payload.SenderName
 	if sender == "" {
 		sender = "unknown"
 	}
-	frame := liveRequestFrame(payload.Message, sender, prepared)
+	frame := output.RequestFrame(payload.Message, sender, string(id), string(receipt))
 	if ctx.Err() != nil {
 		return sendNowUntyped(id, "SEND_NOW_UNREACHABLE")
 	}
