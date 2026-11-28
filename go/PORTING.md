@@ -119,6 +119,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-23` Compose launch enrollment and guarded channel routing, including `run --channel` and remembered channel choice.
 - [ ] `CLI-24` Implement `channel inspect` and `channel recover`.
 - [ ] `CLI-25` Launch through built-in and approved external hosts.
+- [x] Shared retained thread previews in live request frames. The output fixture ports `request_frame.rs::the_thread_line_is_one_display_normalized_bounded_line` and verifies the frame preserves the exact child bytes after the one-line prefix.
 - [ ] `CLI-26` Support bare provider launches, automatic names and remembered or configured launch selection.
 - [ ] `CLI-27` Launch arbitrary foreground programs and remaining managed drivers.
 - [ ] `CLI-28` Map foreground termination to the native signal-specific exit status.

@@ -174,8 +174,53 @@ func ReplyCommand(requestID, receipt string) string {
 
 // RequestFrame appends the reply command to an exact retained message.
 // Validated request IDs and receipts are converted to text by the callers.
-func RequestFrame(message, sender, requestID, receipt string) string {
+func RequestFrame(message, sender, requestID, receipt string, thread *RequestThreadRoot) string {
+	if thread != nil {
+		message = threadReplyLine(*thread) + "\n" + message
+	}
 	return fmt.Sprintf("%s\n\n<tmt-reply from=\"%s\">\n%s\n</tmt-reply>\n"+
 		"Submit your response with the command above. Chat output alone does not complete the request. Your reply is the answer: do not repeat it in your pane or say you replied elsewhere. Report submission errors.",
 		message, requestSenderEscape.Replace(sender), ReplyCommand(requestID, receipt))
+}
+
+// RequestThreadRoot carries the retained root for the display-only thread line.
+type RequestThreadRoot struct {
+	RequestID string
+	Text      *string
+}
+
+func threadReplyLine(root RequestThreadRoot) string {
+	line := "Thread: " + root.RequestID
+	if root.Text == nil {
+		return line
+	}
+	normalized := strings.Map(func(ch rune) rune {
+		switch ch {
+		case '\r', '\n', '\u2028', '\u2029':
+			return '\n'
+		case '\u061c', '\u200e', '\u200f':
+			return ' '
+		}
+		if unicode.IsControl(ch) || ch >= '\u202a' && ch <= '\u202e' || ch >= '\u2066' && ch <= '\u2069' {
+			return ' '
+		}
+		return ch
+	}, *root.Text)
+	for first := range strings.SplitSeq(normalized, "\n") {
+		first = strings.TrimSpace(first)
+		if first == "" {
+			continue
+		}
+		const previewRunes = 160
+		count := 0
+		for end := range first {
+			if count == previewRunes {
+				first = first[:end] + "…"
+				break
+			}
+			count++
+		}
+		return line + " · \"" + first + "\""
+	}
+	return line
 }

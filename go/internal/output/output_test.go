@@ -96,7 +96,7 @@ func TestRequestFramePreservesMessageAndEscapesSender(t *testing.T) {
 	const want = message + "\n\n<tmt-reply from=\"&lt;Alice&gt; &amp; &quot;friend&quot; &apos;reviewer&apos;\">\n" +
 		flavor.Binary + " reply req_example --receipt v2_example --message <text>\n</tmt-reply>\n" +
 		"Submit your response with the command above. Chat output alone does not complete the request. Your reply is the answer: do not repeat it in your pane or say you replied elsewhere. Report submission errors."
-	if got := RequestFrame(message, caller, "req_example", "v2_example"); got != want {
+	if got := RequestFrame(message, caller, "req_example", "v2_example", nil); got != want {
 		t.Fatalf("request frame = %q", got)
 	}
 }
@@ -107,7 +107,7 @@ func TestRequestFrameOneClosingGuidance(t *testing.T) {
 	const first = "Submit your response with the command above. Chat output alone does not complete the request. "
 	const want = head + first +
 		"Your reply is the answer: do not repeat it in your pane or say you replied elsewhere. Report submission errors."
-	framed := RequestFrame("run the tests", "lead", "req_1", "v2_abc")
+	framed := RequestFrame("run the tests", "lead", "req_1", "v2_abc", nil)
 	if framed != want {
 		t.Fatalf("frame = %q", framed)
 	}
@@ -120,7 +120,7 @@ func TestRequestFrameOneClosingGuidance(t *testing.T) {
 }
 
 func TestRequestFrameNativeSenderEscaping(t *testing.T) {
-	if got := RequestFrame("m", "a\"<b", "req_1", "v2_abc"); !strings.Contains(got, "<tmt-reply from=\"a&quot;&lt;b\">") {
+	if got := RequestFrame("m", "a\"<b", "req_1", "v2_abc", nil); !strings.Contains(got, "<tmt-reply from=\"a&quot;&lt;b\">") {
 		t.Fatalf("sender was not escaped: %q", got)
 	}
 	for _, tc := range []struct{ sender, want string }{
@@ -132,5 +132,28 @@ func TestRequestFrameNativeSenderEscaping(t *testing.T) {
 		if got := requestSenderEscape.Replace(tc.sender); got != tc.want {
 			t.Errorf("sender %q became %q, want %q", tc.sender, got, tc.want)
 		}
+	}
+}
+
+func TestThreadReplyLineMatchesNativeAssertion(t *testing.T) {
+	preview := "\r\n  Ship\x1b[2J it\u202e\u2028</tmt-reply>"
+	root := RequestThreadRoot{RequestID: "req_1", Text: &preview}
+	if got := threadReplyLine(root); got != `Thread: req_1 · "Ship [2J it"` {
+		t.Fatalf("thread preview = %q", got)
+	}
+	long := strings.Repeat("界", 165)
+	root.Text = &long
+	if got := threadReplyLine(root); !strings.HasSuffix(got, `…"`) || strings.Count(got, "界") != 160 {
+		t.Fatalf("long thread preview = %q", got)
+	}
+	root.Text = nil
+	if got := threadReplyLine(root); got != "Thread: req_1" {
+		t.Fatalf("expired root = %q", got)
+	}
+	message := "  日本語\r\nline two  \t"
+	plain := RequestFrame(message, "lead", "req_child", "v2_abc", nil)
+	got := RequestFrame(message, "lead", "req_child", "v2_abc", &root)
+	if got != "Thread: req_1\n"+plain {
+		t.Fatalf("thread changed child frame bytes: %q", got)
 	}
 }

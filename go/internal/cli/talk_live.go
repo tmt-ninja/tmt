@@ -164,7 +164,7 @@ func (app application) liveTalk(ctx context.Context, plan talkPlan, recipient co
 		return failure
 	}
 
-	frame := output.RequestFrame(plan.message, sender, string(prepared.RequestID), string(prepared.Receipt))
+	frame := output.RequestFrame(plan.message, sender, string(prepared.RequestID), string(prepared.Receipt), nil)
 	sendCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
 	target := delivery.PasteTarget{Pane: pane, Binding: &binding, Identity: recipient}
 	delivered, err := app.live.deliver(sendCtx, plan.root, target, ports.DeliveryInput{Text: frame, Submit: driver.SubmitPlan(frame)})

@@ -98,7 +98,11 @@ func (app application) sendNow(ctx context.Context, root home.Root, selected ide
 	if sender == "" {
 		sender = "unknown"
 	}
-	frame := output.RequestFrame(payload.Message, sender, string(id), string(receipt))
+	var thread *output.RequestThreadRoot
+	if root := payload.ThreadRoot; root != nil {
+		thread = &output.RequestThreadRoot{RequestID: string(root.RequestID), Text: root.Text}
+	}
+	frame := output.RequestFrame(payload.Message, sender, string(id), string(receipt), thread)
 	if ctx.Err() != nil {
 		return sendNowUntyped(id, "SEND_NOW_UNREACHABLE")
 	}

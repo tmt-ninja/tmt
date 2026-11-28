@@ -147,7 +147,11 @@ func checklistBlock(item core.DigestItem) string {
 	if item.Prompt != nil {
 		body = *item.Prompt + separator + inspect
 		if safeID && item.Source == core.DigestSourceIncoming && item.Reply != nil {
-			body = output.RequestFrame(*item.Prompt, plain, string(item.RequestID), string(item.Reply.Receipt))
+			var thread *output.RequestThreadRoot
+			if root := item.ThreadRoot; root != nil {
+				thread = &output.RequestThreadRoot{RequestID: string(root.RequestID), Text: root.Text}
+			}
+			body = output.RequestFrame(*item.Prompt, plain, string(item.RequestID), string(item.Reply.Receipt), thread)
 		}
 	}
 	return fmt.Sprintf("▚ %s · %s\n%s", item.Kind, name, body)
