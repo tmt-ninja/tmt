@@ -34,11 +34,19 @@ func Write(w io.Writer, r Report, asJSON bool) error {
 	return enc.Encode(r.JSON())
 }
 
-// WriteFailure renders f on the error stream.
-func WriteFailure(w io.Writer, f *Failure, asJSON bool) {
+// Publish writes a JSON failure to stdout or a human failure to stderr.
+func (f *Failure) Publish(stdout, stderr io.Writer, asJSON bool) int {
+	var err error
 	if asJSON {
-		_ = json.NewEncoder(w).Encode(map[string]any{"error": f})
-		return
+		err = json.NewEncoder(stdout).Encode(struct {
+			Error *Failure `json:"error"`
+		}{Error: f})
+	} else {
+		_, err = fmt.Fprintf(stderr, "error: %s\n", f.Message)
 	}
-	fmt.Fprintf(w, "tmt-go: %s\n", f.Message)
+	if err != nil {
+		fmt.Fprintf(stderr, "error: Could not write CLI output: %s\n", err)
+		return 1
+	}
+	return f.Status
 }

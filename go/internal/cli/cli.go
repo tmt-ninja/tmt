@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
@@ -17,21 +18,39 @@ var Version = "0.0.0-go-dev"
 
 // Main runs one invocation and returns the process exit status.
 func Main(args []string, stdout, stderr io.Writer) int {
-	userHome, err := os.UserHomeDir()
+	invocation, failure := parse(args)
+	if failure != nil {
+		return failure.Publish(stdout, stderr, invocation.json)
+	}
+	var err error
+	switch {
+	case invocation.help:
+		err = renderHelp(stdout, invocation.path)
+	case invocation.version:
+		_, err = fmt.Fprintf(stdout, "tmt-go %s\n", Version)
+	default:
+		return execute(invocation, stdout, stderr)
+	}
 	if err != nil {
-		output.WriteFailure(stderr, &output.Failure{Code: "HOME_UNKNOWN", Message: err.Error()}, false)
+		fmt.Fprintf(stderr, "error: Could not write CLI output: %s\n", err)
 		return 1
 	}
-	root, err := home.Resolve(os.LookupEnv, userHome)
+	return 0
+}
+
+func execute(invocation invocation, stdout, stderr io.Writer) int {
+	userHome, err := os.UserHomeDir()
 	if err != nil {
-		output.WriteFailure(stderr, &output.Failure{Code: "NATIVE_ROOT_REFUSED", Message: err.Error()}, false)
-		return 2
+		failure := &output.Failure{Code: "HOME_UNKNOWN", Message: err.Error(), Status: 1}
+		return failure.Publish(stdout, stderr, invocation.json)
 	}
-	_ = root
-	if len(args) > 0 && (args[0] == "--version" || args[0] == "-V") {
-		fmt.Fprintf(stdout, "tmt-go %s\n", Version)
-		return 0
+	if _, err := home.Resolve(os.LookupEnv, userHome); err != nil {
+		failure := &output.Failure{Code: "NATIVE_ROOT_REFUSED", Message: err.Error(), Status: 2}
+		return failure.Publish(stdout, stderr, invocation.json)
 	}
-	fmt.Fprintln(stderr, "tmt-go: no commands are ported yet")
-	return 2
+	// NOT PORTED (#6938): command execution over the storage and host ports.
+	failure := &output.Failure{
+		Code: "NOT_PORTED", Message: fmt.Sprintf("Command '%s' is not yet ported.", strings.Join(invocation.path, " ")), Status: 2,
+	}
+	return failure.Publish(stdout, stderr, invocation.json)
 }
