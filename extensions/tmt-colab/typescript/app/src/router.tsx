@@ -4063,13 +4063,17 @@ function OpenPage({
                       );
                       if (thread) openThread(thread.ref, { revealInPage: false });
                     }}
-                    onAnnotateBlock={(value, block, whole) => {
-                      blockQuote.current = null;
-                      if (!selectBlock(value, block, block.getBoundingClientRect())) return;
-                      if (whole && currentSelector.current)
-                        wholeBlocks.current.add(JSON.stringify(currentSelector.current));
-                      annotate();
-                    }}
+                    onAnnotateBlock={
+                      canSelect
+                        ? (value, block, whole) => {
+                            blockQuote.current = null;
+                            if (!selectBlock(value, block, block.getBoundingClientRect())) return;
+                            if (whole && currentSelector.current)
+                              wholeBlocks.current.add(JSON.stringify(currentSelector.current));
+                            annotate();
+                          }
+                        : undefined
+                    }
                     binding={liveError || archived ? undefined : snapshot.binding}
                     held={recoveryRequired && !archived}
                     workSource={workSource}

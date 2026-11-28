@@ -13,8 +13,8 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { BrowserAction, BrowserNotice } from '@tmt/browser-ui/react';
-import { Plus, TriangleAlert } from 'lucide-react';
+import { BrowserAction, BrowserIconAction, BrowserNotice } from '@tmt/browser-ui/react';
+import { MessageSquare, Plus, TriangleAlert } from 'lucide-react';
 import {
   Block,
   blockActions,
@@ -325,6 +325,8 @@ interface Pointer {
   drag?: Drag;
   startDrag(id: string, event: React.PointerEvent<HTMLButtonElement>): void;
   wasDrag(): boolean;
+  observeComment(node: HTMLSpanElement | null): (() => void) | undefined;
+  commentTooltipHost: HTMLDivElement | null;
   /** Whether a redraw may focus the selected block (#6611). */
   focus: FocusRestore;
 }
@@ -409,7 +411,84 @@ export function StructuredPage(props: StructuredPageProps) {
     };
   }, [focus]);
   if (!props.selectionFocus) focus.applied = undefined;
-  const pointer: Pointer = { hovered, drag, startDrag: start, wasDrag, focus };
+  const commentSlots = useRef(
+    new Map<HTMLSpanElement, { block: HTMLElement; markers: Element | null }>(),
+  );
+  const commentObserver = useRef<ResizeObserver>(undefined);
+  const observeComment = useCallback((node: HTMLSpanElement | null) => {
+    if (!node) return;
+    const block = node.parentElement;
+    const column = node.closest('.structured-page-stage');
+    const canvas = node.closest('.canvas-structured');
+    if (!block || !column || !canvas) return;
+    const markers = block.querySelector(':scope > .structured-annotation-markers');
+    const slots = commentSlots.current;
+    slots.set(node, { block, markers });
+    const observer = (commentObserver.current ??= new ResizeObserver(() => {
+      const edge = column.getBoundingClientRect();
+      const available = canvas.getBoundingClientRect();
+      const rtl = getComputedStyle(column).direction === 'rtl';
+      // The outer block box can extend 8px beyond the content column's negative margins.
+      const start = rtl ? edge.left - 10 : edge.right + 10;
+      const layout = [...slots].map(([slot, { block, markers }]) => {
+        const box = block.getBoundingClientRect();
+        const marker = markers?.getBoundingClientRect();
+        const width = slot.getBoundingClientRect().width;
+        const left = rtl ? start - width : start;
+        const right = left + width;
+        return {
+          slot,
+          offset: rtl ? box.right - start : start - box.left,
+          fits:
+            width > 0 &&
+            left >= available.left &&
+            right <= available.right &&
+            (rtl ? right <= box.left : left >= box.right) &&
+            (!marker || marker.width === 0 || right <= marker.left || left >= marker.right),
+        };
+      });
+      for (const { slot, offset, fits } of layout) {
+        slot.style.insetInlineStart = `${offset}px`;
+        slot.toggleAttribute('data-fits', fits);
+      }
+    }));
+    observer.observe(column);
+    observer.observe(canvas);
+    observer.observe(node);
+    observer.observe(block);
+    if (markers) observer.observe(markers);
+    return () => {
+      slots.delete(node);
+      observer.unobserve(node);
+      observer.unobserve(block);
+      if (markers) observer.unobserve(markers);
+      if (!slots.size) {
+        observer.disconnect();
+        commentObserver.current = undefined;
+      }
+    };
+  }, []);
+  const [commentTooltipHost, setCommentTooltipHost] = useState<HTMLDivElement | null>(null);
+  const pointer: Pointer = {
+    hovered,
+    drag,
+    startDrag: start,
+    wasDrag,
+    focus,
+    observeComment,
+    commentTooltipHost,
+  };
+  const act = (action: BlockMenuAction, id: string) => {
+    if (action !== 'comment') {
+      props.onAction?.(action, id);
+      return;
+    }
+    const node = root.current?.querySelector<HTMLElement>(`[data-block-id="${CSS.escape(id)}"]`);
+    const record = props.tree.get(id);
+    if (!node || !record || props.drafts?.has(id) || !props.onAnnotateBlock) return;
+    props.onCloseBlockMenu?.();
+    props.onAnnotateBlock(record.text?.trim() || undefined, node, true);
+  };
   const narrow = useNarrow();
   return (
     <>
@@ -451,6 +530,11 @@ export function StructuredPage(props: StructuredPageProps) {
             const on = (event.target as HTMLElement).closest<HTMLElement>('[data-block-id]');
             if (on?.dataset.blockId) props.onSelectBlock?.(on.dataset.blockId);
             else props.onPageKey?.(event);
+            return;
+          }
+          if (event.key === 'Enter' && props.blockMenu?.active === 'comment') {
+            event.preventDefault();
+            act('comment', props.blockMenu.id);
             return;
           }
           if (props.onPageKey?.(event)) event.preventDefault();
@@ -515,12 +599,13 @@ export function StructuredPage(props: StructuredPageProps) {
             failedText={props.failedFirstText}
           />
         )}
-        <Blocks {...props} parent={PAGE_PARENT} pointer={pointer} />
+        <Blocks {...props} parent={PAGE_PARENT} pointer={pointer} onAction={act} />
         {drag?.target && drag.target.parent === PAGE_PARENT && !drag.target.lineBefore && (
           <BlockDropLine />
         )}
         {drag && <DragGhost drag={drag} tree={props.tree} root={root.current} />}
       </BlockDocument>
+      {props.onAnnotateBlock && <div ref={setCommentTooltipHost} />}
       {props.onAttach && (
         <input
           ref={picker}
@@ -677,6 +762,7 @@ function Blocks({
       onKeyDown={(event) => {
         if (
           !rest.annotationMode &&
+          rest.blockMenu?.id !== block.id &&
           block.type === 'question' &&
           event.key === 'Enter' &&
           event.target === event.currentTarget
@@ -762,7 +848,7 @@ function Blocks({
           rest.onFocus?.(block.id, clickedAt(event, block.text));
       }}
     >
-      {rest.annotations?.get(block.id)?.some((item) => item.open) && (
+      {(rest.onAnnotateBlock || rest.annotations?.get(block.id)?.some((item) => item.open)) && (
         <div className="structured-annotation-markers">
           {rest.annotations
             ?.get(block.id)
@@ -782,6 +868,14 @@ function Blocks({
               </button>
             ))}
         </div>
+      )}
+      {rest.onAnnotateBlock && pointer.commentTooltipHost && !rest.drafts?.has(block.id) && (
+        <BlockCommentAction
+          observe={pointer.observeComment}
+          tooltipHost={pointer.commentTooltipHost}
+          shown={!drag && pointer.hovered === block.id}
+          activate={() => rest.onAction?.('comment', block.id)}
+        />
       )}
       {!rest.readonly &&
         !rest.drafts?.has(block.id) &&
@@ -854,6 +948,7 @@ function Blocks({
           block={block}
           active={rest.blockMenu.active}
           list={rest.blockMenu.list}
+          canComment={!!rest.onAnnotateBlock}
           onAction={rest.onAction}
           onHoverAction={rest.onHoverAction}
           onClose={rest.onCloseBlockMenu}
@@ -876,6 +971,34 @@ function Blocks({
       )}
     </Block>,
   ]);
+}
+
+function BlockCommentAction({
+  shown,
+  activate,
+  observe,
+  tooltipHost,
+}: {
+  shown: boolean;
+  activate(): void;
+  observe: Pointer['observeComment'];
+  tooltipHost: HTMLElement;
+}) {
+  return (
+    <span ref={observe} className="structured-comment-action" data-shown={shown || undefined}>
+      <BrowserIconAction
+        type="button"
+        label={strings.blockActions.commentOnBlock}
+        tooltipLabel={strings.blockActions.commentHelp}
+        tooltipHost={tooltipHost}
+        icon={<MessageSquare aria-hidden="true" />}
+        variant="text"
+        onActivate={(event) => {
+          if (event.isTrusted) activate();
+        }}
+      />
+    </span>
+  );
 }
 
 /** The dragged block under the pointer: its opening text (else its type), as the design system's
@@ -996,6 +1119,7 @@ function ActionsPopover({
   block,
   active,
   list,
+  canComment,
   onAction,
   onHoverAction,
   onClose,
@@ -1004,6 +1128,7 @@ function ActionsPopover({
   active?: string;
   /** Turn into's own list is open (#6742). */
   list?: 'turn-into';
+  canComment: boolean;
   onAction?(action: BlockMenuAction, id: string): void;
   onHoverAction?(action: string): void;
   onClose?(): void;
@@ -1078,17 +1203,19 @@ function ActionsPopover({
             );
           })}
         {!list &&
-          blockMenuActions(block)
+          blockMenuActions(block, undefined, canComment)
             .filter((id) => !id.startsWith('progress-'))
             .map((id) => {
               // Turn into (#6742) opens its list in this menu; the rest are the catalog's actions.
               const action = actions.find((entry) => entry.id === id);
               const label =
-                id === 'edit-question'
-                  ? strings.blockActions.editQuestion
-                  : id === 'turn-into'
-                    ? strings.blockActions.turnInto
-                    : action?.label;
+                id === 'comment' || id === 'edit-question' || id === 'turn-into'
+                  ? {
+                      comment: strings.blockActions.comment,
+                      'edit-question': strings.blockActions.editQuestion,
+                      'turn-into': strings.blockActions.turnInto,
+                    }[id]
+                  : action?.label;
               if (!label) return null;
               return (
                 <BlockMenuItem

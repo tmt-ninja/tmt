@@ -3076,6 +3076,9 @@ An HTML page refuses creating block anchors but reads existing ones as orphaned 
 after a structured page is reverted. A block reference is cosmetic placement, never authority. The decoder admits only
 these exact fields; an explicit null quote is invalid. `vectors/discussion-v1.json`
 (`blockAnchorCases`) pins browser/native admission.
+The structured editor opens the same whole-block composer from the grip menu or, when
+there is room outside the block, the desktop Comment button. These actions require the
+same discussion admission as Selection mode.
 
 Quote anchors use the W3C Web Annotation TextQuoteSelector fields
 [`exact`, `prefix`, `suffix`](https://www.w3.org/TR/annotation-model/#text-quote-selector).

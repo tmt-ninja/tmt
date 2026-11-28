@@ -1,9 +1,10 @@
-import { useLayoutEffect, useImperativeHandle, useRef } from 'react';
+import { useId, useLayoutEffect, useImperativeHandle, useRef } from 'react';
 import type { KeyboardEventHandler, ReactNode, Ref } from 'react';
 import type { BrowserActionProps } from './action.js';
 import { useBusyMark } from './busy-mark.js';
 import { bindIconActionTooltip, type IconActionTooltipPlacement } from './icon-action-tooltip.js';
 import { browserUiClasses as c } from './static.js';
+import { scopePortal } from './ui/scope.js';
 
 export type BrowserIconActionProps = Omit<
   BrowserActionProps,
@@ -13,6 +14,8 @@ export type BrowserIconActionProps = Omit<
   icon: ReactNode;
   /** Optional shortcut help; the button name remains independently sufficient. */
   tooltipLabel?: string;
+  /** Host outside the caller's text content; the button stays in its original tab order. */
+  tooltipHost?: HTMLElement;
   /** Optional grouping/side; hover, focus and accessible naming remain on this button. */
   tooltipPlacement?: IconActionTooltipPlacement;
   ariaKeyShortcuts?: string;
@@ -28,6 +31,7 @@ export function BrowserIconAction({
   type,
   label,
   tooltipLabel,
+  tooltipHost,
   tooltipPlacement,
   ariaKeyShortcuts,
   variant,
@@ -50,6 +54,12 @@ export function BrowserIconAction({
   const wrapper = useRef<HTMLSpanElement>(null);
   const help = useRef<ReturnType<typeof bindIconActionTooltip> | null>(null);
   const marked = useBusyMark(busy && !disabled);
+  const tooltipId = useId();
+  const description = tooltipHost && tooltipLabel && tooltipLabel !== label ? tooltipId : undefined;
+  const describedBy =
+    [disabledReason === undefined ? undefined : disabledReasonId, description]
+      .filter(Boolean)
+      .join(' ') || undefined;
   useImperativeHandle(buttonRef, () => button.current!, []);
   useLayoutEffect(() => {
     help.current = bindIconActionTooltip(
@@ -62,13 +72,24 @@ export function BrowserIconAction({
       help.current?.dispose();
       help.current = null;
     };
-  }, [tooltipPlacement]);
+  }, [tooltipHost, tooltipPlacement]);
   useLayoutEffect(() => {
     help.current?.refresh();
   }, [expanded]);
   if (!label.trim()) throw new Error('Icon action requires a nonempty label');
   if (disabledReason !== undefined && !disabledReasonId)
     throw new Error('Disabled reason requires a stable ID');
+  const tooltipNode = (
+    <span
+      id={description}
+      ref={tooltip}
+      className={c.iconActionTooltip}
+      popover="manual"
+      aria-hidden="true"
+    >
+      <span className={c.iconActionTooltipLabel}>{tooltipLabel ?? label}</span>
+    </span>
+  );
   return (
     <>
       <span className={c.iconAction} ref={wrapper}>
@@ -86,7 +107,7 @@ export function BrowserIconAction({
           aria-expanded={expanded}
           aria-controls={controls}
           aria-busy={busy || undefined}
-          aria-describedby={disabledReason !== undefined ? disabledReasonId : undefined}
+          aria-describedby={describedBy}
           onKeyDown={onKeyDown}
           onClick={(event) => {
             // Busy stays focusable; fence its activation and form submission here.
@@ -106,9 +127,7 @@ export function BrowserIconAction({
             </span>
           )}
         </button>
-        <span ref={tooltip} className={c.iconActionTooltip} popover="manual" aria-hidden="true">
-          <span className={c.iconActionTooltipLabel}>{tooltipLabel ?? label}</span>
-        </span>
+        {tooltipHost ? scopePortal(tooltipNode, tooltipHost) : tooltipNode}
       </span>
       {disabledReason !== undefined && (
         <span className={c.fieldDescription} id={disabledReasonId}>

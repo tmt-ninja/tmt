@@ -646,6 +646,30 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .structured-annotation-markers button {
   cursor: pointer;
 }
+.structured-comment-action {
+  --tmt-ui-host-icon-action-size: 24px;
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 100%;
+  z-index: 1;
+  display: flex;
+  visibility: hidden;
+}
+.structured-comment-action[data-fits] {
+  visibility: visible;
+  opacity: 0;
+  pointer-events: none;
+}
+.structured-comment-action[data-fits][data-shown],
+.structured-comment-action[data-fits]:focus-within {
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (max-width: 900px) {
+  .structured-comment-action {
+    display: none;
+  }
+}
 @media (min-width: 901px) {
   .tmt-ui-shell:has(.structured-page-stage) .tmt-ui-topbar-navigation {
     padding-inline-start: var(--colab-block-inset);
@@ -657,7 +681,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     inset-inline-end: 0;
   }
   /* Comment markers keep the block's end; the design system's narrow handle goes before them. */
-  .tmt-block:has(> .structured-annotation-markers) {
+  .tmt-block:has(> .structured-annotation-markers > [data-colab-thread]) {
     --tmt-block-handle-end: 32px;
     padding-inline-end: 32px;
   }
