@@ -158,6 +158,13 @@ func TestResumeUsesExactSnapshotThroughPrivateBinding(t *testing.T) {
 	if _, diagnostic := run(1, "resume", "Worker"); !strings.Contains(diagnostic, "requires a saved launch preset") || len(launches) != 2 {
 		t.Fatalf("matching preset was ignored: %q", diagnostic)
 	}
+	if out, diagnostic := run(0, "resume", "--forget-launch"); out != "Forgot Worker's launch preset.\n" || diagnostic != "" {
+		t.Fatalf("implicit forget-launch stdout=%q stderr=%q", out, diagnostic)
+	}
+	if out, diagnostic := run(17, "resume", "--forget"); out != "" || diagnostic != "" ||
+		len(launches) != 3 || launches[2].resume.ProviderSession != session {
+		t.Fatalf("nameless --forget did not take native's ordinary resume path: %+v, %q, %q", launches, out, diagnostic)
+	}
 }
 
 func TestResumeAdmissionFailureReportsThatTheChildStarted(t *testing.T) {
@@ -215,7 +222,7 @@ func TestResumePreflightRequiresRecordedRuntimeToBeGone(t *testing.T) {
 	}
 }
 
-func TestResumeShowReadsThePinnedPresetWithoutAHost(t *testing.T) {
+func TestResumeNamedPresetAndForgetWithoutAHost(t *testing.T) {
 	world := t.TempDir()
 	t.Setenv("HOME", world)
 	t.Setenv(home.EnvHome, filepath.Join(world, "go"))
@@ -244,18 +251,19 @@ func TestResumeShowReadsThePinnedPresetWithoutAHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	app := application{store: store, caller: callerSelector{lookup: func(string) (string, bool) {
-		t.Fatal("explicit inspection attempted host selection")
+		t.Fatal("explicit resume operation attempted host selection")
 		return "", false
 	}}}
-	show := func(selector, want string) {
+	run := func(status int, wantOut, wantErr string, args ...string) {
 		t.Helper()
 		var stdout, stderr bytes.Buffer
-		args := []string{"resume", "--show", selector}
-		if status := app.run(t.Context(), args, &stdout, &stderr); status != 0 || stdout.String() != want || stderr.Len() != 0 {
-			t.Fatalf("%v exit %d stdout=%q stderr=%q", args, status, &stdout, &stderr)
+		if got := app.run(t.Context(), args, &stdout, &stderr); got != status ||
+			stdout.String() != wantOut || stderr.String() != wantErr {
+			t.Fatalf("%v exit %d stdout=%q stderr=%q", args, got, &stdout, &stderr)
 		}
 	}
-	show(string(id), "{\n  \"identity\": \"Worker\",\n  \"launch\": null\n}\n")
+	const empty = "{\n  \"identity\": \"Worker\",\n  \"launch\": null\n}\n"
+	run(0, empty, "", "resume", "--show", string(id))
 	db, err := sql.Open("sqlite", root.Database)
 	if err != nil {
 		t.Fatal(err)
@@ -267,7 +275,7 @@ func TestResumeShowReadsThePinnedPresetWithoutAHost(t *testing.T) {
 		"owner_start":"ps-v1:Sat Jan 1 00:00:00 2000","harness":null,"session":null}`); err != nil {
 		t.Fatal(err)
 	}
-	show("Worker", `{
+	const shown = `{
   "identity": "Worker",
   "launch": {
     "executable": "claude",
@@ -277,5 +285,75 @@ func TestResumeShowReadsThePinnedPresetWithoutAHost(t *testing.T) {
     "associated": false
   }
 }
-`)
+`
+	run(0, shown, "", "resume", "--show", "Worker")
+	const session = "ed3e0815-19b0-468f-897d-c4217150d2df"
+	if _, err := db.ExecContext(t.Context(), `INSERT INTO identity_session_preferences
+		(identity_id,preferred_harness,remembered_harness,runtime_mode,provider_session_id)
+		VALUES(?,'codex','claude','default',?)`, id, session); err != nil {
+		t.Fatal(err)
+	}
+	run(0, "Forgot Worker's launch preset.\n", "", "resume", "--forget-launch", "Worker")
+	run(0, empty, "", "resume", "--show", "Worker")
+	var savedSession string
+	if err := db.QueryRowContext(t.Context(), `SELECT provider_session_id FROM identity_session_preferences WHERE identity_id=?`, id).Scan(&savedSession); err != nil || savedSession != session {
+		t.Fatalf("forget-launch changed the remembered session: %q, %v", savedSession, err)
+	}
+	run(0, "✓ Forgot Worker's remembered claude session\n", "", "resume", "--forget", string(id))
+	run(0, "Worker has no remembered session.\n", "", "resume", "--forget", "Worker")
+	run(3, "", "error: Identity 'Missing' was not found\n", "resume", "--forget", "Missing")
+	run(3, "", "error: Identity 'Missing' was not found\n", "resume", "--forget-launch", "Missing")
+
+	app.caller = callerSelector{}
+	const unbound = "error: No identity is bound to this pane. Specify a saved identity: Worker\n"
+	run(1, "", unbound, "resume", "--forget")
+	run(1, "", unbound, "resume", "--forget-launch")
+
+}
+
+// Matches the resume-specific denial case in typescript/test/native/storage-denial.test.ts.
+func TestResumeForgetStorageDenialLeavesDatabaseBytes(t *testing.T) {
+	world := t.TempDir()
+	t.Setenv("HOME", world)
+	t.Setenv(home.EnvHome, filepath.Join(world, "state"))
+	root, err := home.Resolve(os.LookupEnv, world)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app := application{caller: callerSelector{}}
+	run := func(args ...string) (int, string, string) {
+		var out, diagnostics bytes.Buffer
+		status := app.run(t.Context(), args, &out, &diagnostics)
+		return status, out.String(), diagnostics.String()
+	}
+	if status, _, diagnostic := run("identity", "create", "Ada", "--json"); status != 0 {
+		t.Fatalf("create = %d, %q", status, diagnostic)
+	}
+	read := func() []byte {
+		t.Helper()
+		data, err := os.ReadFile(root.Database)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return data
+	}
+	before := read()
+	restore := func() {
+		if err := os.Chmod(root.Dir, 0700); err != nil {
+			t.Error(err)
+		}
+	}
+	if err := os.Chmod(root.Dir, 0500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(restore)
+	status, out, diagnostic := run("resume", "--forget", "Ada")
+	if status != 1 || out != "" || !strings.Contains(diagnostic, root.Dir) ||
+		!strings.Contains(diagnostic, "No remembered session was changed") || !bytes.Equal(read(), before) {
+		t.Fatalf("denied forget = %d, %q, %q", status, out, diagnostic)
+	}
+	restore()
+	if status, out, diagnostic := run("resume", "--forget", "Ada"); status != 0 || out != "Ada has no remembered session.\n" || diagnostic != "" {
+		t.Fatalf("forget after restore = %d, %q, %q", status, out, diagnostic)
+	}
 }

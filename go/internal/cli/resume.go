@@ -22,11 +22,16 @@ import (
 )
 
 func (app application) runResume(ctx context.Context, root home.Root, inv invocation, stdout, stderr io.Writer) int {
-	if inv.has("show") {
+	// Native dispatches --forget only with an explicit name. The nameless
+	// form follows ordinary caller selection and exact resume.
+	switch {
+	case inv.has("show"):
 		return publish(stdout, stderr, app.runResumeInspect(ctx, root, inv), false)
+	case inv.has("forget-launch"), inv.has("forget") && len(inv.operands) > 0:
+		return publish(stdout, stderr, app.runResumeForget(ctx, root, inv), false)
 	}
 	fail := func(report *output.Failure) int { return publish(stdout, stderr, report, false) }
-	for _, option := range []string{"move", "new", "retry", "driver", "forget", "forget-launch", "save"} {
+	for _, option := range []string{"move", "new", "retry", "driver", "save"} {
 		if inv.has(option) {
 			// NOT PORTED (CLI-01): Explicit resume mutations outside exact resume.
 			return fail(bindingUnavailable("resume --" + option))
@@ -47,14 +52,16 @@ func (app application) runResume(ctx context.Context, root home.Root, inv invoca
 	}
 
 	bindings := newBindingCLI(app.store, app.caller.lookup)
-	claim, failure := bindings.callerClaim()
-	if failure != nil {
-		return fail(failure)
-	}
-
 	selection, failure := app.selectResumeIdentity(ctx, inv)
 	if failure != nil {
 		return fail(failure)
+	}
+	var claim callerClaim
+	if selection.explicit != nil || selection.claim != (callerClaim{}) {
+		claim, failure = bindings.callerClaim()
+		if failure != nil {
+			return fail(failure)
+		}
 	}
 	if selection.explicit == nil && selection.claim != claim {
 		return fail(resumeConflict())
@@ -109,29 +116,96 @@ func (app application) runResumeInspect(ctx context.Context, root home.Root, inv
 	})
 }
 
+func (app application) runResumeForget(ctx context.Context, root home.Root, inv invocation) output.Report {
+	selection, failure := app.selectResumeIdentity(ctx, inv)
+	if failure != nil {
+		return failure
+	}
+	preset := inv.has("forget-launch")
+	return withIdentityStoreError(ctx, root, app.store, func(err error) *output.Failure {
+		if !preset && errors.Is(err, os.ErrPermission) {
+			return bindingFailure("STORAGE_NOT_WRITABLE", fmt.Sprintf(
+				"TMT cannot write its data directory %s. An agent sandbox may be blocking it: allow that directory or use the provider's escalation for the next authorized command. No remembered session was changed.", root.Dir), 1)
+		}
+		return resumeStoreFailure()
+	}, func(store ports.Store) output.Report {
+		var report resumeForgetReport
+		err := store.Write(ctx, func(tx ports.StoreTx) error {
+			identity, err := resolveResumeIdentity(tx, selection)
+			if err != nil {
+				return err
+			}
+			if preset {
+				report.message = fmt.Sprintf("Forgot %s's launch preset.", identity.Name)
+				return tx.Bindings().ForgetResumeLaunch(*identity)
+			}
+			driver, err := tx.Bindings().ForgetResume(*identity)
+			if err != nil {
+				return err
+			}
+			if driver == nil {
+				report.message = fmt.Sprintf("%s has no remembered session.", identity.Name)
+			} else {
+				report.message = fmt.Sprintf("Forgot %s's remembered %s session.", identity.Name, *driver)
+				report.forgotSession = true
+			}
+			return nil
+		})
+		switch {
+		case preset && errors.Is(err, core.ErrIdentityInactive):
+			return bindingFailure("NAME_NOT_FOUND", "The identity changed before clearing its launch preset.", 3)
+		case selection.explicit != nil && errors.Is(err, core.ErrIdentityInactive):
+			return identityMissing(*selection.explicit)
+		case err != nil:
+			return resumeOutputFailure(err)
+		default:
+			return report
+		}
+	})
+}
+
+type resumeForgetReport struct {
+	message       string
+	forgotSession bool
+}
+
+func (r resumeForgetReport) JSON() any                { return r.message }
+func (resumeForgetReport) HumanStream() output.Stream { return output.Stdout }
+func (resumeForgetReport) ExitStatus() int            { return 0 }
+func (r resumeForgetReport) Human(w io.Writer) error {
+	if r.forgotSession {
+		return success(w, r.message)
+	}
+	_, err := fmt.Fprintln(w, r.message)
+	return err
+}
+
 func (app application) selectResumeIdentity(ctx context.Context, inv invocation) (identitySelection, *output.Failure) {
 	if len(inv.operands) > 0 {
 		return identitySelection{explicit: &inv.operands[0]}, nil
 	}
-	return app.caller.selectIdentity(ctx, inv)
+	selection, failure := app.caller.selectIdentity(ctx, inv)
+	if failure != nil && failure.Code == "IDENTITY_REQUIRED" {
+		return identitySelection{}, nil
+	}
+	return selection, failure
+}
+
+func resolveResumeIdentity(tx ports.StoreTx, selection identitySelection) (*core.Identity, error) {
+	if selection.explicit == nil && selection.claim == (callerClaim{}) {
+		return nil, unboundResumeCaller(tx)
+	}
+	identity, err := resolveSelectedIdentity(tx, selection)
+	if failure, ok := err.(*output.Failure); ok && failure.Code == "IDENTITY_REQUIRED" {
+		return nil, unboundResumeCaller(tx)
+	}
+	return identity, err
 }
 
 func readResumeSnapshot(ctx context.Context, store ports.Store, selection identitySelection, show bool) (*core.ResumeSnapshot, *output.Failure) {
 	var snapshot *core.ResumeSnapshot
 	err := store.Read(ctx, func(tx ports.StoreTx) error {
-		var identity *core.Identity
-		var err error
-		if selection.explicit != nil {
-			identity, err = core.ResolveIdentity(tx.Identities(), *selection.explicit)
-			if err == nil && identity == nil {
-				return identityMissing(*selection.explicit)
-			}
-		} else {
-			identity, err = verifiedCaller(tx, selection.claim, selection.probe)
-			if err == nil && identity == nil {
-				return unboundResumeCaller(tx)
-			}
-		}
+		identity, err := resolveResumeIdentity(tx, selection)
 		if err != nil {
 			return err
 		}

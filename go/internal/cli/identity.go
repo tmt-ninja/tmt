@@ -16,13 +16,17 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
-func withIdentityStore(ctx context.Context, root home.Root, store ports.Store, unavailable *output.Failure, run func(ports.Store) output.Report) (report output.Report) {
+func withIdentityStore(ctx context.Context, root home.Root, store ports.Store, unavailable *output.Failure, run func(ports.Store) output.Report) output.Report {
+	return withIdentityStoreError(ctx, root, store, func(error) *output.Failure { return unavailable }, run)
+}
+
+func withIdentityStoreError(ctx context.Context, root home.Root, store ports.Store, unavailable func(error) *output.Failure, run func(ports.Store) output.Report) (report output.Report) {
 	if store != nil {
 		return run(store)
 	}
 	opened, err := storage.Open(ctx, root)
 	if err != nil {
-		return unavailable
+		return unavailable(err)
 	}
 	defer func() {
 		if err := opened.Close(); err != nil {

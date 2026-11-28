@@ -3,6 +3,7 @@ package parity
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"os/exec"
@@ -51,6 +52,28 @@ func TestHumanOutputMatchesNative(t *testing.T) {
 	t.Run("empty history", func(t *testing.T) { run(t, 0, false, "x", "ls", "--identity", "receiver") })
 	t.Run("outgoing history", func(t *testing.T) { run(t, 0, false, "x", "ls", "--identity", "sender") })
 	t.Run("exchange details", func(t *testing.T) { run(t, 0, false, "x", "show", request, "--identity", "sender") })
+	t.Run("resume forget", func(t *testing.T) {
+		for _, flag := range []string{"--forget", "--forget-launch"} {
+			run(t, 3, true, "resume", flag, "Missing")
+			run(t, 1, true, "resume", flag)
+		}
+		for _, path := range []string{filepath.Join(world, "go", home.DatabaseName), filepath.Join(world, "native", "tmt.db")} {
+			db, err := sql.Open("sqlite", path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, seedErr := db.ExecContext(t.Context(), `INSERT INTO identity_session_preferences
+				(identity_id,preferred_harness,remembered_harness,runtime_mode,provider_session_id)
+				SELECT id,'codex','claude','default','ed3e0815-19b0-468f-897d-c4217150d2df'
+				FROM identities WHERE canonical_name='sender'`)
+			if err := errors.Join(seedErr, db.Close()); err != nil {
+				t.Fatal(err)
+			}
+		}
+		run(t, 0, false, "resume", "--forget-launch", "Sender")
+		run(t, 0, false, "resume", "--forget", "Sender")
+		run(t, 0, false, "resume", "--forget", "Sender")
+	})
 }
 
 type fixtureClock int64
@@ -108,7 +131,11 @@ func seedHumanWorld(t *testing.T, world string, request core.RequestID) {
 	}
 	// The parity oracle gets its own copy of the private fixture, including
 	// identical identities, request IDs and timestamps.
-	if err := os.WriteFile(filepath.Join(world, "native", "tmt.db"), data, 0600); err != nil {
+	nativeRoot := filepath.Join(world, "native")
+	if err := os.MkdirAll(nativeRoot, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(nativeRoot, "tmt.db"), data, 0600); err != nil {
 		t.Fatal(err)
 	}
 }
