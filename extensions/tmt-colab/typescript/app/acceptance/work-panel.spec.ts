@@ -102,7 +102,7 @@ test('HTML checklists supply saved section progress to Work and the outline', as
       });
     });
     const page = await openPage(door, browser, created);
-    await page.setViewportSize({ width: 1440, height: 900 });
+    const defaultViewport = page.viewportSize()!;
     await page.emulateMedia({ reducedMotion: 'reduce' });
     const assertWorkCounts = (done: number, inProgress: number) => {
       const counts = { done, inProgress, todo: 0, unknown: 0, total: 2 };
@@ -114,9 +114,30 @@ test('HTML checklists supply saved section progress to Work and the outline', as
     };
     const checkbox = page.frameLocator('iframe').getByRole('checkbox', { name: 'Review notes' });
     await expect(checkbox).not.toBeChecked();
-    await page.getByRole('button', { name: 'Collapse side menu', exact: true }).click();
     const outline = page.getByRole('navigation', { name: 'Page outline' });
-    const progress = outline.getByRole('button', { name: /Outline, .* done/ });
+    const assertCompactProgress = async (count: string, pageShare: string) => {
+      await expect(page.locator('.html-outline[data-compact]')).toBeVisible();
+      const toggle = outline.getByRole('button', { name: 'Outline', exact: true });
+      await toggle.click();
+      await expect(
+        outline.getByRole('button', { name: /^Prepare/ }).locator('.page-outline-section-count'),
+      ).toContainText(count);
+      const meter = outline.locator('.page-outline-meter');
+      await expect(meter).toBeVisible();
+      await expect(meter).toHaveCSS('--tmt-ui-meter-fill', pageShare);
+      await toggle.click();
+    };
+    await assertCompactProgress('1/2', '50');
+
+    // The strip needs a 40px gutter outside the author column and marker lane.
+    await page.setViewportSize({ width: 1920, height: 900 });
+    await page.getByRole('button', { name: 'Collapse side menu', exact: true }).click();
+    const progress = outline.locator('.page-outline-strip');
+    const total = progress.locator('.page-outline-strip-total');
+    const prepareBar = progress.locator('.page-outline-bar').first();
+    await expect(progress).toBeVisible();
+    await expect(total).toHaveText('1/2');
+    await expect(prepareBar).toHaveCSS('--page-outline-share', '50%');
     await expect(progress).toHaveAccessibleName('Outline, 1/2 done');
     assertWorkCounts(1, 1);
 
@@ -174,6 +195,8 @@ test('HTML checklists supply saved section progress to Work and the outline', as
     await expect(dialog).toBeHidden();
     await expect(checkbox).toBeChecked();
     await expect(progress).toHaveAccessibleName('Outline, 2/2 done');
+    await expect(total).toHaveText('2/2');
+    await expect(prepareBar).toHaveCSS('--page-outline-share', '100%');
     expect(sent.map(({ type }) => type)).toEqual(['metadata', 'metadata', 'savestatus']);
     expect(sent[2]?.operationId).toBe(sent[1]?.operationId);
     const checked = '<input checked type="checkbox" id="review">';
@@ -182,6 +205,8 @@ test('HTML checklists supply saved section progress to Work and the outline', as
     await expect(checkbox).toBeChecked();
     await expect(progress).toHaveAccessibleName('Outline, 2/2 done');
     assertWorkCounts(2, 0);
+    await page.setViewportSize(defaultViewport);
+    await assertCompactProgress('Done', '100');
     await page.goto(new URL('/colab/work', door.origin).href);
     await expect(
       page
