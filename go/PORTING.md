@@ -181,6 +181,8 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [x] GO2-14: Built-in terminal attach over an admitted PTY connection.
 - [ ] GO2-15: Go-owned built-in PTY supervisor and launch lifecycle.
 
+- [x] GO2-16: Codex npm launcher evidence. Native `drivers/codex/launch_process.rs` exact package/script and direct executable cases → `TestNpmSelectedPackageAndRunningScriptMustAgree` and `TestNpmDirectLaunchRemainsDistinctFromUnprovedShim`. Native `runtime/evidence.rs` immediate-child and pinned-incarnation cases → `TestSelectedLauncherMustHaveOneExactImmediateForegroundProvider` and `TestNpmForegroundRechecksExactLauncherAndUniqueImmediateChild`. CLI launch and exit composition is tracked in CLI-01.
+
 ## go-3 (cli, output)
 
 - [ ] `CLI-01` Complete resume with direct provider session presence checks, Codex npm launcher ownership, Gemini, retry, move, fresh start and driver switching. Saved presets with an exec-in-place launcher replay the pinned command and settings. Generic wrapper descendants receive no runtime admission.

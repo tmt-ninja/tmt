@@ -51,6 +51,10 @@ func resolve(cwd, path string) string {
 }
 
 func readSettings(dir, name string) ([]byte, error) {
+	return readCodexFile(dir, name, settingsLimit)
+}
+
+func readCodexFile(dir, name string, limit int64) ([]byte, error) {
 	root, err := os.OpenRoot(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -73,11 +77,11 @@ func readSettings(dir, name string) ([]byte, error) {
 	}
 	defer file.Close()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Size() > settingsLimit {
+	if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
 		return nil, ErrHookSources
 	}
-	data, err := io.ReadAll(io.LimitReader(file, settingsLimit+1))
-	if err != nil || len(data) > settingsLimit || !utf8.Valid(data) {
+	data, err := io.ReadAll(io.LimitReader(file, limit+1))
+	if err != nil || int64(len(data)) > limit || !utf8.Valid(data) {
 		return nil, ErrHookSources
 	}
 	return data, nil
