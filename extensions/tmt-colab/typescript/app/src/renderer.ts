@@ -276,6 +276,8 @@ export async function mountRenderer(
     onAttachmentDownload?(reference: string): void;
     /** An admitted `data:` image download request; the parent still confirms before saving. */
     onImageDownload?(image: ImageDownload): void;
+    taskCheckboxes?: boolean;
+    onTaskCheckbox?(source: string, ordinal: number, anchor: () => SelectionRect): void;
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
     onToggleSelectionMode?(): void;
@@ -325,6 +327,8 @@ export async function mountRenderer(
   resize(): void;
   /** Paint `theme` instead of the app's (`options.theme`); absent follows the app again. */
   setTheme(theme?: Theme): void;
+  /** Update the checkbox interaction as admission changes, preserving the mounted frame. */
+  setTaskCheckboxes(enabled: boolean): void;
   editLocks(locks: RenderEditLock[]): void;
   highlight(
     anchors: { id: string; selector: QuoteSelector; ordinal: number }[],
@@ -378,6 +382,7 @@ export async function mountRenderer(
   // clamp the window offset to a temporary viewport-high document.
   const previousHeight = host.querySelector('iframe')?.getBoundingClientRect().height;
   const snapshot = await captureRender(source);
+  let appliedSource = source;
   options.signal.throwIfAborted();
   const frame = document.createElement('iframe');
   frame.title = text.boundary;
@@ -437,6 +442,15 @@ export async function mountRenderer(
       type: 'colab.render.images',
       renderId: snapshot.renderId,
       requestId: current,
+    });
+  };
+  let taskCheckboxes = options.taskCheckboxes === true;
+  const sendTaskCheckboxes = () => {
+    if (stopped || !ready || !options.onTaskCheckbox) return;
+    channel.port1.postMessage({
+      type: 'colab.render.task-checkboxes',
+      renderId: snapshot.renderId,
+      enabled: taskCheckboxes,
     });
   };
   let chosenTheme = options.theme;
@@ -669,6 +683,40 @@ export async function mountRenderer(
     const value = data as Record<string, unknown>;
     if (
       ready &&
+      taskCheckboxes &&
+      options.onTaskCheckbox &&
+      !pendingUpdate &&
+      Object.keys(value).length === 5 &&
+      value.type === 'colab.render.task-checkbox' &&
+      value.renderId === snapshot.renderId &&
+      value.sourceDigest === frame.dataset.sourceDigest &&
+      typeof value.input === 'number' &&
+      Number.isSafeInteger(value.input) &&
+      value.input >= 0 &&
+      isRenderRectangle(value.rect) &&
+      value.rect.width > 0 &&
+      value.rect.height > 0 &&
+      value.rect.x >= 0 &&
+      value.rect.y >= 0 &&
+      value.rect.x + value.rect.width <= frame.clientWidth &&
+      value.rect.y + value.rect.height <= frame.clientHeight
+    ) {
+      // A frame can forge a nomination. Only trusted shell chrome can confirm it.
+      const rect = value.rect;
+      const inParent = () => {
+        const frameRect = frame.getBoundingClientRect();
+        return { ...rect, x: frameRect.left + rect.x, y: frameRect.top + rect.y };
+      };
+      let last = inParent();
+      // A refusal can arrive as a concurrent source edit remounts the frame.
+      options.onTaskCheckbox(appliedSource, value.input, () => {
+        if (frame.isConnected) last = inParent();
+        return last;
+      });
+      return;
+    }
+    if (
+      ready &&
       Object.keys(value).length === 3 &&
       value.type === 'colab.render.attachment-download' &&
       value.renderId === snapshot.renderId &&
@@ -868,6 +916,7 @@ export async function mountRenderer(
     if (!settled) settleTimer = setTimeout(settle, SETTLE_GRACE_MS);
     // A choice can change between source init and the bound acknowledgement.
     sendTheme();
+    sendTaskCheckboxes();
     queueViewport();
     images(imageInput);
     const sourceElements = [
@@ -1794,6 +1843,7 @@ export async function mountRenderer(
         type: 'colab.render.bind',
         ...snapshot,
         theme: frameTheme(),
+        ...(taskCheckboxes ? { taskCheckboxes: true } : {}),
         ...(options.layout ? { layout: options.layout } : {}),
         ...(boundRuntime ? { runtime: boundRuntime } : {}),
         ...(bundle && ds ? { ds: { script: ds.script, style: ds.style } } : {}),
@@ -1894,7 +1944,10 @@ export async function mountRenderer(
       const settle = (result: SourceUpdate) => {
         clearTimeout(timer);
         if (pendingUpdate?.requestId === requestId) pendingUpdate = undefined;
-        if (result === 'applied') frame.dataset.sourceDigest = sourceDigest;
+        if (result === 'applied') {
+          appliedSource = source;
+          frame.dataset.sourceDigest = sourceDigest;
+        }
         resolve(result);
       };
       pendingUpdate = { requestId, settle };
@@ -1957,6 +2010,11 @@ export async function mountRenderer(
     setTheme: (theme?: Theme) => {
       chosenTheme = theme;
       sendTheme();
+    },
+    setTaskCheckboxes: (enabled: boolean) => {
+      if (taskCheckboxes === enabled) return;
+      taskCheckboxes = enabled;
+      sendTaskCheckboxes();
     },
     snapshot,
     update,

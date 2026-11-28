@@ -25,9 +25,20 @@ test('an open owner page survives a Remote restart without a click or a reload',
     const door = await startDoor(world, await freePort());
     const agent = await world.startAgent('reconnect-agent');
     const browser = await pairBrowser(world, 'reconnect-owner', { talk: true });
-    const created = createPage(world, 'Remote restart', '<h1 id="h">Before</h1>', agent.pane);
+    const source =
+      '<h1 id="h">Before</h1><h2>Tasks</h2><label><input type="checkbox"> Review</label>';
+    const created = createPage(world, 'Remote restart', source, agent.pane);
     const page = await openPage(door, browser, created);
     await expect(page.locator('.status.live .status-label')).toHaveText('Live');
+    const frame = await page.locator('iframe').elementHandle();
+    const originalFrame = () =>
+      page.evaluate((before) => before === document.querySelector('iframe'), frame);
+    const checkbox = page.frameLocator('iframe').getByRole('checkbox', { name: 'Review' });
+    const confirmation = page.getByRole('dialog', { name: 'Check saved checkbox?' });
+    await checkbox.click();
+    await expect(confirmation).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(confirmation).toBeHidden();
     await openChat(page);
     const navigations: string[] = [];
     page.on('framenavigated', (frame) => {
@@ -43,6 +54,15 @@ test('an open owner page survives a Remote restart without a click or a reload',
     );
     await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
     await expect(page.frameLocator('iframe').locator('#h')).toHaveText('Before');
+    expect(await originalFrame()).toBe(true);
+    // An offline owner click cannot change either the rendered checkbox or saved source.
+    await checkbox.click();
+    await expect(checkbox).not.toBeChecked();
+    await expect(confirmation).toHaveCount(0);
+    const saved = JSON.parse(
+      run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json']),
+    ) as { source: string };
+    expect(saved.source).toBe(source);
     await new Promise((resolve) => setTimeout(resolve, 3000));
     await restartRemote(world, door);
 
@@ -50,6 +70,12 @@ test('an open owner page survives a Remote restart without a click or a reload',
       timeout: 90_000,
     });
     await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
+    expect(await originalFrame()).toBe(true);
+    await expect(checkbox).not.toBeChecked();
+    await checkbox.click();
+    await expect(confirmation).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(confirmation).toBeHidden();
 
     // It reads: a write after the restart reaches the open tab.
     run(

@@ -41,20 +41,31 @@ pub struct MetadataEdit {
 }
 
 /// Reject unknown actions and excess fields before opening a native source.
-pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
+pub fn validate(action: &str, body: &Value) -> crate::Result<Option<StructuredKind>> {
     let invalid = || super::Fault::Invalid;
     match action {
+        "html.checkbox" => {
+            crate::closed::keys(body, &["input", "checked"], &[]).map_err(|_| invalid())?;
+            if !body["input"]
+                .as_u64()
+                .is_some_and(|input| input < (crate::decoder::BASELINE_BYTES as u64 / 6))
+                || !body["checked"].is_boolean()
+            {
+                return Err(invalid().into());
+            }
+            Ok(None)
+        }
         "page.convert" | "page.revert" => {
             crate::closed::keys(body, &[], &[]).map_err(|_| invalid())?;
-            Ok(StructuredKind::Conversion)
+            Ok(Some(StructuredKind::Conversion))
         }
         "page.state" => {
             crate::page_state::validate_action(action, body).map_err(|_| invalid())?;
-            Ok(StructuredKind::PageState)
+            Ok(Some(StructuredKind::PageState))
         }
         "page.title" => {
             crate::page_state::validate_title(action, body).map_err(|_| invalid())?;
-            Ok(StructuredKind::Title)
+            Ok(Some(StructuredKind::Title))
         }
         "page.set" => {
             let mut checked = body.clone();
@@ -65,7 +76,7 @@ pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
                 checked["owner"] = Value::Null;
             }
             crate::page_state::validate_work_edit(&checked).map_err(|_| invalid())?;
-            Ok(StructuredKind::WorkFields)
+            Ok(Some(StructuredKind::WorkFields))
         }
         "creator.set" => {
             crate::question_registry::validate_creator_selection(body).map_err(|_| invalid())?;
@@ -73,7 +84,7 @@ pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
             if body.get("machineId").is_some() {
                 return Err(invalid().into());
             }
-            Ok(StructuredKind::Creator)
+            Ok(Some(StructuredKind::Creator))
         }
         // Save as template and Remove template (#5077): the serve admits the name and the page
         // with the rules `template save` and `template remove` use (`prepare`).
@@ -86,11 +97,11 @@ pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
             {
                 return Err(invalid().into());
             }
-            Ok(StructuredKind::Template)
+            Ok(Some(StructuredKind::Template))
         }
         "template.clear" => {
             crate::closed::keys(body, &[], &[]).map_err(|_| invalid())?;
-            Ok(StructuredKind::Template)
+            Ok(Some(StructuredKind::Template))
         }
         "question.handle" | "question.reopen" => {
             crate::closed::keys(body, &["id"], &[]).map_err(|_| invalid())?;
@@ -100,7 +111,7 @@ pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
             {
                 return Err(invalid().into());
             }
-            Ok(StructuredKind::Questions)
+            Ok(Some(StructuredKind::Questions))
         }
         "question.agent" => {
             // A browser names the recipient with a `selector` and never supplies a label; the
@@ -115,7 +126,7 @@ pub fn validate(action: &str, body: &Value) -> crate::Result<StructuredKind> {
             {
                 return Err(invalid().into());
             }
-            Ok(StructuredKind::Questions)
+            Ok(Some(StructuredKind::Questions))
         }
         _ => Err(invalid().into()),
     }
@@ -153,7 +164,9 @@ pub fn prepare(
     edit: &MetadataEdit,
     clock: &dyn Fn() -> crate::Result<u64>,
 ) -> crate::Result<PreparedEdit> {
-    let kind = validate(&edit.action, &edit.body)?;
+    let Some(kind) = validate(&edit.action, &edit.body)? else {
+        return prepare_checkbox(open, edit, clock);
+    };
     let body = if edit.action == "question.agent" {
         resolve_question_agent(&edit.body)?
     } else if edit.action == "page.set" {
@@ -225,10 +238,73 @@ pub fn prepare(
     })
 }
 
+/// Set the one checkbox in the source the owner saw. A stale operation is never rebased.
+fn prepare_checkbox(
+    open: &SourceOpener,
+    edit: &MetadataEdit,
+    clock: &dyn Fn() -> crate::Result<u64>,
+) -> crate::Result<PreparedEdit> {
+    let mut source = open()?;
+    let (current, base) = super::read_for_patch(
+        &source.store,
+        &source.keyring,
+        &edit.page,
+        &mut source.decoder,
+    )?;
+    if current.revision != edit.expected_revision {
+        return Err(super::Fault::StaleBase.into());
+    }
+    let input = edit.body["input"].as_u64().ok_or(super::Fault::Invalid)? as usize;
+    let checked = edit.body["checked"]
+        .as_bool()
+        .ok_or(super::Fault::Invalid)?;
+    let next = crate::page_check::set_checkbox(&current.source, input, checked)
+        .ok_or(super::Fault::Invalid)?;
+    let prepared = super::prepare_publication_with_clock(
+        &source.store,
+        &source.keyring,
+        &edit.page,
+        crate::decoder::ContentEdit {
+            source: &next,
+            publisher_agent: None,
+            layout: None,
+            attachments: None,
+        },
+        super::PublishOptions {
+            expected_revision: Some(&edit.expected_revision),
+            operation_id: Some(&edit.operation_id),
+            base: Some(&base),
+            ..Default::default()
+        },
+        &mut source.decoder,
+        clock,
+    )?;
+    let super::PublicationPreparation::Write(frozen) = prepared else {
+        return Err(super::Fault::Invalid.into());
+    };
+    Ok(PreparedEdit {
+        prepared: Prepared::Write(frozen),
+        removes: None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn a_checkbox_frame_names_one_input_and_cannot_supply_source() {
+        assert!(validate("html.checkbox", &json!({"input":0,"checked":true})).is_ok());
+        for body in [
+            json!({"input":0,"checked":true,"source":"<input>"}),
+            json!({"input":-1,"checked":true}),
+            json!({"input":0,"checked":1}),
+            json!({"input":u64::MAX,"checked":false}),
+        ] {
+            assert!(validate("html.checkbox", &body).is_err(), "{body}");
+        }
+    }
+
     #[test]
     fn browser_metadata_is_closed_and_cannot_register_or_forge_attribution() {
         let id = "10000000-0000-4000-8000-000000000001";

@@ -39,6 +39,197 @@ const bandIn = (details: Locator) => details.getByRole('region', { name: 'Work o
 
 test.afterEach(disposeActiveWorlds);
 
+test('HTML checklists supply saved section progress to Work and the outline', async () => {
+  await withWorld(async (world) => {
+    const unchecked = '<input type="checkbox" id="review">';
+    const initial = `<h2>Prepare</h2>
+        <label><input type="checkbox" checked> Draft notes</label>
+        <label>${unchecked} Review notes</label>
+        <h2>Publish</h2><label><input type="checkbox" checked> Publish notes</label>
+        <h2>Notes</h2><p>[x] Example markup</p>
+        <script>window.addEventListener('message', ({ data }) => {
+          if (data?.type === 'test.nominate') parent.postMessage(data.nomination, '*');
+        });</script>`;
+    const created = createPage(world, 'Release checklist', initial);
+    const door = await startDoor(world);
+    const browser = await pairBrowser(world, 'html-checklist-owner');
+    await browser.context.addInitScript(() => {
+      if (window !== window.parent) return;
+      window.addEventListener('message', (event) => {
+        if (event.data?.type === 'colab.render.height')
+          document.documentElement.dataset.testRenderId = event.data.renderId;
+      });
+    });
+    const cli = (...args: string[]) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json']));
+    const read = () => cli('page', 'read', created.pageId).source as string;
+    const sent: { type: string; operationId: string }[] = [];
+    let race = false;
+    let dropReply = false;
+    await browser.context.routeWebSocket(/\/sync/, (ws) => {
+      const server = ws.connectToServer();
+      ws.onMessage((message) => {
+        const frame = JSON.parse(String(message));
+        if (frame.type === 'metadata' && frame.action === 'html.checkbox') {
+          sent.push({ type: frame.type, operationId: frame.operationId });
+          if (race) {
+            race = false;
+            cli(
+              'page',
+              'patch',
+              created.pageId,
+              '--find',
+              'Example markup',
+              '--replace',
+              'Latest markup',
+            );
+          }
+        } else if (frame.type === 'savestatus') {
+          sent.push({ type: frame.type, operationId: frame.operationId });
+        }
+        server.send(message);
+      });
+      server.onMessage((message) => {
+        const frame = JSON.parse(String(message));
+        if (frame.type === 'metadataresult') {
+          if (dropReply) {
+            dropReply = false;
+            ws.close();
+            return;
+          }
+        }
+        ws.send(message);
+      });
+    });
+    const page = await openPage(door, browser, created);
+    const defaultViewport = page.viewportSize()!;
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const assertWorkCounts = (done: number, inProgress: number) => {
+      const counts = { done, inProgress, todo: 0, unknown: 0, total: 2 };
+      expect(cli('show', created.pageId).page.sectionProgress).toEqual(counts);
+      const listed = cli('ls', '--work').pages.find(
+        (entry: { pageId: string }) => entry.pageId === created.pageId,
+      );
+      expect(listed.summary.sectionProgress).toEqual(counts);
+    };
+    const checkbox = page.frameLocator('iframe').getByRole('checkbox', { name: 'Review notes' });
+    await expect(checkbox).not.toBeChecked();
+    const outline = page.getByRole('navigation', { name: 'Page outline' });
+    const assertCompactProgress = async (count: string, pageShare: string) => {
+      await expect(page.locator('.html-outline[data-compact]')).toBeVisible();
+      const toggle = outline.getByRole('button', { name: 'Outline', exact: true });
+      await toggle.click();
+      await expect(
+        outline.getByRole('button', { name: /^Prepare/ }).locator('.page-outline-section-count'),
+      ).toContainText(count);
+      const meter = outline.locator('.page-outline-meter');
+      await expect(meter).toBeVisible();
+      await expect(meter).toHaveCSS('--tmt-ui-meter-fill', pageShare);
+      await toggle.click();
+    };
+    await assertCompactProgress('1/2', '50');
+
+    // The strip needs a 40px gutter outside the author column and marker lane.
+    await page.setViewportSize({ width: 1920, height: 900 });
+    await page.getByRole('button', { name: 'Collapse side menu', exact: true }).click();
+    const progress = outline.locator('.page-outline-strip');
+    const total = progress.locator('.page-outline-strip-total');
+    const prepareBar = progress.locator('.page-outline-bar').first();
+    await expect(progress).toBeVisible();
+    await expect(total).toHaveText('1/2');
+    await expect(prepareBar).toHaveCSS('--page-outline-share', '50%');
+    await expect(progress).toHaveAccessibleName('Outline, 1/2 done');
+    assertWorkCounts(1, 1);
+
+    // The authored frame can send a valid nomination for a different task. The trusted
+    // preview uses the saved label and cannot be activated by a synthetic button click.
+    await expect(page.locator('html')).toHaveAttribute('data-test-render-id', /:/);
+    await page.evaluate(() => {
+      const frame = document.querySelector('iframe')!;
+      frame.contentWindow!.postMessage(
+        {
+          type: 'test.nominate',
+          nomination: {
+            type: 'colab.render.task-checkbox',
+            renderId: document.documentElement.dataset.testRenderId,
+            sourceDigest: frame.dataset.sourceDigest,
+            input: 0,
+            rect: { x: 10, y: 10, width: 14, height: 14 },
+          },
+        },
+        '*',
+      );
+    });
+    const forged = page.getByRole('dialog', { name: 'Uncheck saved checkbox?' });
+    await expect(forged.getByText(/Draft notes/)).toBeVisible();
+    const forgedConfirm = forged.getByRole('button', { name: 'Uncheck and save' });
+    await expect(forgedConfirm).toBeEnabled();
+    await expect(forged).toBeFocused();
+    await page.keyboard.press('Enter');
+    await forgedConfirm.dispatchEvent('click');
+    await page.keyboard.press('Escape');
+    await expect(forged).toBeHidden();
+    expect(sent).toEqual([]);
+    expect(read()).toBe(initial);
+
+    // A CLI publication races after browser confirmation and before the owner receives it.
+    const dialog = page.getByRole('dialog', { name: 'Check saved checkbox?' });
+    const confirm = dialog.getByRole('button', { name: 'Check and save' });
+    await checkbox.click();
+    await expect(dialog.getByText(/Review notes/)).toBeVisible();
+    await expect(checkbox).not.toBeChecked();
+    race = true;
+    await confirm.click();
+    await expect(dialog.getByRole('alert')).toContainText('This checkbox was not saved');
+    await dialog.getByRole('button', { name: 'Close checkbox confirmation' }).click();
+    const latest = initial.replace('Example markup', 'Latest markup');
+    expect(read()).toBe(latest);
+    expect(sent.map(({ type }) => type)).toEqual(['metadata']);
+
+    await expect(page.frameLocator('iframe').getByText('[x] Latest markup')).toBeVisible();
+    await expect(checkbox).not.toBeChecked();
+    await expect(progress).toHaveAccessibleName('Outline, 1/2 done');
+    await checkbox.click();
+    dropReply = true;
+    await confirm.click();
+    await expect(dialog).toBeHidden();
+    await expect(checkbox).toBeChecked();
+    await expect(progress).toHaveAccessibleName('Outline, 2/2 done');
+    await expect(total).toHaveText('2/2');
+    await expect(prepareBar).toHaveCSS('--page-outline-share', '100%');
+    expect(sent.map(({ type }) => type)).toEqual(['metadata', 'metadata', 'savestatus']);
+    expect(sent[2]?.operationId).toBe(sent[1]?.operationId);
+    const checked = '<input checked type="checkbox" id="review">';
+    expect(read()).toBe(latest.replace(unchecked, checked));
+    await page.reload();
+    await expect(checkbox).toBeChecked();
+    await expect(progress).toHaveAccessibleName('Outline, 2/2 done');
+    assertWorkCounts(2, 0);
+    await page.setViewportSize(defaultViewport);
+    await assertCompactProgress('Done', '100');
+    await page.goto(new URL('/colab/work', door.origin).href);
+    await expect(
+      page
+        .locator('.work-home-row')
+        .filter({ hasText: 'Release checklist' })
+        .locator('.work-home-sections'),
+    ).toContainText('2/2');
+
+    await page.goBack();
+    await expect(checkbox).toBeChecked();
+    await checkbox.focus();
+    await page.keyboard.press('Space');
+    const uncheck = page.getByRole('dialog', { name: 'Uncheck saved checkbox?' });
+    await expect(uncheck).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(uncheck.getByRole('button', { name: 'Uncheck and save' })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(uncheck).toBeHidden();
+    await expect(checkbox).not.toBeChecked();
+    expect(read()).toBe(latest);
+  });
+});
+
 test('an open linked PR supplies the owner page status', async () => {
   await withWorld(async (world) => {
     const result = JSON.stringify({

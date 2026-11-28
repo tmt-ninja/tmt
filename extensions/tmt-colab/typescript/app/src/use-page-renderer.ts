@@ -16,6 +16,7 @@ export interface RendererHandlers {
     quote: QuoteSelector | null | undefined,
     rect: SelectionRect | null | undefined,
   ): void;
+  onTaskCheckbox?: RendererOptions['onTaskCheckbox'];
   onAnnotate(): void;
   onToggleSelectionMode(): void;
   onKey(key: Parameters<NonNullable<RendererOptions['onKey']>>[0]): void;
@@ -86,6 +87,12 @@ export function usePageRenderer({
   pageView?: RendererOptions['pageView'];
   workBundle?: RendererOptions['workBundle'];
 }) {
+  const taskCheckboxes = !!handlers.onTaskCheckbox;
+  // Admission can temporarily disappear on reconnect. Keep the admitted frame drawn while the
+  // checkbox interaction follows the connection.
+  useEffect(() => {
+    renderer.current?.setTaskCheckboxes(taskCheckboxes);
+  }, [renderer, taskCheckboxes]);
   const [resolved, setResolved] = useState<string[]>([]);
   const [anchorsChecked, setAnchorsChecked] = useState(false);
   // Until the frame reports what its page paints, the cards keep the app theme.
@@ -214,6 +221,9 @@ export function usePageRenderer({
               ?.offsetHeight ?? 0)
           : 0,
       viewportBottom: () => reserve.current,
+      taskCheckboxes: !!current.current.onTaskCheckbox,
+      onTaskCheckbox: (source, ordinal, anchor) =>
+        current.current.onTaskCheckbox?.(source, ordinal, anchor),
       onSelection: (_value, quote, rect) => current.current.onSelection(quote, rect),
       onAnchors: (ids, checked = false) => {
         setResolved(ids);
@@ -231,6 +241,7 @@ export function usePageRenderer({
         if (controller.signal.aborted) handle.destroy();
         else {
           renderer.current = handle;
+          handle.setTaskCheckboxes(!!current.current.onTaskCheckbox);
           handle.images(imageInput.current);
           setRendererMounts((count) => count + 1);
         }

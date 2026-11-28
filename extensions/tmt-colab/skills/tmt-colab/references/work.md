@@ -42,6 +42,24 @@ Every change applies to the page's current revision, or to `--expected-revision`
 `COLAB_STALE_BASE` means the page changed, so read it again. An invalid value refuses the whole
 change.
 
+## HTML checklists
+
+Under an HTML page's `h2` or `h3`, use native task checkboxes outside forms and fieldsets:
+
+```html
+<h2>Release checklist</h2>
+<ul>
+  <li><label><input type="checkbox" checked> Draft the notes</label></li>
+  <li><label><input type="checkbox"> Review the notes</label></li>
+</ul>
+```
+
+This section shows 1/2. An enclosing section also includes those two tasks. On an owner device,
+click the checkbox and confirm the saved change in Colab. Work and the outline update when the
+save lands, and the tick survives reload. If the page changed before the save, review the latest
+state and select the task again. A shared reader's toggle stays in its frame. Saving a source edit
+that adds or removes `checked` also records progress.
+
 ## Link rules
 
 A page has one parent, a link never closes a loop, and sub-pages nest at any depth. An attach that

@@ -1089,6 +1089,14 @@ export const text = {
     'This address does not match the pinned space. Return to the original space address.',
   noWraps: 'This device has no verified page key yet. The page remains blocked.',
   save: 'Save source',
+  taskCheckbox: {
+    location: (ordinal: number) => `Checkbox ${ordinal + 1} on this page`,
+    check: { title: 'Check saved checkbox?', save: 'Check and save' },
+    uncheck: { title: 'Uncheck saved checkbox?', save: 'Uncheck and save' },
+    close: 'Close checkbox confirmation',
+    stale:
+      'The page changed before the save. This checkbox was not saved. The page shows the latest saved state.',
+  },
   editFailed:
     'The edit was not saved. Reopen the page to review the latest source before trying again.',
   saveTooLarge: (size: number, limit: number) =>

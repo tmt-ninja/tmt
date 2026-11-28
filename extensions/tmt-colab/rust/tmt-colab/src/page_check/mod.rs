@@ -46,6 +46,10 @@ pub(crate) enum Part {
     Heading(u8, String),
     /// A question or question group, by its `data-id`.
     Question(String),
+    /// An eligible task checkbox, with the boolean checked attribute from the source.
+    TaskCheckbox {
+        checked: bool,
+    },
     /// A link or a text node, either of which may name a pull request.
     Link(String),
     Text(String),
@@ -60,7 +64,7 @@ pub(crate) fn parts(source: &str) -> Option<Vec<Part>> {
             continue;
         }
         let name = tree.name(id);
-        if matches!(name, "h2" | "h3") && tree.closest(id, &["tmt-question"]).is_none() {
+        if section_heading(&tree, id) {
             let text = tree.visible_text_of(id);
             let collapsed = text.split_whitespace().collect::<Vec<_>>().join(" ");
             found.push(Part::Heading(
@@ -71,6 +75,10 @@ pub(crate) fn parts(source: &str) -> Option<Vec<Part>> {
             && let Some(id) = tree.attr(id, "data-id")
         {
             found.push(Part::Question(id.to_owned()));
+        } else if task_checkbox(&tree, id) {
+            found.push(Part::TaskCheckbox {
+                checked: tree.attr(id, "checked").is_some(),
+            });
         } else if name == "a"
             && let Some(href) = tree.attr(id, "href")
         {
@@ -78,6 +86,163 @@ pub(crate) fn parts(source: &str) -> Option<Vec<Part>> {
         }
     }
     Some(found)
+}
+
+fn section_heading(tree: &tree::Tree, id: tree::Id) -> bool {
+    matches!(tree.name(id), "h2" | "h3") && tree.closest(id, &["tmt-question"]).is_none()
+}
+
+/// The shared checkbox rule. Callers work from the visible document order.
+fn task_checkbox(tree: &tree::Tree, id: tree::Id) -> bool {
+    tree.name(id) == "input"
+        && tree.is_html(id)
+        && tree
+            .attr(id, "type")
+            .is_some_and(|value| value.eq_ignore_ascii_case("checkbox"))
+        && tree.attr(id, "disabled").is_none()
+        && tree.attr(id, "form").is_none()
+        && tree
+            .closest(id, &["form", "fieldset", "tmt-question", "tmt-questions"])
+            .is_none()
+}
+
+/// Resolve an input's zero-based DOM ordinal to a single exact start tag. Counting and
+/// publication share the eligibility rule, including the prerequisite of a section heading.
+pub(crate) fn set_checkbox(source: &str, ordinal: usize, checked: bool) -> Option<String> {
+    let (tree, _) = tree::parse_positioned(source)?;
+    let id = tree
+        .elements()
+        .into_iter()
+        .filter(|&id| tree.name(id) == "input" && tree.is_html(id))
+        .nth(ordinal)?;
+    let mut heading = false;
+    for (candidate, text) in tree.visible_order() {
+        if text.is_some() {
+            continue;
+        }
+        if candidate == id {
+            if !heading
+                || !task_checkbox(&tree, id)
+                || tree.attr(id, "checked").is_some() == checked
+            {
+                return None;
+            }
+            let range = tree.source_range(id)?;
+            let tag = edit_checked_attribute(source.get(range.clone())?, checked)?;
+            let mut edited = source.to_owned();
+            edited.replace_range(range, &tag);
+            return Some(edited);
+        }
+        heading |= section_heading(&tree, candidate);
+    }
+    None
+}
+
+/// Only rewrite an unambiguous start tag. Consume values before looking for the next
+/// attribute so a spelling of `checked` in a quoted value or comment cannot be changed.
+fn edit_checked_attribute(tag: &str, checked: bool) -> Option<String> {
+    let bytes = tag.as_bytes();
+    let space = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | b'\x0c' | b'\r');
+    let mut at = "<input".len();
+    let mut ranges = Vec::new();
+    loop {
+        let start = at;
+        while bytes.get(at).copied().is_some_and(space) {
+            at += 1;
+        }
+        if matches!(&bytes[at..], b">" | b"/>") {
+            break;
+        }
+        if at == start {
+            return None;
+        }
+        let name = at;
+        while bytes.get(at).is_some_and(|&c| {
+            !space(c) && !matches!(c, b'=' | b'/' | b'>' | b'<' | b'"' | b'\'' | 0)
+        }) {
+            at += 1;
+        }
+        if name == at {
+            return None;
+        }
+        let is_checked = bytes[name..at].eq_ignore_ascii_case(b"checked");
+        let name_end = at;
+        while bytes.get(at).copied().is_some_and(space) {
+            at += 1;
+        }
+        if bytes.get(at) == Some(&b'=') {
+            at += 1;
+            while bytes.get(at).copied().is_some_and(space) {
+                at += 1;
+            }
+            if let Some(&quote @ (b'"' | b'\'')) = bytes.get(at) {
+                at += bytes[at + 1..].iter().position(|&c| c == quote)? + 2;
+            } else {
+                let value = at;
+                while bytes.get(at).is_some_and(|&c| !space(c) && c != b'>') {
+                    if matches!(bytes[at], b'"' | b'\'' | b'<' | b'`' | b'=' | 0) {
+                        return None;
+                    }
+                    at += 1;
+                }
+                if at == value {
+                    return None;
+                }
+            }
+        } else {
+            at = name_end;
+        }
+        if is_checked {
+            ranges.push(start..at);
+        }
+    }
+    let mut edited = tag.to_owned();
+    if checked && ranges.is_empty() {
+        // All HTML inputs begin with a tag name followed by a delimiter.
+        edited.insert_str("<input".len(), " checked");
+    } else if !checked && !ranges.is_empty() {
+        for range in ranges.into_iter().rev() {
+            edited.replace_range(range, "");
+        }
+    } else {
+        return None;
+    }
+    Some(edited)
+}
+
+#[cfg(test)]
+mod checkbox_tests {
+    use super::set_checkbox;
+
+    #[test]
+    fn toggling_a_task_preserves_every_other_source_byte() {
+        let before = "<input type=checkbox><h2>Prépare</h2>\r\n<!-- <input checked> --><label>";
+        let input = "<INPUT data-note='checked > café' type=CHECKBOX />";
+        let after = "</label><label><input checked type=checkbox> Keep this one</label>";
+        let source = format!("{before}{input}{after}");
+        let expected =
+            format!("{before}<INPUT checked data-note='checked > café' type=CHECKBOX />{after}");
+        let actual = set_checkbox(&source, 1, true).unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(
+            set_checkbox(&actual, 1, false).as_deref(),
+            Some(source.as_str())
+        );
+        assert_eq!(set_checkbox(&source, 0, true), None); // No section above this input.
+        assert_eq!(set_checkbox(&source, 2, true), None); // Already checked.
+    }
+
+    #[test]
+    fn a_task_uses_its_parsed_node_even_when_other_input_tags_do_not_enter_the_tree() {
+        let source = "<h2>Tasks</h2><template><input type=checkbox></template>            <fieldset><input type=checkbox></fieldset><p hidden><input type=checkbox></p>            <input type='checkbox' CHECKED = 'false' checked=1 aria-label='checked'>";
+        assert_eq!(set_checkbox(source, 0, true), None);
+        assert_eq!(set_checkbox(source, 1, true), None);
+        assert_eq!(
+            set_checkbox(source, 2, false),
+            Some(source.replace(" CHECKED = 'false' checked=1", ""))
+        );
+        assert_eq!(set_checkbox(source, 3, false), None);
+    }
 }
 
 /// Renderer text excludes script and hidden subtrees, like the page's text walker.

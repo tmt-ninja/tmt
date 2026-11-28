@@ -8,6 +8,7 @@
 //! The arena is the only `TreeSink`: nodes are indices, parents are indices, and nothing is
 //! recursive, so a deeply nested source can neither overflow the stack nor on drop.
 
+use std::ops::Range;
 use std::{borrow::Cow, cell::Cell, cell::RefCell, collections::HashSet, rc::Rc};
 
 use crate::limits::PAGE_DEPTH;
@@ -41,6 +42,11 @@ pub(crate) struct SourceTag {
 /// The checker's fragment parser, with a transparent token observer for source-preserving copies.
 /// Ordinary checks keep their existing fast parse; only a template copy needs source positions.
 pub(crate) fn start_tags(source: &str) -> Option<Vec<SourceTag>> {
+    parse_positioned(source).map(|(_, tags)| tags)
+}
+
+/// Use the same fragment parse for exact source positions and DOM order.
+pub(super) fn parse_positioned(source: &str) -> Option<(Tree, Vec<SourceTag>)> {
     let deep = Rc::new(Cell::new(None));
     let sink = Sink::new(Rc::clone(&deep));
     let parser = parse_fragment(
@@ -83,7 +89,8 @@ pub(crate) fn start_tags(source: &str) -> Option<Vec<SourceTag>> {
         at = end;
     }
     tokenizer.end();
-    Some(tokenizer.sink.tags.into_inner())
+    let sink = tokenizer.sink;
+    Some((sink.builder.sink.finish(), sink.tags.into_inner()))
 }
 
 struct SourceTokens<'a> {
@@ -98,6 +105,7 @@ impl TokenSink for SourceTokens<'_> {
     type Handle = Handle;
 
     fn process_token(&self, token: Token, line: u64) -> TokenSinkResult<Handle> {
+        let mut input_range = None;
         if !matches!(token, Token::ParseError(_)) {
             // BufferQueue clones share tendril bytes, not consumption. Include pending lookahead
             // buffers: offsets are bytes of the original input, never decoded token text lengths.
@@ -131,12 +139,16 @@ impl TokenSink for SourceTokens<'_> {
                         && raw.ends_with('>'))
                     .then_some(start..end)
                 });
+                if tag.name == local_name!("input") {
+                    input_range = range.clone();
+                }
                 self.tags.borrow_mut().push(SourceTag {
                     name: tag.name.to_string(),
                     range,
                 });
             }
         }
+        self.builder.sink.input_range.replace(input_range);
         self.builder.process_token(token, line)
     }
 
@@ -154,6 +166,8 @@ pub(super) type Id = usize;
 
 struct ParsedElement {
     name: String,
+    html: bool,
+    source_range: Option<Range<usize>>,
     attrs: Vec<(String, String)>,
     /// The line of the end of the start tag, as the tokenizer counted it.
     line: u64,
@@ -240,6 +254,14 @@ impl Tree {
 
     pub(super) fn name(&self, id: Id) -> &str {
         &self.element(id).name
+    }
+
+    pub(super) fn is_html(&self, id: Id) -> bool {
+        self.element(id).html
+    }
+
+    pub(super) fn source_range(&self, id: Id) -> Option<Range<usize>> {
+        self.element(id).source_range.clone()
     }
 
     pub(super) fn line(&self, id: Id) -> u64 {
@@ -448,6 +470,7 @@ struct Sink {
     /// Shared so the caller still holds the nodes when it stops a parse early.
     nodes: Rc<RefCell<Vec<Node>>>,
     line: Cell<u64>,
+    input_range: Cell<Option<Range<usize>>>,
     unnamed: Rc<QualName>,
     deep: Rc<Cell<Option<Overflow>>>,
 }
@@ -457,6 +480,7 @@ impl Sink {
         Sink {
             nodes: Rc::new(RefCell::new(vec![node(Kind::Document)])),
             line: Cell::new(1),
+            input_range: Cell::new(None),
             unnamed: Rc::new(QualName::new(None, ns!(), local_name!(""))),
             deep,
         }
@@ -549,6 +573,10 @@ impl TreeSink for Sink {
         });
         nodes.push(node(Kind::Element(ParsedElement {
             name: name.local.to_string(),
+            html: name.ns == ns!(html),
+            source_range: (name.local == local_name!("input"))
+                .then(|| self.input_range.take())
+                .flatten(),
             attrs: attrs
                 .into_iter()
                 .map(|attr| (attr.name.local.to_string(), attr.value.to_string()))
