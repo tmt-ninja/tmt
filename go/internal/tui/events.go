@@ -60,6 +60,9 @@ const (
 	KeyModShift   KeyModifiers = 1 << 0
 	KeyModControl KeyModifiers = 1 << 1
 	KeyModAlt     KeyModifiers = 1 << 2
+	KeyModSuper   KeyModifiers = 1 << 3
+	KeyModHyper   KeyModifiers = 1 << 4
+	KeyModMeta    KeyModifiers = 1 << 5
 )
 
 func (m KeyModifiers) Contains(other KeyModifiers) bool   { return m&other == other }
