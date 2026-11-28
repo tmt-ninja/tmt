@@ -460,6 +460,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   --colab-block-inset: 56px;
 }
 .structured-page-stage {
+  --colab-comment-gap: 10px;
   box-sizing: border-box;
   max-width: 1280px;
   margin-inline: var(--tmt-ui-header-padding-inline) calc(var(--colab-lane) + 12px);
@@ -650,7 +651,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   --tmt-ui-host-icon-action-size: 24px;
   position: absolute;
   inset-block-start: 0;
-  inset-inline-start: 100%;
+  inset-inline-start: calc(100% + var(--colab-comment-gap));
   z-index: 1;
   display: flex;
   visibility: hidden;
@@ -664,6 +665,14 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 .structured-comment-action[data-fits]:focus-within {
   opacity: 1;
   pointer-events: auto;
+}
+/* Keep the shown action in the block document's pointer path across the empty gutter. */
+.structured-comment-action[data-fits][data-shown]::before {
+  content: '';
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 100%;
+  inline-size: var(--colab-comment-gap);
 }
 @media (max-width: 900px) {
   .structured-comment-action {
