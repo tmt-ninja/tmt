@@ -530,4 +530,11 @@ fn allowance_budget_rows_distinguish_missing_floors_and_exact_spend() {
     ));
     assert_eq!(details.matches("phase:").count(), 3);
     assert!(!details.contains("tokens:"));
+    assert_eq!(
+        super::super::allowance::readable_reasons(&[
+            "retired_unread".into(),
+            "future_reason_id".into(),
+        ]),
+        "retired members unread, future_reason_id"
+    );
 }

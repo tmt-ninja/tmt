@@ -554,8 +554,21 @@ pub(super) fn budget_sources(app: &App, now: u64) -> Vec<String> {
         .collect()
 }
 
-fn readable_reasons(reasons: &[String]) -> String {
-    crate::board::notes::sanitize(&reasons.join(", ").replace('_', " "))
+pub(super) fn readable_reasons(reasons: &[String]) -> String {
+    let labels = reasons.iter().map(|id| match id.as_str() {
+        "no_price" => "no price",
+        "class_price_missing" => "token class price missing",
+        "unsafe_cost" => "unsafe cost",
+        "cache_write_unreported" => "cache writes unreported",
+        "attribution_split_dropped" => "model attribution split dropped",
+        "coverage_partial" => "coverage partial",
+        "before_retention" => "before retained history",
+        "unmapped_model" => "unmapped model",
+        "retired_unread" => "retired members unread",
+        "usage_unreadable" => "usage unreadable",
+        _ => id,
+    });
+    crate::board::notes::sanitize(&labels.collect::<Vec<_>>().join(", "))
 }
 
 pub(super) fn budget_details(app: &App, now: u64) -> Vec<String> {

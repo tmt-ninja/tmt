@@ -121,3 +121,79 @@ pub(super) fn read(core: &Core, start: u64) -> Result<SpendReport, String> {
         .map_err(|error| error.message)?;
     SpendReport::decode(&document, start)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::{Scratch, write_ready_executable};
+    use serde_json::json;
+
+    #[test]
+    fn budget_reader_consumes_the_landed_spend_vector() {
+        let vector: Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../tmt-digest/contracts/vectors/usage-report-v1.json"
+        )))
+        .unwrap();
+        let case = vector["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|case| case["name"] == "spend from a period start")
+            .unwrap();
+        let start = case["requestedFromMs"].as_u64().unwrap();
+        let scratch = Scratch::new("budget-spend");
+        let document = json!({"version": 1, "since": null, "spend": case["expected"]});
+        std::fs::write(scratch.join("spend.json"), document.to_string()).unwrap();
+        let core = scratch.join("core");
+        write_ready_executable(
+            &core,
+            "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/argv\"\nexec cat \"$(dirname \"$0\")/spend.json\"\n",
+        );
+        let report = read(&Core::at(core), start).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(scratch.join("argv")).unwrap(),
+            "digest\nusage\nreport\n--from\n2026-11-29T00:00:00.001Z\n--json\n",
+        );
+        let [anthropic, google, openai] = report.providers.as_slice() else {
+            panic!("expected all three billing vendors");
+        };
+        assert_eq!(anthropic.total.usd_micros, None);
+        assert!(
+            anthropic
+                .total
+                .reasons
+                .iter()
+                .any(|reason| reason == "no_price")
+        );
+        assert_eq!(google.total.usd_micros, Some(6_000_000));
+        assert!(google.total.lower_bound && !google.total.complete);
+        assert_eq!(
+            google
+                .pace
+                .iter()
+                .map(|pace| pace.spend.usd_micros)
+                .collect::<Vec<_>>(),
+            [Some(0), Some(4_000_000), Some(6_000_000)]
+        );
+        assert_eq!(openai.total.usd_micros, Some(0));
+        assert!(openai.total.lower_bound);
+
+        let mut document = document;
+        document["spend"]["providers"][1]["total"]["reasons"] =
+            json!(["retired_unread", "future_reason_id"]);
+        let report = SpendReport::decode(&document, start).unwrap();
+        let quote = &report.providers[1];
+        assert!(!quote.total.complete);
+        assert_eq!(quote.total.reasons, ["retired_unread", "future_reason_id"]);
+        let forecast = crate::board::limits::budget_forecast(
+            500_000_000,
+            start,
+            quote.to_ms + 86_400_000,
+            quote.to_ms,
+            Some(quote),
+        );
+        assert!(forecast.left_is_upper_bound);
+        assert_eq!(forecast.lines, [crate::board::limits::Outcome::Unknown; 4]);
+    }
+}
