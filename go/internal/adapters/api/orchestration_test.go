@@ -37,6 +37,15 @@ func TestOrchestrationRejectsInvalidQueriesBeforeOpeningStorage(t *testing.T) {
 		`{"view":"preview"}`,
 		`{"view":"preview","candidate":{"id":"a","id":"b"}}`,
 		`{"view":"overview","candidate":null}`,
+		`{"view":"talks","atMs":1}`,
+		`{"view":"talks","limit":0}`,
+		`{"view":"talks","memberQuery":" "}`,
+		`{"view":"talks","after":" "}`,
+		`{"view":"routes","limit":257}`,
+		`{"view":"routes","atMs":0}`,
+		`{"view":"routes","atMs":9007199254740992}`,
+		`{"view":"routes","after":"key","after":"other"}`,
+		`{"view":"routes","after":"` + strings.Repeat("a", 161) + `"}`,
 		`{"view":"jobs","limit":129}`,
 		`{"view":"job","jobId":"j1"}`,
 		`{"view":"job","jobId":"00000000-0000-0000-0000-000000000000"}`,
@@ -61,6 +70,17 @@ func TestOrchestrationRejectsInvalidQueriesBeforeOpeningStorage(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !os.IsNotExist(err) {
 		t.Fatalf("invalid query touched storage: %v", err)
+	}
+}
+
+func TestOrchestrationAdmitsNativeTalkAndRoutePages(t *testing.T) {
+	for _, input := range []string{
+		`{"view":"talks","memberQuery":"Worker","limit":256,"after":"previous:pair"}`,
+		`{"view":"routes","atMs":1795878000000,"limit":1,"after":"previous:route"}`,
+	} {
+		if action := decodeOrchestration([]byte(input), 1795878000000); action == nil {
+			t.Fatalf("valid orchestration query refused: %s", input)
+		}
 	}
 }
 

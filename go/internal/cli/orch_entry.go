@@ -24,6 +24,7 @@ func registerOrchGrammar() {
 	registerOverviewGrammar(orch)
 	registerPlanGrammar(orch.child("plan"))
 	registerJobsGrammar(orch.child("job"))
+	registerTalksGrammar(orch)
 	why := orch.child("why")
 	why.summary = "Read retained receiving decision facts"
 	why.operands = []operandSpec{required("subject")}
@@ -72,6 +73,10 @@ func runOrch(ctx context.Context, root home.Root, inv invocation) output.Report 
 		return runOrchPreview(ctx, root, inv)
 	case slices.Equal(inv.path, []string{"orch", "why"}):
 		return runOrchWhy(ctx, root, inv)
+	case slices.Equal(inv.path, []string{"orch", "talks"}):
+		return runOrchTalks(ctx, root, inv)
+	case slices.Equal(inv.path, []string{"orch", "routes"}):
+		return runOrchRoutes(ctx, root, inv)
 	case slices.Equal(inv.path, []string{"orch", "job", "ls"}):
 		return runOrchJobs(ctx, root, inv)
 	case slices.Equal(inv.path, []string{"orch", "job", "show"}):

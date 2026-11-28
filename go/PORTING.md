@@ -347,7 +347,12 @@ both runtimes after receiving sync was added.
   timer commands over the clock lease and minute window.
 - [ ] Port lifecycle-hook enable, disable and delivery with executable verification
   and bounded context contributions.
-- [ ] Complete orchestration job mutations and execution, talks and routes.
+- [ ] Complete orchestration job mutations and execution, talk resume and route grants.
+  The talks and routes reads share the policy snapshot and sending rules between
+  API and CLI. The present-count and timed-rule assertions map to
+  `the_limit_holds_both_directions_and_resume_restarts_the_window` and
+  `routes_at_a_chosen_time_follow_that_time_s_rule_and_grants` in
+  `rust/crates/tmt-adapters/src/storage/requests/service_tests/talk_limits.rs`.
   API and CLI job reads share the cursor, schedule and recorded run projection.
   Exact definition bytes, CLI/API list equality and unchanged cursors map to
   `job_help_preview_exact_message_and_cli_api_reads_are_causal` in

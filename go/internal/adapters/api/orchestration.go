@@ -90,6 +90,37 @@ func decodeOrchestration(input jsontext.Value, now uint64) orchestrationAction {
 		return func(ctx context.Context, reader ports.OrchReader) (any, *core.RequestFailure) {
 			return orchestration.ReadOverview(ctx, reader, query, now)
 		}
+	case "talks":
+		var wire struct {
+			View string `json:"view"`
+			orchTalkPageFields
+		}
+		if !decodeObject(input, &wire) {
+			return nil
+		}
+		query := wire.orchTalkPageFields.query()
+		if !query.Valid() {
+			return nil
+		}
+		return func(ctx context.Context, reader ports.OrchReader) (any, *core.RequestFailure) {
+			return orchestration.ReadTalks(ctx, reader, query, now)
+		}
+	case "routes":
+		var wire struct {
+			View string  `json:"view"`
+			AtMs *uint64 `json:"atMs"`
+			orchTalkPageFields
+		}
+		if !decodeObject(input, &wire) {
+			return nil
+		}
+		query := orchestration.RoutesQuery{TalkPageQuery: wire.orchTalkPageFields.query(), AtMs: wire.AtMs}
+		if !query.Valid() {
+			return nil
+		}
+		return func(ctx context.Context, reader ports.OrchReader) (any, *core.RequestFailure) {
+			return orchestration.ReadRoutes(ctx, reader, query, now)
+		}
 	case "jobs":
 		var wire struct {
 			View   string           `json:"view"`
@@ -145,4 +176,20 @@ func decodeOrchestration(input jsontext.Value, now uint64) orchestrationAction {
 	default:
 		return nil
 	}
+}
+
+type orchTalkPageFields struct {
+	MemberQuery *string `json:"memberQuery"`
+	Limit       *uint16 `json:"limit"`
+	After       *string `json:"after"`
+}
+
+func (wire orchTalkPageFields) query() orchestration.TalkPageQuery {
+	query := orchestration.TalkPageQuery{
+		MemberQuery: wire.MemberQuery, After: wire.After, Limit: orchestration.TalkPageLimit,
+	}
+	if wire.Limit != nil {
+		query.Limit = *wire.Limit
+	}
+	return query
 }
