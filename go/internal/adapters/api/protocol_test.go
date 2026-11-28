@@ -78,7 +78,7 @@ func TestServerDiscoveryAndVersionFaultCreateNoState(t *testing.T) {
 		Operations []string
 		Limits     struct{ InputBytes, OutputBytes int }
 	}
-	if err := json.Unmarshal([]byte(lines[1]), &caps); err != nil || strings.Join(caps.Operations, ",") != "capabilities,storage.root" ||
+	if err := json.Unmarshal([]byte(lines[1]), &caps); err != nil || strings.Join(caps.Operations, ",") != strings.Join(append([]string{"capabilities", "storage.root"}, digestOperations...), ",") ||
 		caps.Limits.InputBytes != 6_299_648 || caps.Limits.OutputBytes != 12_648_448 {
 		t.Fatalf("capabilities = %s, %v", lines[1], err)
 	}

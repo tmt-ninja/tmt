@@ -1,14 +1,19 @@
 package api
 
 import (
+	"context"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
+	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
+	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
 
@@ -96,6 +101,33 @@ type Server struct {
 	Root home.Root
 }
 
+type requestSession struct {
+	root  home.Root
+	store *storage.Storage
+}
+
+func (s *requestSession) close() error {
+	if s.store == nil {
+		return nil
+	}
+	return s.store.Close()
+}
+
+func unavailable() *Fault {
+	return &Fault{
+		Code:    "API_UNAVAILABLE",
+		Message: "Operation could not be confirmed. For a write, inspect its operation receipt or current revision before retrying.",
+	}
+}
+
+func operationFault(err error) *Fault {
+	var failure *core.RequestFailure
+	if errors.As(err, &failure) {
+		return &Fault{Code: failure.Code, Message: failure.Message}
+	}
+	return unavailable()
+}
+
 // ServeOnce reads one JSON document through EOF and writes one response.
 func (s Server) ServeOnce(input *os.File, output io.Writer) (int, error) {
 	body, err := process.ReadInputStdin(input, InputLimit)
@@ -109,7 +141,11 @@ func (s Server) ServeOnce(input *os.File, output io.Writer) (int, error) {
 			Code: code, Message: "Expected one bounded JSON request on non-terminal stdin, closed within five seconds.",
 		})
 	} else {
-		result, err = s.respond(body)
+		session := requestSession{root: s.Root}
+		result, err = session.respond(body)
+		if closeErr := session.close(); closeErr != nil && err == nil && result.Status == 0 {
+			result, err = encodeFault(unavailable())
+		}
 	}
 	if err != nil {
 		return 1, err
@@ -127,30 +163,95 @@ func (s Server) ServeOnce(input *os.File, output io.Writer) (int, error) {
 
 // ServeSession serves consecutive requests on the same redirected descriptors.
 func (s Server) ServeSession(input, output *os.File) (int, error) {
-	return ServeSession(input, output, s.respond, nil)
+	session := requestSession{root: s.Root}
+	status, err := ServeSession(input, output, session.respond, nil)
+	if closeErr := session.close(); closeErr != nil {
+		return 1, errors.Join(err, closeErr)
+	}
+	return status, err
 }
 
-func (s Server) respond(body []byte) (SessionResponse, error) {
+func (s *requestSession) respond(body []byte) (SessionResponse, error) {
 	request, fault := Decode(body)
 	if fault != nil {
 		return encodeFault(fault)
 	}
-	if !emptyObject(request.Input) {
-		return encodeFault(invalid())
+	ctx := context.Background()
+	now := uint64(time.Now().UnixMilli())
+	if fault := s.checkSchema(ctx); fault != nil {
+		response, err := encodeFault(fault)
+		response.Stale = fault.Code == "API_SESSION_STALE"
+		return response, err
 	}
+
 	var value any
 	switch request.Operation {
-	case "capabilities":
-		value = capabilities()
-	case "storage.root":
-		value = struct {
-			DataRoot string `json:"dataRoot"`
-		}{s.Root.Dir}
+	case "capabilities", "storage.root":
+		if !emptyObject(request.Input) {
+			return encodeFault(invalid())
+		}
+		if request.Operation == "capabilities" {
+			value = capabilities()
+		} else {
+			value = map[string]string{"dataRoot": s.root.Dir}
+		}
 	default:
-		return encodeFault(invalid())
+		action := decodeDigest(request.Operation, request.Input, now)
+		if action == nil {
+			return encodeFault(invalid())
+		}
+		if fault := s.open(ctx); fault != nil {
+			return encodeFault(fault)
+		}
+		var err error
+		value, err = action(ctx, s.store)
+		if err != nil {
+			return encodeFault(operationFault(err))
+		}
 	}
-	encoded, err := json.Marshal(value)
-	return SessionResponse{Body: encoded}, err
+	encoded, err := json.Marshal(value, json.Deterministic(true))
+	if err != nil {
+		return encodeFault(unavailable())
+	}
+	if len(encoded) > OutputLimit {
+		return encodeFault(&Fault{Code: "API_OUTPUT_TOO_LARGE", Message: "Response exceeds the API bound; request a smaller page."})
+	}
+	return SessionResponse{Body: encoded}, nil
+}
+
+func (s *requestSession) open(ctx context.Context) *Fault {
+	if s.store != nil {
+		return nil
+	}
+	store, err := storage.Open(ctx, s.root)
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return &Fault{
+				Code:    "STORAGE_NOT_WRITABLE",
+				Message: fmt.Sprintf("Could not write to the data directory %s. No API operation was performed.", s.root.Dir),
+			}
+		}
+		return unavailable()
+	}
+	s.store = store
+	return nil
+}
+
+func (s *requestSession) checkSchema(ctx context.Context) *Fault {
+	if s.store == nil {
+		return nil
+	}
+	version, err := s.store.SchemaVersion(ctx)
+	if err != nil {
+		return unavailable()
+	}
+	if version != uint64(storage.SchemaVersion) {
+		return &Fault{
+			Code:    "API_SESSION_STALE",
+			Message: "Core storage changed schema; reopen the API session with the current executable.",
+		}
+	}
+	return nil
 }
 
 func emptyObject(input jsontext.Value) bool {
@@ -169,7 +270,7 @@ func capabilities() any {
 	return map[string]any{
 		"version":    ProtocolVersion,
 		"supported":  supported,
-		"operations": []string{"capabilities", "storage.root"},
+		"operations": append([]string{"capabilities", "storage.root"}, digestOperations...),
 		"limits":     map[string]int{"inputBytes": InputLimit, "outputBytes": OutputLimit},
 		"commands":   []string{"identity", "list", "x", "reply", "result"},
 		"session":    map[string]any{"framing": "ndjson", "terminalCommandOutput": false},
