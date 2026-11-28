@@ -1951,6 +1951,17 @@ test('whole-block comments open from the gutter and grip without selecting text'
         const button = action(id);
         await expect(button).toBeInViewport();
         await expect(button.locator('xpath=../..')).toHaveCSS('opacity', '1');
+        if (kind === 'paragraph') {
+          const paragraphText = 'Review the release checklist.';
+          await expect(button).toHaveAccessibleDescription(text.blockActions.commentHelp);
+          await expect(block(id)).toHaveText(paragraphText);
+          const quote = await block(id).evaluate((element) => {
+            const range = document.createRange();
+            range.selectNodeContents(element);
+            return range.toString();
+          });
+          expect(quote).toBe(paragraphText);
+        }
         const [body, control] = await Promise.all([block(id).boundingBox(), button.boundingBox()]);
         expect(body?.width).toBe(before?.width);
         expect(control!.x).toBeGreaterThanOrEqual(body!.x + body!.width - 1);
@@ -1960,6 +1971,14 @@ test('whole-block comments open from the gutter and grip without selecting text'
           expect(control!.x).toBeGreaterThanOrEqual(cardSurface!.x + cardSurface!.width - 1);
         }
         await shot(`6917-${kind}-1440-${colorScheme}.png`);
+        if (kind === 'paragraph' && colorScheme === 'light') {
+          await button.hover();
+          const tooltip = page.locator('.tmt-ui-icon-action-tooltip:popover-open');
+          await expect(tooltip).toHaveText(text.blockActions.commentHelp);
+          expect(
+            await tooltip.evaluate((node) => node.closest('[data-block-id], [contenteditable]')),
+          ).toBeNull();
+        }
       }
     }
     expect(Math.max(...gutterPositions) - Math.min(...gutterPositions)).toBeLessThan(1);

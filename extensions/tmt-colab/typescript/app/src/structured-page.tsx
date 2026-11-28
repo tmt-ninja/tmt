@@ -326,6 +326,7 @@ interface Pointer {
   startDrag(id: string, event: React.PointerEvent<HTMLButtonElement>): void;
   wasDrag(): boolean;
   observeComment(node: HTMLSpanElement | null): (() => void) | undefined;
+  commentTooltipHost: HTMLDivElement | null;
   /** Whether a redraw may focus the selected block (#6611). */
   focus: FocusRestore;
 }
@@ -467,7 +468,16 @@ export function StructuredPage(props: StructuredPageProps) {
       }
     };
   }, []);
-  const pointer: Pointer = { hovered, drag, startDrag: start, wasDrag, focus, observeComment };
+  const [commentTooltipHost, setCommentTooltipHost] = useState<HTMLDivElement | null>(null);
+  const pointer: Pointer = {
+    hovered,
+    drag,
+    startDrag: start,
+    wasDrag,
+    focus,
+    observeComment,
+    commentTooltipHost,
+  };
   const act = (action: BlockMenuAction, id: string) => {
     if (action !== 'comment') {
       props.onAction?.(action, id);
@@ -595,6 +605,7 @@ export function StructuredPage(props: StructuredPageProps) {
         )}
         {drag && <DragGhost drag={drag} tree={props.tree} root={root.current} />}
       </BlockDocument>
+      {props.onAnnotateBlock && <div ref={setCommentTooltipHost} />}
       {props.onAttach && (
         <input
           ref={picker}
@@ -857,9 +868,10 @@ function Blocks({
             ))}
         </div>
       )}
-      {rest.onAnnotateBlock && !rest.drafts?.has(block.id) && (
+      {rest.onAnnotateBlock && pointer.commentTooltipHost && !rest.drafts?.has(block.id) && (
         <BlockCommentAction
           observe={pointer.observeComment}
+          tooltipHost={pointer.commentTooltipHost}
           shown={!drag && pointer.hovered === block.id}
           activate={() => rest.onAction?.('comment', block.id)}
         />
@@ -964,16 +976,20 @@ function BlockCommentAction({
   shown,
   activate,
   observe,
+  tooltipHost,
 }: {
   shown: boolean;
   activate(): void;
   observe: Pointer['observeComment'];
+  tooltipHost: HTMLElement;
 }) {
   return (
     <span ref={observe} className="structured-comment-action" data-shown={shown || undefined}>
       <BrowserIconAction
         type="button"
         label={strings.blockActions.commentOnBlock}
+        tooltipLabel={strings.blockActions.commentHelp}
+        tooltipHost={tooltipHost}
         icon={<MessageSquare aria-hidden="true" />}
         variant="text"
         onActivate={(event) => {
