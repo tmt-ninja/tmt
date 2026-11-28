@@ -41,9 +41,26 @@ type finalReply struct {
 func TestRequestRoundTripAndAttention(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
+	tmuxExecutable, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Skip("tmux not installed")
+	}
 	binary, fake := buildPrograms(t, ctx)
-	dataDir := t.TempDir()
-	t.Setenv("HOME", t.TempDir())
+	fakeBin := filepath.Dir(fake)
+	for _, provider := range []string{"claude", "gemini"} {
+		if err := os.WriteFile(filepath.Join(fakeBin, provider), []byte("#!/bin/sh\nexit 97\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(tmuxExecutable, filepath.Join(fakeBin, "tmux")); err != nil {
+		t.Fatal(err)
+	}
+	dataDir, fixtureHome := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", fixtureHome)
+	t.Setenv("PATH", fakeBin+":/usr/bin:/bin")
+	t.Setenv("CODEX_HOME", filepath.Join(fixtureHome, "fake-codex-home"))
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(fixtureHome, "fake-claude-home"))
+	t.Setenv("GEMINI_CLI_HOME", filepath.Join(fixtureHome, "fake-gemini-home"))
 	t.Setenv("SHELL", "/bin/sh")
 	t.Setenv("TMT_HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -57,8 +74,8 @@ func TestRequestRoundTripAndAttention(t *testing.T) {
 	senderStatus := filepath.Join(dataDir, "sender-status")
 	senderPane := strings.TrimSpace(server.Run("new-window", "-d", "-t", "t:", "-P", "-F", "#{pane_id}",
 		"-n", "sender", "-c", dataDir, "/bin/sh", "-c",
-		`"$1" name --save Sender --json > "$2"; printf '%s\n' "$?" > "$3"; exec /bin/sh`,
-		"e2e", binary, senderJSON, senderStatus))
+		privateExchangeShell+`"$1" name --save Sender --json > "$2"; printf '%s\n' "$?" > "$3"; exec /bin/sh`,
+		"e2e", binary, senderJSON, senderStatus, fakeBin, fixtureHome))
 	waitForExit(t, ctx, senderStatus, "sender name")
 	document, err := os.ReadFile(senderJSON)
 	if err != nil {
@@ -79,12 +96,16 @@ func TestRequestRoundTripAndAttention(t *testing.T) {
 	exitFile := filepath.Join(dataDir, "run-exit")
 	workerPane := strings.TrimSpace(server.Run("new-window", "-d", "-t", "t:", "-P", "-F", "#{pane_id}",
 		"-n", "worker", "-c", dataDir, "/bin/sh", "-c",
-		`/bin/stty -echo && "$1" run --save Worker "$2"; printf '%s\n' "$?" > "$3"; exec /bin/sh`,
-		"e2e", binary, fake, exitFile))
+		privateExchangeShell+`/bin/stty -echo && "$1" run --save Worker "$2"; printf '%s\n' "$?" > "$3"; exec /bin/sh`,
+		"e2e", binary, fake, exitFile, fakeBin, fixtureHome))
 	db := readOnlyDB(t, dataDir)
 	var workerID string
 	await(t, ctx, "fake composer and recorded running binding", func() (bool, error) {
-		if !strings.Contains(server.Run("capture-pane", "-p", "-t", workerPane), "Ask Codex to do anything") {
+		screen := server.Run("capture-pane", "-p", "-t", workerPane)
+		if exit, err := os.ReadFile(exitFile); err == nil {
+			t.Fatalf("private worker exited before runtime admission: %q\n%s", exit, screen)
+		}
+		if !strings.Contains(screen, "Ask Codex to do anything") {
 			return false, nil
 		}
 		var state, socket string
@@ -218,6 +239,23 @@ func TestRequestRoundTripAndAttention(t *testing.T) {
 	assertFinal(t, retained, talk.RequestID, expectedReply)
 }
 
+// Reset the provider environment inside each pane, after shell startup.
+const privateExchangeShell = `PATH="$4:/usr/bin:/bin"
+HOME="$5"
+CODEX_HOME="$5/fake-codex-home"
+CLAUDE_CONFIG_DIR="$5/fake-claude-home"
+GEMINI_CLI_HOME="$5/fake-gemini-home"
+export PATH HOME CODEX_HOME CLAUDE_CONFIG_DIR GEMINI_CLI_HOME
+for provider in claude codex gemini; do
+  expected="$4/$provider"
+  if [ "$(command -v "$provider")" != "$expected" ] || [ ! -f "$expected" ] || [ ! -x "$expected" ] || [ -L "$expected" ]; then
+    printf 'fixture executable check failed for %s\n' "$provider" >&2
+    printf '98\n' > "$3"
+    exit 98
+  fi
+done
+`
+
 var requestID = regexp.MustCompile(`^req_[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$`)
 
 func assertFinal(t *testing.T, final finalReply, id, expected string) {
@@ -270,8 +308,7 @@ func (c cli) invoke(t *testing.T, status int, destination any, args ...string) {
 
 func buildPrograms(t *testing.T, ctx context.Context) (binary, fake string) {
 	t.Helper()
-	bin := t.TempDir()
-	binary, fake = filepath.Join(bin, "tmt-go"), filepath.Join(bin, "codex")
+	binary, fake = filepath.Join(t.TempDir(), "tmt-go"), filepath.Join(t.TempDir(), "codex")
 	for _, build := range []struct{ path, source string }{
 		{binary, "../../cmd/tmt-go"},
 		{fake, "../fixtures/fakeprovider"},
