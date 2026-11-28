@@ -36,6 +36,49 @@ func (s *Storage) WakeAdmissionMs(ctx context.Context) (uint64, error) {
 	return next, err
 }
 
+const orchSnapshotMemberLimit = 256
+
+func (s *Storage) ReadPolicySnapshot(ctx context.Context, q core.OrchSnapshotQuery) (core.OrchSnapshotPage, error) {
+	var normalized *string
+	if q.MemberQuery != nil {
+		name := core.NormalizeName(*q.MemberQuery)
+		normalized = &name
+	}
+	var page core.OrchSnapshotPage
+	err := s.transact(ctx, true, func(r records) error {
+		type member struct {
+			id   core.IdentityID
+			name core.Name
+		}
+		members, err := scanRows(r, `SELECT id,name FROM identities WHERE retired_at_ms IS NULL
+			AND (?1 IS NULL OR instr(canonical_name,?1)>0)
+			ORDER BY CASE WHEN ?1 IS NOT NULL AND substr(canonical_name,1,length(?1))=?1 THEN 0 ELSE 1 END,
+			canonical_name COLLATE BINARY LIMIT ?2`, func(row scanner) (member, error) {
+			var m member
+			err := row.Scan(&m.id, &m.name)
+			return m, err
+		}, normalized, orchSnapshotMemberLimit+1)
+		if err != nil {
+			return err
+		}
+		if len(members) > orchSnapshotMemberLimit {
+			return requestFailure("ORCH_LIMIT", "Orchestration query exceeds its bounded expansion.", 1)
+		}
+		identities := make(map[core.IdentityID]core.Name, len(members))
+		page.IdentityIDs = make([]core.IdentityID, 0, len(members))
+		for _, m := range members {
+			identities[m.id] = m.name
+			page.IdentityIDs = append(page.IdentityIDs, m.id)
+		}
+		page.Policy, err = readOrchPolicy(r, identities)
+		return err
+	})
+	if err != nil {
+		return core.OrchSnapshotPage{}, err
+	}
+	return page, nil
+}
+
 func (s *Storage) ReadJobs(ctx context.Context, q core.OrchJobQuery) (core.OrchJobReadPage, error) {
 	if q.Limit == 0 || q.Limit > 128 || !safeTime(q.NowMs) || !core.ValidJSSafeInteger(q.AfterNumber) ||
 		q.FullMessage && q.JobID == nil || !optionalOrchID(q.RoomID) || !optionalOrchID(q.OwnerID) || !optionalOrchID(q.JobID) {

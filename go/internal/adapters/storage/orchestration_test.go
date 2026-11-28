@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -129,5 +131,95 @@ func TestOrchJobsAndOwnerPolicyStayOnPinnedSnapshot(t *testing.T) {
 	if err != nil || len(page.Items) != 1 || page.Items[0].Revision != 2 || page.Policy.DigestRevision != 2 ||
 		page.Policy.BaseReceiving[bindingOwnerID].Mode != core.OrchReceivingDirect {
 		t.Fatalf("next snapshot did not see the writer: %+v, %v", page, err)
+	}
+}
+
+func TestOrchPolicySnapshotUsesNativeMemberCapAndFilterOrder(t *testing.T) {
+	store := testStorage(t)
+	ctx := t.Context()
+	identities := make([]core.Identity, orchSnapshotMemberLimit+1)
+	for i := range identities {
+		name := fmt.Sprintf("A Ops %03d", i)
+		if i >= 128 {
+			name = fmt.Sprintf("Ops %03d", i)
+		}
+		identities[i] = core.Identity{ID: core.IdentityID(fmt.Sprintf("24874151-2cfc-49ab-848d-%012d", i)),
+			Name: core.Name(name), CanonicalName: core.NormalizeName(name), Lifetime: core.LifetimeSaved}
+	}
+	if err := store.transact(ctx, false, func(r records) error {
+		for _, identity := range identities {
+			if err := r.Identities().Insert(identity, 1000); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	query := "  ＯＰＳ  "
+	input := core.OrchSnapshotQuery{MemberQuery: &query}
+	page, err := store.ReadPolicySnapshot(ctx, input)
+	failure := requireRequestFailure(t, err, "ORCH_LIMIT", 1)
+	if failure.Message != "Orchestration query exceeds its bounded expansion." {
+		t.Fatalf("over-limit message: %q", failure.Message)
+	}
+	if len(page.IdentityIDs) != 0 || len(page.Policy.Identities) != 0 {
+		t.Fatalf("more than 256 matches produced a partial snapshot: %+v", page)
+	}
+
+	last := identities[len(identities)-1].ID
+	if _, err := store.db.ExecContext(ctx, "UPDATE identities SET retired_at_ms=1500 WHERE id=?", last); err != nil {
+		t.Fatal(err)
+	}
+	page, err = store.ReadPolicySnapshot(ctx, input)
+	if err != nil || len(page.IdentityIDs) != orchSnapshotMemberLimit || len(page.Policy.Identities) != orchSnapshotMemberLimit {
+		t.Fatalf("exact member cap = %d/%d, %v", len(page.IdentityIDs), len(page.Policy.Identities), err)
+	}
+	want := append(slices.Clone(identities[128:256]), identities[:128]...)
+	for i, identity := range want {
+		id := page.IdentityIDs[i]
+		if id != identity.ID || page.Policy.Identities[id] != identity.Name {
+			t.Fatalf("member %d = %s (%q), want %s (%q)", i, id, page.Policy.Identities[id], identity.ID, identity.Name)
+		}
+	}
+}
+
+func TestOrchPolicySnapshotMatchesFollowingDigestReceivingRead(t *testing.T) {
+	store := bindingFixture(t)
+	ctx := t.Context()
+	if _, err := store.db.ExecContext(ctx, "INSERT INTO orchestration_settings(id,revision,time_zone) VALUES (1,8,'UTC')"); err != nil {
+		t.Fatal(err)
+	}
+	write := core.DigestReceivingWrite{Enabled: true, Default: core.OrchReceiving{Mode: core.OrchReceivingAuto},
+		Members: []core.DigestReceivingMember{{IdentityID: bindingOwnerID, Receiving: core.OrchReceiving{Mode: core.OrchReceivingDirect}}}}
+	rev, err := store.SyncReceiving(ctx, write)
+	if err != nil || rev != 1 {
+		t.Fatalf("initial receiving: %d %v", rev, err)
+	}
+	write.ExpectedRevision = rev
+	write.Default = core.OrchReceiving{Mode: core.OrchReceivingBatch, IntervalMs: 60000}
+	rev, err = store.SyncReceiving(ctx, write)
+	if err != nil || rev != 2 {
+		t.Fatalf("updated receiving: %d %v", rev, err)
+	}
+	page, err := store.ReadPolicySnapshot(ctx, core.OrchSnapshotQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Policy.Revision != 8 || page.Policy.DigestRevision != rev || !page.Policy.DigestEnabled ||
+		len(page.IdentityIDs) != 2 || page.Policy.Identities[bindingOwnerID] != "Alice" ||
+		page.Policy.BaseReceiving[bindingOwnerID].Mode != core.OrchReceivingDirect ||
+		page.Policy.BaseReceiving[bindingOtherID] != write.Default {
+		t.Fatalf("overview policy: %+v", page)
+	}
+	// Digest uses the overview receiving revision to CAS its actual follow-up
+	// publication. An identical document must preserve that revision.
+	write.ExpectedRevision = page.Policy.DigestRevision
+	if following, err := store.SyncReceiving(ctx, write); err != nil || following != page.Policy.DigestRevision {
+		t.Fatalf("following Digest receiving revision = %d, %v", following, err)
+	}
+	jobs, err := store.ReadJobs(ctx, core.OrchJobQuery{Limit: 1, NowMs: 2000})
+	if err != nil || jobs.Policy.DigestRevision != page.Policy.DigestRevision {
+		t.Fatalf("following jobs policy revision = %d, %v", jobs.Policy.DigestRevision, err)
 	}
 }

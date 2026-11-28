@@ -1,5 +1,15 @@
 package core
 
+type OrchSnapshotQuery struct {
+	MemberQuery *string
+}
+
+type OrchSnapshotPage struct {
+	Policy OrchPolicySnapshot
+	// IdentityIDs keeps the selection order for projections over Policy.Identities.
+	IdentityIDs []IdentityID
+}
+
 type OrchJobQuery struct {
 	RoomID      *string
 	OwnerID     *IdentityID
