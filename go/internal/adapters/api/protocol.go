@@ -221,6 +221,19 @@ func (s *requestSession) respond(body []byte) (SessionResponse, error) {
 			return encodeFault(operationFault(failure))
 		}
 		value = result
+	case digestReceivingSync:
+		input, ok := decodeReceivingSync(request.Input)
+		if !ok {
+			return encodeFault(invalid())
+		}
+		if fault := s.open(ctx); fault != nil {
+			return encodeFault(fault)
+		}
+		result, fault := s.syncReceiving(ctx, input)
+		if fault != nil {
+			return encodeFault(fault)
+		}
+		value = result
 	case "digest.wake.step":
 		input, ok := decodeWake(request.Input)
 		if !ok {

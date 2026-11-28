@@ -18,6 +18,9 @@ import (
 func registerOverviewGrammar(orch *commandSpec) {
 	orch.summary = "Read orchestration slots and effective member policies"
 	orch.options = []string{"range", "at", "plan", "member"}
+	preview := orch.child("preview")
+	preview.summary = "Preview a candidate plan without saving or delivering"
+	preview.options = append([]string{"file"}, orch.options...)
 	options = append(options,
 		optionSpec{name: "range", value: true, help: "Show 1d, 7d or 30d of local calendar slots"},
 		optionSpec{name: "at", value: true, help: "Evaluate an RFC3339 instant or local YYYY-MM-DD HH:MM"},
@@ -128,7 +131,7 @@ func orchInterval(ms uint64) string {
 	}
 }
 
-func runOrchOverview(ctx context.Context, root home.Root, inv invocation) output.Report {
+func orchOverviewQuery(inv invocation) (orchestration.OverviewQuery, *output.Failure) {
 	query := orchestration.OverviewQuery{RangeDays: 1}
 	if inv.has("range") {
 		switch inv.options["range"] {
@@ -138,7 +141,7 @@ func runOrchOverview(ctx context.Context, root home.Root, inv invocation) output
 		case "30d":
 			query.RangeDays = 30
 		default:
-			return talkUsage("Option '--range' must be 1d, 7d or 30d.")
+			return query, talkUsage("Option '--range' must be 1d, 7d or 30d.")
 		}
 	}
 	if inv.has("at") {
@@ -154,7 +157,15 @@ func runOrchOverview(ctx context.Context, root home.Root, inv invocation) output
 		query.MemberQuery = &value
 	}
 	if !orchestration.ValidOverview(query) {
-		return bindingFailure("ORCH_INPUT_INVALID", "Invalid orchestration input or calendar selection.", 1)
+		return query, bindingFailure("ORCH_INPUT_INVALID", "Invalid orchestration input or calendar selection.", 1)
+	}
+	return query, nil
+}
+
+func runOrchOverview(ctx context.Context, root home.Root, inv invocation) output.Report {
+	query, failure := orchOverviewQuery(inv)
+	if failure != nil {
+		return failure
 	}
 	return withOrchStore(ctx, root, func(reader ports.OrchReader, now uint64) output.Report {
 		view, failure := orchestration.ReadOverview(ctx, reader, query, now)

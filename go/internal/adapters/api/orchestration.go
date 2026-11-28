@@ -11,7 +11,7 @@ import (
 )
 
 const orchestrationRead = "orchestration.read"
-const orchestrationQueryLimit = 32_768 + 4_096
+const orchestrationQueryLimit = orchestration.PlanDocumentLimit + 4_096
 
 func decodeWhy(input jsontext.Value, now uint64) (core.OrchJournalQuery, bool) {
 	var wire struct {
@@ -56,13 +56,14 @@ func decodeOrchestration(input jsontext.Value, now uint64) orchestrationAction {
 		return func(ctx context.Context, reader ports.OrchReader) (any, *core.RequestFailure) {
 			return orchestration.ReadWhy(ctx, reader, query)
 		}
-	case "overview":
+	case "overview", "preview":
 		var wire struct {
-			View        string  `json:"view"`
-			RangeDays   *uint8  `json:"rangeDays"`
-			AtMs        *uint64 `json:"atMs"`
-			Plan        *string `json:"plan"`
-			MemberQuery *string `json:"memberQuery"`
+			View        string         `json:"view"`
+			RangeDays   *uint8         `json:"rangeDays"`
+			AtMs        *uint64        `json:"atMs"`
+			Plan        *string        `json:"plan"`
+			MemberQuery *string        `json:"memberQuery"`
+			Candidate   jsontext.Value `json:"candidate"`
 		}
 		if json.Unmarshal(input, &wire, json.RejectUnknownMembers(true)) != nil {
 			return nil
@@ -72,6 +73,18 @@ func decodeOrchestration(input jsontext.Value, now uint64) orchestrationAction {
 			query.RangeDays = *wire.RangeDays
 		}
 		if !orchestration.ValidOverview(query) {
+			return nil
+		}
+		if tag.View == "preview" {
+			candidate, err := orchestration.DecodeCandidate(wire.Candidate)
+			if err != nil {
+				return nil
+			}
+			return func(ctx context.Context, reader ports.OrchReader) (any, *core.RequestFailure) {
+				return orchestration.ReadPreview(ctx, reader, query, candidate, now)
+			}
+		}
+		if len(wire.Candidate) != 0 {
 			return nil
 		}
 		return func(ctx context.Context, reader ports.OrchReader) (any, *core.RequestFailure) {

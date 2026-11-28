@@ -16,6 +16,7 @@ import (
 type digestAction func(context.Context, ports.DigestStore) (any, error)
 
 var digestOperations = []string{
+	digestReceivingSync,
 	"digest.policy.set",
 	"digest.policy.clear",
 	"digest.policy.show",

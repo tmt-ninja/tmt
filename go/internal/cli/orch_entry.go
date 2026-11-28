@@ -67,6 +67,8 @@ func runOrch(ctx context.Context, root home.Root, inv invocation) output.Report 
 	switch {
 	case len(inv.path) == 1:
 		return runOrchOverview(ctx, root, inv)
+	case slices.Equal(inv.path, []string{"orch", "preview"}):
+		return runOrchPreview(ctx, root, inv)
 	case slices.Equal(inv.path, []string{"orch", "why"}):
 		return runOrchWhy(ctx, root, inv)
 	case slices.Equal(inv.path, []string{"orch", "plan"}):

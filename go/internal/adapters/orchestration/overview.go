@@ -65,25 +65,29 @@ func ValidOverview(query OverviewQuery) bool {
 }
 
 func ReadOverview(ctx context.Context, reader ports.OrchReader, query OverviewQuery, now uint64) (OverviewView, *core.RequestFailure) {
-	page, err := reader.ReadPolicySnapshot(ctx, core.OrchSnapshotQuery{MemberQuery: query.MemberQuery})
+	page, calendar, at, err := overviewSnapshot(ctx, reader, query, now)
 	if err != nil {
 		return OverviewView{}, readFailure(err)
 	}
-	snapshot := page.Policy
-	calendar, err := LoadCalendar(snapshot.TimeZone)
+	return overview(page, calendar, at, query.RangeDays, query.Plan, now)
+}
+
+func overviewSnapshot(ctx context.Context, reader ports.OrchReader, query OverviewQuery, now uint64) (core.OrchSnapshotPage, Calendar, uint64, error) {
+	page, err := reader.ReadPolicySnapshot(ctx, core.OrchSnapshotQuery{MemberQuery: query.MemberQuery})
 	if err != nil {
-		return OverviewView{}, readFailure(err)
+		return core.OrchSnapshotPage{}, Calendar{}, 0, err
+	}
+	calendar, err := LoadCalendar(page.Policy.TimeZone)
+	if err != nil {
+		return core.OrchSnapshotPage{}, Calendar{}, 0, err
 	}
 	at := now
 	if query.LocalAt != nil {
 		at, err = calendar.ParseAt(*query.LocalAt)
-		if err != nil {
-			return OverviewView{}, readFailure(err)
-		}
 	} else if query.AtMs != nil {
 		at = *query.AtMs
 	}
-	return overview(page, calendar, at, query.RangeDays, query.Plan, now)
+	return page, calendar, at, err
 }
 
 func overview(page core.OrchSnapshotPage, calendar Calendar, at uint64, days uint8, selector *string, now uint64) (OverviewView, *core.RequestFailure) {

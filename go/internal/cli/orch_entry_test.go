@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -113,5 +114,70 @@ func TestOrchPlanShowSelectsExactNameAndNeverTreatsUUIDAsName(t *testing.T) {
 	}
 	if after := cursor(); after != before {
 		t.Fatalf("change cursor: before %d, after %d", before, after)
+	}
+}
+
+func TestOrchPreviewIsInMemoryAndRejectsBadCandidate(t *testing.T) {
+	t.Setenv("TZ", "UTC")
+	dir := t.TempDir()
+	t.Setenv(flavor.EnvHome, dir)
+	var stdout, stderr bytes.Buffer
+	if status := Main([]string{"identity", "create", "Night-1", "--json"}, &stdout, &stderr); status != 0 {
+		t.Fatalf("seed identity: %d %s %s", status, &stdout, &stderr)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(dir, home.DatabaseName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, statement := range []string{
+		`INSERT INTO digest_receiving_settings VALUES(1,1,'{"enabled":true,"defaultReceiving":{"mode":"direct"},"members":[]}')`,
+		`INSERT INTO orchestration_plans VALUES('22222222-2222-4222-8222-222222222222','Shift',1,2,1,'{"kind":"always"}','{"state":"awake"}')`,
+		`INSERT INTO orchestration_plan_targets VALUES('22222222-2222-4222-8222-222222222222',0,'{"kind":"all"}')`,
+	} {
+		if _, err := db.ExecContext(t.Context(), statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cursor := func() uint64 {
+		t.Helper()
+		var value uint64
+		if err := db.QueryRowContext(t.Context(), "SELECT value FROM change_cursor WHERE id=1").Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	before := cursor()
+	path := filepath.Join(dir, "plan.json")
+	const candidate = `{"id":"22222222-2222-4222-8222-222222222222","name":"Shift","revision":2,"priority":2,"enabled":true,"targets":[{"kind":"all"}],"schedule":{"kind":"always"},"fields":{"state":"focus"}}`
+	if err := os.WriteFile(path, []byte(candidate), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	call := func(file string) int {
+		t.Helper()
+		stdout.Reset()
+		stderr.Reset()
+		return Main([]string{"orch", "preview", "--file", file, "--at", "2023-11-14T22:13:20Z", "--json"}, &stdout, &stderr)
+	}
+	var view orchestration.PreviewView
+	if status := call(path); status != 0 || stderr.Len() != 0 || json.Unmarshal(stdout.Bytes(), &view) != nil ||
+		len(view.Before.Members) != 1 || view.Before.Members[0].Effective.State.Value != "awake" ||
+		len(view.After.Members) != 1 || view.After.Members[0].Effective.Receiving.Value == nil ||
+		view.After.Members[0].Effective.Receiving.Value.Mode != "urgent" || len(view.Changes) == 0 || cursor() != before {
+		t.Fatalf("preview = %d %s, stderr=%s", status, &stdout, &stderr)
+	}
+
+	link := filepath.Join(dir, "plan-link")
+	if err := os.Symlink(path, link); err != nil {
+		t.Fatal(err)
+	}
+	if status := call(link); status != 1 || !bytes.Contains(stdout.Bytes(), []byte(`"code":"ORCH_INPUT_INVALID"`)) {
+		t.Fatalf("symlink admitted: %d %s", status, &stdout)
+	}
+	if err := os.WriteFile(path, []byte(`{"id":"duplicate","id":"duplicate"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if status := call(path); status != 1 || cursor() != before {
+		t.Fatalf("bad preview = %d %s; cursor=%d want=%d", status, &stdout, cursor(), before)
 	}
 }

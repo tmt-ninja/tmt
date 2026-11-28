@@ -201,28 +201,34 @@ in the initial dual-runtime native slice (3 passed on each runtime):
   stdin, stdout, stderr, exit status, and the callback executable.
 
 The same three TypeScript assertions also passed with `nativecompat` and the
-unmodified TypeScript harness. Dispatch-only CI run `46148257268` passed 3
-native and 2 E2E cases each against Go and Rust.
+unmodified TypeScript harness. Dispatch-only CI run `46152837311` passed
+3 native and 9 E2E cases each against Go and Rust. The unchanged Digest discovery
+case in `typescript/test/native/digest-delivery.test.ts` passed separately against
+both runtimes after receiving sync was added.
 
 - [ ] Finish local API v1 operation admission, response parity, lazy schema fencing,
   lifecycle delivery, and CLI composition. Qualify MCP identity pinning and all
   eight tool calls against real Go request services.
-- [ ] Complete Digest receiving sync, consumption limits and changes, and live
-  claim/flush/wake parity and pass the configured paste-enter delay through CLI
+- [ ] Complete Digest consumption limits and changes, and live claim/flush/wake parity and pass the configured paste-enter delay through CLI
   composition. The shared thread-root frame is measured before sealing, with
   the native whole-first-item Stop bound. The retained and ID-only lines and
   one-receipt assertion map to `storage/digest_hook.rs` in the Rust adapter.
+  Receiving publication and unchanged-cursor CAS map to
+  `storage/orchestration/receiving.rs`.
   Port the finite and foreground tick, job and capture composition, and consented
   timer commands over the clock lease and minute window.
 - [ ] Port lifecycle-hook enable, disable and delivery with executable verification
   and bounded context contributions.
-- [ ] Complete orchestration preview, jobs, talks and routes.
+- [ ] Complete orchestration jobs, talks and routes.
   Plan list/show share the API projection and port exact selector and
   UUID-shaped name assertions from `plan_filters_keep_competing_effects_and_uuid_selection_never_falls_back_to_names`
   in `rust/crates/tmt-cli/tests/orchestration.rs`. Overview uses one effective
   resolver and preserves member selection and plan sources. Gap, fold, and
   half-hour range assertions map to the native `orchestration/calendar.rs`
-  tests. Digest receiving storage cutover to the shared resolver is pending.
+  tests. Digest storage uses the same resolver. Preview and its unchanged
+  cursor and malformed candidate cases map to
+  `preview_is_in_memory_and_bad_candidate_or_future_schema_preserves_state`
+  in the native CLI tests.
   Why shares its JSON projection between the API and CLI. Its paging,
   uncertainty and unchanged change-cursor assertions map to `why_reads_actual_transactional_events_and_preserves_uncertainty`
   in `rust/crates/tmt-cli/tests/orchestration.rs`. Why advertises Digest claims
