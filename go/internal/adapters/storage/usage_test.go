@@ -9,7 +9,7 @@ import (
 )
 
 func TestConsumptionHistoryKeepsClosedSeedAndSourceEvidence(t *testing.T) {
-	t.Parallel()
+	parallelStorageFixture(t)
 	store := bindingFixture(t)
 	ctx := t.Context()
 	const seed = `{"driver":"pi","session":"historical-session","consumption":{"inputTokens":120,"outputTokens":30,"cachedInputTokens":50,"cacheWriteTokens":0,"epoch":"1f2f8c9c-ecc4-46e5-9230-e08a7bf54f61","sequence":8,"observedAtMs":4198000,"complete":true,"gap":false}}`
@@ -94,7 +94,7 @@ func TestConsumptionHistoryKeepsClosedSeedAndSourceEvidence(t *testing.T) {
 }
 
 func TestRetiredUsageAndWakeTurnPages(t *testing.T) {
-	t.Parallel()
+	parallelStorageFixture(t)
 	store, svc, _ := seedRequestService(t)
 	ctx := t.Context()
 	request := inboxRequest("req_1f2f8c9c-ecc4-46e5-9230-e08a7bf54f61")

@@ -118,7 +118,7 @@ func TestConcurrentFreshOpen(t *testing.T) {
 }
 
 func TestRetentionMigrationBackfillsHistoricalRows(t *testing.T) {
-	t.Parallel()
+	parallelStorageFixture(t)
 	conn := predecessor(t, 5)
 	execMigrationTest(t, conn, `INSERT INTO request_attempts (
 		attempt_id, request_id, server_id, socket_path, server_pid, server_start_time,
@@ -143,7 +143,7 @@ func TestRetentionMigrationBackfillsHistoricalRows(t *testing.T) {
 }
 
 func TestMigrationRefusesCustomRebuildSource(t *testing.T) {
-	t.Parallel()
+	parallelStorageFixture(t)
 	conn := predecessor(t, 40)
 	execMigrationTest(t, conn, "CREATE INDEX custom_binding_index ON bindings (pane_id)")
 	if err := migrateThrough(t.Context(), conn, 41); err == nil || !strings.Contains(err.Error(), "schema-40 definitions") {
@@ -162,7 +162,7 @@ func TestMigrationRefusesCustomRebuildSource(t *testing.T) {
 }
 
 func TestIncompatibleMigrationHistoryIsRefused(t *testing.T) {
-	t.Parallel()
+	parallelStorageFixture(t)
 	for _, tc := range []struct {
 		name      string
 		statement string

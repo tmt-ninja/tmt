@@ -39,7 +39,7 @@ func testHookOpen(t *testing.T, root home.Root) *HookQueue {
 }
 
 func TestHookQueueClaimAndReceiptRecovery(t *testing.T) {
-	t.Parallel()
+	parallelStorageFixture(t)
 	ctx := t.Context()
 	root := testRoot(t)
 	store, err := Open(ctx, root)
@@ -141,7 +141,7 @@ func TestHookQueueAdmitsOnlyExistingPrivateQueue(t *testing.T) {
 }
 
 func TestHookQueueQuarantineAndProvisionalBatchReuse(t *testing.T) {
-	t.Parallel()
+	parallelStorageFixture(t)
 	ctx := t.Context()
 	root := testRoot(t)
 	store, err := Open(ctx, root)
@@ -206,7 +206,7 @@ func historicalHookCapture(id core.HookEventID, batch string) core.HookCaptureEv
 }
 
 func TestCommitHookFinalAndReceiptAtomicallyWithoutChangingNewerBatch(t *testing.T) {
-	t.Parallel()
+	parallelStorageFixture(t)
 	ctx := t.Context()
 	store := bindingFixture(t)
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
@@ -252,7 +252,7 @@ func TestCommitHookFinalAndReceiptAtomicallyWithoutChangingNewerBatch(t *testing
 }
 
 func TestCurrentCaptureAdvancesOnlyMatchingTurnActivity(t *testing.T) {
-	t.Parallel()
+	parallelStorageFixture(t)
 	ctx := t.Context()
 	store := bindingFixture(t)
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))

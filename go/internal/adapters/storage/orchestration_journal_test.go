@@ -8,7 +8,7 @@ import (
 )
 
 func TestOrchJournalUsesNativeLimitExclusivePagesAndRetention(t *testing.T) {
-	t.Parallel()
+	parallelStorageFixture(t)
 	store := testStorage(t)
 	ctx := t.Context()
 	target := core.OrchJournalSubject{Kind: core.OrchSubjectIdentity, ID: string(bindingOwnerID)}
@@ -71,7 +71,7 @@ func TestOrchJournalUsesNativeLimitExclusivePagesAndRetention(t *testing.T) {
 }
 
 func TestOrchJournalRefusesCorruptStoredSourcesAndEnums(t *testing.T) {
-	t.Parallel()
+	parallelStorageFixture(t)
 	store := testStorage(t)
 	ctx := t.Context()
 	query := core.OrchJournalQuery{Subject: core.OrchJournalSubject{Kind: core.OrchSubjectJob, ID: "local job"}, Limit: 5, NowMs: 2000}
