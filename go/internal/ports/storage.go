@@ -29,6 +29,7 @@ type BindingRepo interface {
 	Detach(expected core.Binding) (bool, error)
 	CreateLaunchIntent(LaunchIntent) (bool, error)
 	AdmitLaunch(LaunchAdmission) (*core.Binding, error)
+	EndLaunch(LaunchEnd) (bool, error)
 	ObserveLaunchActivity(LaunchActivityObservation) (bool, error)
 }
 
@@ -72,4 +73,12 @@ type LaunchAdmission struct {
 	Intent       LaunchIntent
 	Runtime      core.ProcessIncarnation
 	ObservedAtMs uint64
+}
+
+// LaunchEnd carries verified exit evidence for one admitted foreground
+// runtime. Storage rechecks the full binding and both process incarnations.
+type LaunchEnd struct {
+	Expected       core.Binding
+	Owner, Runtime core.ProcessIncarnation
+	ObservedAtMs   uint64
 }
