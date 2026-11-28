@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/delivery"
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/flavor"
@@ -21,18 +22,20 @@ import (
 )
 
 type talkPlan struct {
-	root       home.Root
-	target     string
-	message    string
-	originator identitySelection
-	hasSender  bool
-	detach     bool
-	delay      time.Duration
-	timeout    time.Duration
-	poll       time.Duration
-	retention  uint64
-	digestKind core.DigestKind
-	urgent     bool
+	root          home.Root
+	target        string
+	message       string
+	originator    identitySelection
+	hasSender     bool
+	callerFailure *output.Failure
+	detach        bool
+	delay         time.Duration
+	timeout       time.Duration
+	poll          time.Duration
+	pasteDelay    time.Duration
+	retention     uint64
+	digestKind    core.DigestKind
+	urgent        bool
 }
 
 func (app application) prepareTalk(ctx context.Context, root home.Root, inv invocation) (talkPlan, *output.Failure) {
@@ -54,6 +57,7 @@ func (app application) prepareTalk(ctx context.Context, root home.Root, inv invo
 	}
 	plan.timeout = timerSeconds(settings["timeout"].value.(float64))
 	plan.retention = settings["exchange.retentionDays"].value.(uint64)
+	plan.pasteDelay = timerSeconds(settings["pasteEnterDelayMs"].value.(float64) / 1000)
 
 	if inv.has("timeout") {
 		value, failure := durationSeconds(inv.options["timeout"])
@@ -88,7 +92,16 @@ func (app application) prepareTalk(ctx context.Context, root home.Root, inv invo
 	if failure == nil {
 		plan.originator, plan.hasSender = selected, true
 	} else if failure.Code != "IDENTITY_REQUIRED" {
-		return plan, failure
+		// A first request to a raw pane may precede server metadata. It
+		// may deliver after target verification, with no inferred sender.
+		if failure.Code != "PANE_NOT_FOUND" || !core.IsPaneTarget(plan.target) || app.caller.lookup == nil {
+			return plan, failure
+		}
+		value, _ := app.caller.lookup("TMUX")
+		if _, _, _, ok := parseTmuxClaim(value); !ok {
+			return plan, failure
+		}
+		plan.callerFailure = failure
 	}
 	return plan, nil
 }
@@ -126,22 +139,22 @@ func talkConfigFailure() *output.Failure {
 }
 
 type talkReport struct {
-	Status              string                `json:"status"`
-	RequestID           core.RequestID        `json:"requestId"`
-	Target              string                `json:"target"`
-	Identity            output.TargetIdentity `json:"identity"`
-	Pane                string                `json:"pane,omitempty"`
-	RecipientIdentityID core.IdentityID       `json:"recipientIdentityId,omitempty"`
-	Offline             bool                  `json:"offline,omitempty"`
-	Notification        string                `json:"notification,omitempty"`
-	Digest              bool                  `json:"digest,omitempty"`
-	DigestUntilMs       *uint64               `json:"digestUntilMs,omitempty"`
-	RemainingMs         *uint64               `json:"remainingMs,omitempty"`
-	WaitingFor          string                `json:"waitingFor,omitempty"`
-	Suggestion          string                `json:"suggestion,omitempty"`
-	Response            *string               `json:"response,omitempty"`
-	BodyBytes           *uint64               `json:"bodyBytes,omitempty"`
-	SubmittedAtMs       *uint64               `json:"submittedAtMs,omitempty"`
+	Status              string                 `json:"status"`
+	RequestID           core.RequestID         `json:"requestId"`
+	Target              string                 `json:"target"`
+	Identity            *output.TargetIdentity `json:"identity"`
+	Pane                string                 `json:"pane,omitempty"`
+	RecipientIdentityID core.IdentityID        `json:"recipientIdentityId,omitempty"`
+	Offline             bool                   `json:"offline,omitempty"`
+	Notification        string                 `json:"notification,omitempty"`
+	Digest              bool                   `json:"digest,omitempty"`
+	DigestUntilMs       *uint64                `json:"digestUntilMs,omitempty"`
+	RemainingMs         *uint64                `json:"remainingMs,omitempty"`
+	WaitingFor          string                 `json:"waitingFor,omitempty"`
+	Suggestion          string                 `json:"suggestion,omitempty"`
+	Response            *string                `json:"response,omitempty"`
+	BodyBytes           *uint64                `json:"bodyBytes,omitempty"`
+	SubmittedAtMs       *uint64                `json:"submittedAtMs,omitempty"`
 }
 
 func (r talkReport) JSON() any                  { return r }
@@ -211,7 +224,7 @@ func (r talkReport) observerFailure(code, message string, status int) *output.Fa
 	return &output.Failure{
 		Code: code, Message: message, Status: status,
 		Request:    &output.RequestFailure{RequestID: string(r.RequestID)},
-		Target:     &output.TargetFailure{Target: r.Target, Pane: r.Pane, Identity: &r.Identity},
+		Target:     &output.TargetFailure{Target: r.Target, Pane: r.Pane, Identity: r.Identity},
 		Suggestion: suggestion,
 	}
 }
@@ -226,16 +239,24 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 		var err error
 		records := tx.Identities()
 		directPane, err = core.AddressesPane(records, plan.target)
-		if err != nil || directPane {
+		if err != nil {
 			return err
 		}
-		recipient, err = core.ResolveIdentity(records, plan.target)
-		if err != nil || recipient == nil {
-			return err
+		if !directPane {
+			if plan.callerFailure != nil {
+				return plan.callerFailure
+			}
+			recipient, err = core.ResolveIdentity(records, plan.target)
+			if err != nil || recipient == nil {
+				return err
+			}
+			binding, err = tx.Bindings().FindByIdentity(recipient.ID)
+			if err != nil {
+				return err
+			}
 		}
-		binding, err = tx.Bindings().FindByIdentity(recipient.ID)
-		if err != nil || !plan.hasSender {
-			return err
+		if !plan.hasSender {
+			return nil
 		}
 		if plan.originator.explicit == nil {
 			sender, err := verifiedCaller(tx, plan.originator.claim, plan.originator.probe)
@@ -257,13 +278,20 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 		return nil
 	})
 	if err != nil {
+		if plan.callerFailure != nil && errors.Is(err, plan.callerFailure) {
+			return plan.callerFailure
+		}
 		return talkFailure(err)
 	}
-	if recipient == nil {
-		if directPane {
-			// NOT PORTED (CLI-14): Direct-pane delivery with verified driver routing.
-			return &output.Failure{Code: "NOT_PORTED", Message: "Talk to a direct pane is not yet ported.", Status: 2}
+	var pane directTalkPane
+	if directPane {
+		var failure *output.Failure
+		pane, failure = app.resolveDirectTalkPane(ctx, plan.target)
+		if failure != nil {
+			return failure
 		}
+		recipient, binding = pane.recipient, pane.binding
+	} else if recipient == nil {
 		return identityMissing(plan.target)
 	}
 
@@ -277,13 +305,21 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 	req := core.PrepareRequest{
 		RequestID: core.RequestID("req_" + talkUUID()), AttemptID: core.AttemptID(talkUUID()),
 		Kind: core.RequestKindRequest, Origin: core.RequestOriginPerson, Originator: originator,
-		Route: core.RequestRoute{Kind: core.RequestRouteInbox, Recipient: &recipient.ID}, Recipient: &recipient.ID,
 		Message: plan.message, Wait: !plan.detach, RetentionDays: plan.retention,
-		ExpiresAtMs: uint64(time.Now().Add(plan.timeout).UnixMilli()),
+		ExpiresAtMs: uint64(time.Now().Add(plan.timeout + plan.pasteDelay + time.Second).UnixMilli()),
 		DeliveryPolicy: &core.RequestDeliveryPolicy{
 			Urgent: plan.urgent, Kind: kind, Automatic: true, Mode: core.RequestDeliveryRequest,
 		},
 	}
+	if recipient == nil {
+		endpoint := core.RequestEndpoint{Server: pane.snapshot.Server, PaneID: pane.snapshot.Pane.PaneID, PanePID: pane.snapshot.Process.PID}
+		req.Route = core.RequestRoute{Kind: core.RequestRoutePane, Pane: &endpoint}
+		return app.deliverTalk(ctx, plan, delivery.PasteTarget{
+			Pane:    pane.snapshot.Pane,
+			Unbound: &delivery.UnboundPasteFence{Server: pane.snapshot.Server, Process: pane.snapshot.Process},
+		}, req, senderName)
+	}
+	req.Route, req.Recipient = core.RequestRoute{Kind: core.RequestRouteInbox, Recipient: &recipient.ID}, &recipient.ID
 	if binding != nil {
 		return app.liveTalk(ctx, plan, *recipient, *binding, req, senderName)
 	}
@@ -293,7 +329,7 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 	}
 	report := talkReport{
 		RequestID: prepared.RequestID, Target: plan.target, RecipientIdentityID: recipient.ID,
-		Identity: output.TargetIdentity{Name: string(recipient.Name), CanonicalName: recipient.CanonicalName},
+		Identity: &output.TargetIdentity{Name: string(recipient.Name), CanonicalName: recipient.CanonicalName},
 	}
 	if prepared.DigestUntilMs != nil {
 		return report.heldByDigest(*prepared.DigestUntilMs, recipient.ID, uint64(wallClock{}.NowMs()))

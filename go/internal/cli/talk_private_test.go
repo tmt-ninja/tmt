@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -98,10 +99,10 @@ IFS= read -r ignored`, "fixture", binary, fake, exitFile, secondExit},
 		return seen
 	}
 	first := waitForState("Worker", pane, "running")
-	commandStatus := func(expected int, args ...string) []byte {
+	invoke := func(expected int, env []string, args ...string) []byte {
 		t.Helper()
 		cmd := exec.CommandContext(ctx, binary, args...)
-		cmd.Env = tmuxtest.Env()
+		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		status := 0
 		if err != nil {
@@ -115,6 +116,10 @@ IFS= read -r ignored`, "fixture", binary, fake, exitFile, secondExit},
 			t.Fatalf("%v: exit %d, want %d\n%s", args, status, expected, out)
 		}
 		return out
+	}
+	commandStatus := func(expected int, args ...string) []byte {
+		t.Helper()
+		return invoke(expected, tmuxtest.Env(), args...)
 	}
 	command := func(args ...string) []byte { return commandStatus(0, args...) }
 	codexDir := filepath.Join(root.Dir, "channels", "codex")
@@ -140,16 +145,29 @@ IFS= read -r ignored`, "fixture", binary, fake, exitFile, secondExit},
 	if err := os.Remove(record); err != nil {
 		t.Fatal(err)
 	}
-	talkJSON := command("talk", "Worker", "verify", "--timeout", "8s", "--json")
+	directEnv := append(tmuxtest.Env(), fmt.Sprintf("TMUX=%s,%d,0", server.Socket, first.Server.PID))
+	talkJSON := invoke(0, directEnv, "talk", pane.PaneID, "verify", "--timeout", "8s", "--json")
 	var talk struct {
 		RequestID core.RequestID
 		Status    string
 		Pane      string
 		Response  string
+		Identity  *struct{ Name string }
 	}
 	if err := json.Unmarshal(talkJSON, &talk); err != nil || talk.RequestID == "" ||
-		talk.Status != "completed" || talk.Pane != pane.PaneID || talk.Response != "ack: verify" {
+		talk.Status != "completed" || talk.Pane != pane.PaneID || talk.Response != "ack: verify" ||
+		talk.Identity == nil || talk.Identity.Name != "Worker" {
 		t.Fatalf("talk output = %q, error = %v", talkJSON, err)
+	}
+	if err := store.Read(ctx, func(tx ports.StoreTx) error {
+		attempt, err := tx.Requests().FindByID(talk.RequestID)
+		if err == nil && (attempt == nil || attempt.Route.Kind != core.RequestRouteInbox ||
+			attempt.Route.Recipient == nil || *attempt.Route.Recipient != first.IdentityID) {
+			t.Errorf("verified bound pane did not use the inbox route: %+v", attempt)
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
 	}
 	resultJSON := command("result", string(talk.RequestID), "--json")
 	var result struct {

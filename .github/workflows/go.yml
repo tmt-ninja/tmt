@@ -170,6 +170,11 @@ jobs:
                   ("test/e2e/cli-errors.e2e.test.ts", "preserves missing target and binding conflict exits without extra output"),
                   ("test/e2e/marked-binding.e2e.test.ts", "fails clearly for no mark, invalid names, and inaccessible selected servers without fallback"),
                   ("test/e2e/marked-binding.e2e.test.ts", "uses only the invocation-selected server when two private servers have marks"),
+                  ("test/e2e/smoke.e2e.test.ts", "transports a durable request and records request, submission, and summary through real tmux"),
+                  ("test/e2e/durable-talk.e2e.test.ts", "submits an exact Unicode and whitespace body through the inline public reply"),
+                  ("test/e2e/durable-talk.e2e.test.ts", "supports detach followed by result without confusing submission with task completion"),
+                  ("test/e2e/durable-talk.e2e.test.ts", "makes a late reply available after the observer times out"),
+                  ("test/e2e/durable-talk.e2e.test.ts", "asks the recipient to reply once and not to repeat the answer in its pane"),
               ],
           }
           project = "/workspace/typescript"

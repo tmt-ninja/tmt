@@ -99,18 +99,25 @@ func (app application) liveDriver(ctx context.Context, recipient core.Identity, 
 
 func (app application) liveTalk(ctx context.Context, plan talkPlan, recipient core.Identity, binding core.Binding,
 	req core.PrepareRequest, sender string,
-) (result output.Report) {
+) output.Report {
 	pane := ports.PaneRef{Server: binding.Server.Socket, PaneID: binding.PaneID}
+	return app.deliverTalk(ctx, plan, delivery.PasteTarget{Pane: pane, Binding: &binding, Identity: recipient}, req, sender)
+}
+
+func (app application) deliverTalk(ctx context.Context, plan talkPlan, target delivery.PasteTarget,
+	req core.PrepareRequest, sender string,
+) (result output.Report) {
 	prepared, err := app.requests.Prepare(ctx, req)
 	if err != nil {
 		return talkFailure(err)
 	}
-	report := talkReport{
-		RequestID: prepared.RequestID, Target: plan.target, Pane: pane.PaneID,
-		Identity: output.TargetIdentity{Name: string(recipient.Name), CanonicalName: recipient.CanonicalName},
-	}
-	if prepared.DigestUntilMs != nil {
-		return report.heldByDigest(*prepared.DigestUntilMs, recipient.ID, uint64(wallClock{}.NowMs()))
+	report := talkReport{RequestID: prepared.RequestID, Target: plan.target, Pane: target.Pane.PaneID}
+	if target.Binding != nil {
+		recipient := target.Identity
+		report.Identity = &output.TargetIdentity{Name: string(recipient.Name), CanonicalName: recipient.CanonicalName}
+		if prepared.DigestUntilMs != nil {
+			return report.heldByDigest(*prepared.DigestUntilMs, recipient.ID, uint64(wallClock{}.NowMs()))
+		}
 	}
 	if req.Wait {
 		defer app.releaseTalkWait(ctx, prepared, report, &result)
@@ -147,27 +154,37 @@ func (app application) liveTalk(ctx context.Context, plan talkPlan, recipient co
 	if failure := talkObserverState(ctx, plan, report, deadline); failure != nil {
 		return failure
 	}
-	var current *core.Binding
-	err = app.store.Read(ctx, func(tx ports.StoreTx) error {
-		var err error
-		current, err = tx.Bindings().FindByIdentity(recipient.ID)
-		return err
-	})
-	if err != nil || current == nil || !reflect.DeepEqual(*current, binding) {
-		return report.observerFailure("DELIVERY_PREPARATION_FAILED", "The recipient's binding changed before delivery. No message was delivered live.", 1)
+	var driver ports.Driver
+	if target.Binding != nil {
+		var current *core.Binding
+		err = app.store.Read(ctx, func(tx ports.StoreTx) error {
+			var err error
+			current, err = tx.Bindings().FindByIdentity(target.Identity.ID)
+			return err
+		})
+		if err != nil || !reflect.DeepEqual(current, target.Binding) {
+			return report.observerFailure("DELIVERY_PREPARATION_FAILED", "The recipient's binding changed before delivery. No message was delivered live.", 1)
+		}
+		var failure *output.Failure
+		driver, failure = app.liveDriver(ctx, target.Identity, *target.Binding, target.Pane)
+		if failure != nil {
+			return report.observerFailure(failure.Code, failure.Message, failure.Status)
+		}
 	}
-	driver, failure := app.liveDriver(ctx, recipient, binding, pane)
-	if failure != nil {
-		return report.observerFailure(failure.Code, failure.Message, failure.Status)
+	if app.live.deliver == nil {
+		return report.observerFailure("DELIVERY_PREPARATION_FAILED", "No message was delivered live.", 1)
 	}
 	if failure := talkObserverState(ctx, plan, report, deadline); failure != nil {
 		return failure
 	}
 
 	frame := output.RequestFrame(plan.message, sender, string(prepared.RequestID), string(prepared.Receipt), nil)
-	sendCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second)
-	target := delivery.PasteTarget{Pane: pane, Binding: &binding, Identity: recipient}
-	delivered, err := app.live.deliver(sendCtx, plan.root, target, ports.DeliveryInput{Text: frame, Submit: driver.SubmitPlan(frame)})
+	input := ports.DeliveryInput{Text: frame, BeforeSubmit: plan.pasteDelay}
+	if driver != nil {
+		input.Submit = driver.SubmitPlan(frame)
+	}
+	sendCtx, stop := context.WithTimeout(context.WithoutCancel(ctx), 8*time.Second+plan.pasteDelay)
+	delivered, err := app.live.deliver(sendCtx, plan.root, target, input)
 	stop()
 	if delivered == ports.DeliveryDelivered && err != nil {
 		delivered = ports.DeliveryUncertain

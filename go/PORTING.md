@@ -115,7 +115,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-11` Implement `ls --room` membership filtering.
 - [ ] `CLI-12` Implement `ls --detected` with host and socket selection.
 - [ ] `CLI-13` Implement bounded `whoami --context` output.
-- [ ] `CLI-14` High priority after focus: implement direct-pane `talk` with verified driver routing. Reuse the native durable-talk, smoke request, and response-integrity assertions.
+- [ ] `CLI-14` Port direct-pane talk on non-tmux hosts. Verified bound tmux panes keep the Inbox route. Unbound tmux panes retain the request against the exact endpoint and require a fresh paste fence. Private Go tests map durable receipt, detach/result, and byte preservation from `durable-talk.e2e.test.ts`, `smoke.e2e.test.ts` and `response-integrity.e2e.test.ts`.
 - [ ] `CLI-15` Implement `talk --remote` through Remote delivery.
 - [ ] `CLI-16` Implement `talk --room` and its membership rules.
 - [ ] `CLI-17` Implement `talk --passthrough` through guarded raw paste.
