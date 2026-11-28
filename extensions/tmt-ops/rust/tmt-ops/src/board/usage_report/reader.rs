@@ -148,17 +148,21 @@ impl Reader {
                     return;
                 }
                 let budget_core = core.cancellable(cancellation.clone());
-                for &start in &request.budget_starts {
+                for (&start, vendors) in &request.budgets {
                     if cancellation.cancelled() {
                         wait = timing.every;
                         continue 'read;
                     }
-                    let result = budgets::read(&budget_core, start);
+                    let result = budgets::read(&budget_core, start, vendors);
                     if cancellation.cancelled() {
                         wait = timing.every;
                         continue 'read;
                     }
-                    if !deliver_budget(budgets::Delivery { start, result }) {
+                    if !deliver_budget(budgets::Delivery {
+                        start,
+                        vendors: vendors.clone(),
+                        result,
+                    }) {
                         break 'read;
                     }
                 }

@@ -1539,7 +1539,7 @@ fn session(
                     }
                     Ok(BoardEvent::BudgetReport(delivery)) => {
                         if let Some(want) = app.usage_report_want() {
-                            app.usage_report.apply_budget(delivery, &want.budget_starts);
+                            app.usage_report.apply_budget(delivery, &want.budgets);
                             dirty = true;
                         }
                         Effect::None

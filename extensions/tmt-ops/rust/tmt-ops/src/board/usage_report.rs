@@ -29,9 +29,13 @@ pub struct State {
 }
 
 impl State {
-    pub(in crate::board) fn apply_budget(&mut self, delivery: budgets::Delivery, starts: &[u64]) {
-        self.budgets.retain(|start, _| starts.contains(start));
-        if starts.contains(&delivery.start) {
+    pub(in crate::board) fn apply_budget(
+        &mut self,
+        delivery: budgets::Delivery,
+        wanted: &std::collections::BTreeMap<u64, budgets::Vendors>,
+    ) {
+        self.budgets.retain(|start, _| wanted.contains_key(start));
+        if wanted.get(&delivery.start) == Some(&delivery.vendors) {
             self.budgets.insert(delivery.start, delivery.result);
         }
     }

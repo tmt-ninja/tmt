@@ -275,14 +275,17 @@ impl App {
                     let now = crate::status::now_ms();
                     let utc = jiff::tz::TimeZone::UTC;
                     let zone = self.local_zone.as_ref().unwrap_or(&utc);
-                    request
-                        .budget_starts
-                        .extend(snapshot.allowance_budgets.iter().filter_map(|budget| {
+                    for budget in &snapshot.allowance_budgets {
+                        if let Some((start, _)) =
                             super::super::limits::budget_period(budget.period, now, zone)
-                                .map(|(start, _)| start)
-                        }));
-                    request.budget_starts.sort_unstable();
-                    request.budget_starts.dedup();
+                        {
+                            request
+                                .budgets
+                                .entry(start)
+                                .or_default()
+                                .insert(budget.provider.clone());
+                        }
+                    }
                 }
                 request
             })

@@ -480,14 +480,16 @@ pub(in crate::board) fn budget_fixture(look: crate::look::Look) -> App {
             ]
         }
     });
-    let starts = crate::status::with_now_ms(NOW, || app.usage_report_want().unwrap().budget_starts);
-    assert_eq!(starts, [start]);
+    let wanted = crate::status::with_now_ms(NOW, || app.usage_report_want().unwrap().budgets);
+    assert_eq!(wanted.keys().copied().collect::<Vec<_>>(), [start]);
+    let vendors = &wanted[&start];
     app.usage_report.apply_budget(
         Delivery {
             start,
-            result: SpendReport::decode(&document, start),
+            vendors: vendors.clone(),
+            result: SpendReport::decode(&document, start, vendors),
         },
-        &starts,
+        &wanted,
     );
     app
 }

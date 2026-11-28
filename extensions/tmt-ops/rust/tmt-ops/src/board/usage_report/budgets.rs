@@ -4,7 +4,9 @@ use crate::{
     core::Core,
 };
 use serde_json::Value;
-use std::time::Duration;
+use std::{collections::BTreeSet, time::Duration};
+
+pub(in crate::board) type Vendors = BTreeSet<String>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::board) struct SpendReport {
@@ -68,7 +70,11 @@ fn provider(row: &Value, vendor: &str, from_ms: u64, to_ms: u64) -> Option<Budge
 }
 
 impl SpendReport {
-    pub(in crate::board) fn decode(document: &Value, start: u64) -> Result<Self, String> {
+    pub(in crate::board) fn decode(
+        document: &Value,
+        start: u64,
+        vendors: &Vendors,
+    ) -> Result<Self, String> {
         let malformed = || "Invalid Digest spend report.".to_owned();
         let spend = &document["spend"];
         let from_ms = spend["fromMs"].as_u64().ok_or_else(malformed)?;
@@ -78,14 +84,19 @@ impl SpendReport {
             || document.get("since") != Some(&Value::Null)
             || spend["requestedFromMs"] != start
             || from_ms > to_ms
-            || rows.len() != 3
         {
             return Err(malformed());
         }
-        let providers = rows
+        let providers = vendors
             .iter()
-            .zip(["anthropic", "google", "openai"])
-            .map(|(row, vendor)| provider(row, vendor, from_ms, to_ms))
+            .map(|vendor| {
+                let mut matches = rows.iter().filter(|row| row["provider"] == vendor.as_str());
+                let row = matches.next()?;
+                if matches.next().is_some() {
+                    return None;
+                }
+                provider(row, vendor, from_ms, to_ms)
+            })
             .collect::<Option<_>>()
             .ok_or_else(malformed)?;
         Ok(Self {
@@ -98,10 +109,11 @@ impl SpendReport {
 #[derive(Debug)]
 pub(in crate::board) struct Delivery {
     pub start: u64,
+    pub vendors: Vendors,
     pub result: Result<SpendReport, String>,
 }
 
-pub(super) fn read(core: &Core, start: u64) -> Result<SpendReport, String> {
+pub(super) fn read(core: &Core, start: u64, vendors: &Vendors) -> Result<SpendReport, String> {
     let timestamp = i64::try_from(start)
         .ok()
         .and_then(|millis| jiff::Timestamp::from_millisecond(millis).ok())
@@ -119,7 +131,7 @@ pub(super) fn read(core: &Core, start: u64) -> Result<SpendReport, String> {
             Duration::from_secs(65),
         )
         .map_err(|error| error.message)?;
-    SpendReport::decode(&document, start)
+    SpendReport::decode(&document, start, vendors)
 }
 
 #[cfg(test)]
@@ -150,7 +162,11 @@ mod tests {
             &core,
             "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$(dirname \"$0\")/argv\"\nexec cat \"$(dirname \"$0\")/spend.json\"\n",
         );
-        let report = read(&Core::at(core), start).unwrap();
+        let vendors = ["anthropic", "google", "openai"]
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        let report = read(&Core::at(core), start, &vendors).unwrap();
         assert_eq!(
             std::fs::read_to_string(scratch.join("argv")).unwrap(),
             "digest\nusage\nreport\n--from\n2026-11-29T00:00:00.001Z\n--json\n",
@@ -180,9 +196,14 @@ mod tests {
         assert!(openai.total.lower_bound);
 
         let mut document = document;
+        document["spend"]["providers"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"provider": "future_vendor"}));
+        assert_eq!(SpendReport::decode(&document, start, &vendors), Ok(report));
         document["spend"]["providers"][1]["total"]["reasons"] =
             json!(["retired_unread", "future_reason_id"]);
-        let report = SpendReport::decode(&document, start).unwrap();
+        let report = SpendReport::decode(&document, start, &vendors).unwrap();
         let quote = &report.providers[1];
         assert!(!quote.total.complete);
         assert_eq!(quote.total.reasons, ["retired_unread", "future_reason_id"]);
