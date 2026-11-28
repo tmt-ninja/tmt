@@ -5173,8 +5173,8 @@ impl App {
             self.move_pointer(event);
             return Effect::None;
         }
-        // A lifted membership takes only ↑↓, Enter and Esc.
-        if self.moving.as_ref().is_some_and(|moving| !moving.applying) {
+        // Move mode owns input until the lift is cancelled or the request settles.
+        if self.moving.is_some() {
             return Effect::None;
         }
         if let Some(effect) = self.frame_mouse(event) {
