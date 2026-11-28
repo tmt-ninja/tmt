@@ -3,13 +3,15 @@ package delivery
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/channel"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
+
+// ErrChannelEvidence identifies a channel fence refusal without requiring callers to expose record paths.
+var ErrChannelEvidence = errors.New("pane channel evidence prevents paste")
 
 // PasteHost supplies the exact tmux probe and the terminal transport.
 type PasteHost interface {
@@ -55,12 +57,8 @@ func GuardedPaste(ctx context.Context, host PasteHost, runner ports.Process, roo
 	evidence, err := channel.CheckPaneEvidence(ctx, runner, root, channel.PaneAddress{
 		Server: probe.Server, PaneID: pane.ID, PanePID: pane.PID,
 	}, bindingID)
-	if err != nil {
-		return ports.DeliveryNotStarted, evidence.Skipped, err
-	}
-	if evidence.Enrolled {
-		err := fmt.Errorf("pane %s has a channel enrollment at %q", pane.ID, evidence.Record)
-		return ports.DeliveryNotStarted, evidence.Skipped, err
+	if err != nil || evidence.Enrolled {
+		return ports.DeliveryNotStarted, evidence.Skipped, ErrChannelEvidence
 	}
 	if err := ctx.Err(); err != nil {
 		return ports.DeliveryNotStarted, evidence.Skipped, err

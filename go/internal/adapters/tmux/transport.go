@@ -27,6 +27,9 @@ func (c Client) Deliver(ctx context.Context, pane ports.PaneRef, in ports.Delive
 	if !validSocket(pane.Server) || !validPane(pane.PaneID) || strings.ContainsRune(in.Text, 0) {
 		return ports.DeliveryNotStarted, errors.New("invalid tmux pane or delivery text")
 	}
+	if in.BeforeSubmit < 0 {
+		return ports.DeliveryNotStarted, errors.New("invalid tmux submit delay")
+	}
 	if in.Submit == nil {
 		in.Submit = []ports.KeyStep{{Key: "Enter"}}
 	}
@@ -61,6 +64,11 @@ func (c Client) Deliver(ctx context.Context, pane ports.PaneRef, in ports.Delive
 		cleanup()
 		return ports.DeliveryUncertain, err
 	}
+	if len(in.Submit) > 0 && in.BeforeSubmit > 0 {
+		if err := waitForSubmit(ctx, in.BeforeSubmit); err != nil {
+			return ports.DeliveryUncertain, err
+		}
+	}
 	for _, step := range in.Submit {
 		args := []string{"send-keys", "-t", pane.PaneID}
 		if step.Key != "" {
@@ -71,17 +79,24 @@ func (c Client) Deliver(ctx context.Context, pane ports.PaneRef, in ports.Delive
 		if _, err := c.run(ctx, pane.Server, sendMaxBytes, nil, args...); err != nil {
 			return ports.DeliveryUncertain, err
 		}
-		if step.Pause != 0 {
-			timer := time.NewTimer(step.Pause)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return ports.DeliveryUncertain, ctx.Err()
-			case <-timer.C:
+		if step.Pause > 0 {
+			if err := waitForSubmit(ctx, step.Pause); err != nil {
+				return ports.DeliveryUncertain, err
 			}
 		}
 	}
 	return ports.DeliveryDelivered, nil
+}
+
+func waitForSubmit(ctx context.Context, delay time.Duration) error {
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return ctx.Err()
+	}
 }
 
 // Launch opens a window in an existing, exact session on the selected socket.

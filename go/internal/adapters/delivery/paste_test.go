@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -118,7 +119,7 @@ func TestGuardedPasteFencesCodexAfterRebinding(t *testing.T) {
 					target.Binding = nil
 				}
 				out, _, err := GuardedPaste(t.Context(), host, tc.runner, root, target, ports.DeliveryInput{Text: route})
-				if tc.block && (err == nil || out != ports.DeliveryNotStarted) ||
+				if tc.block && (!errors.Is(err, ErrChannelEvidence) || out != ports.DeliveryNotStarted) ||
 					!tc.block && (err != nil || out != ports.DeliveryDelivered) {
 					t.Fatalf("%s paste = %v, %v", route, out, err)
 				}

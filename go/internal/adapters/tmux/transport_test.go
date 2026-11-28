@@ -60,6 +60,91 @@ func TestDeliverStopsAfterUncertainPasteOrSubmit(t *testing.T) {
 	}
 }
 
+func TestDeliverPreSubmitDelay(t *testing.T) {
+	pane := ports.PaneRef{Server: "/tmp/unit-only-socket", PaneID: "%42"}
+	const delay = 10 * time.Millisecond
+	for _, cancelAfterPaste := range []bool{false, true} {
+		ctx, cancel := context.WithCancel(t.Context())
+		var operations []string
+		var pasted time.Time
+		client := Client{Path: "/unit/tmux", Process: runFunc(func(_ context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
+			operation := spec.Args[3]
+			operations = append(operations, operation)
+			switch operation {
+			case "paste-buffer":
+				pasted = time.Now()
+				if cancelAfterPaste {
+					cancel()
+				}
+			case "send-keys":
+				if pasted.IsZero() || time.Since(pasted) < delay {
+					t.Fatal("submit key preceded the configured delay after paste")
+				}
+			}
+			return ports.Bounded{}, nil
+		})}
+		outcome, err := client.Deliver(ctx, pane, ports.DeliveryInput{Text: "hello", BeforeSubmit: delay})
+		cancel()
+		if cancelAfterPaste {
+			if outcome != ports.DeliveryUncertain || !errors.Is(err, context.Canceled) ||
+				!slices.Equal(operations, []string{"load-buffer", "paste-buffer"}) {
+				t.Fatalf("canceled delivery = %v, %v, operations %v", outcome, err, operations)
+			}
+		} else if outcome != ports.DeliveryDelivered || err != nil ||
+			!slices.Equal(operations, []string{"load-buffer", "paste-buffer", "send-keys"}) {
+			t.Fatalf("delayed delivery = %v, %v, operations %v", outcome, err, operations)
+		}
+	}
+}
+
+func TestPrivateSocketCancelBeforeSubmitDoesNotReplay(t *testing.T) {
+	server := tmuxtest.Start(t)
+	path, err := exec.LookPath("tmux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pane := ports.PaneRef{Server: server.Socket, PaneID: strings.TrimSpace(
+		server.Run("display-message", "-p", "-t", "=t:", "#{pane_id}"))}
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	pasted := make(chan struct{})
+	done := make(chan struct{})
+	var operations []string
+	var outcome ports.DeliveryOutcome
+	var sendErr error
+	runner := process.Runner{}
+	client := Client{Path: path, Process: runFunc(func(ctx context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
+		got, err := runner.Run(ctx, spec)
+		op := spec.Args[3]
+		operations = append(operations, op)
+		if op == "paste-buffer" && err == nil && got.ExitCode == 0 {
+			close(pasted)
+		}
+		return got, err
+	})}
+	go func() {
+		outcome, sendErr = client.Deliver(ctx, pane, ports.DeliveryInput{Text: "do not submit", BeforeSubmit: time.Hour})
+		close(done)
+	}()
+	select {
+	case <-pasted:
+		cancel()
+	case <-done:
+		t.Fatalf("paste did not complete: %v, %v", outcome, sendErr)
+	case <-time.After(5 * time.Second):
+		t.Fatal("private paste did not complete within the test budget")
+	}
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("canceled delivery did not return within the test budget")
+	}
+	if outcome != ports.DeliveryUncertain || !errors.Is(sendErr, context.Canceled) ||
+		!slices.Equal(operations, []string{"load-buffer", "paste-buffer"}) {
+		t.Fatalf("canceled private delivery = %v, %v, operations %v", outcome, sendErr, operations)
+	}
+}
+
 func TestPrivateSocketLaunchCaptureAndDeliver(t *testing.T) {
 	server := tmuxtest.Start(t)
 	path, err := exec.LookPath("tmux")
