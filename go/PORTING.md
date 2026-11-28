@@ -194,6 +194,8 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 
 ### Native test mappings from merged main
 
+- `rust/crates/tmt-cli/src/parser/tests/setup.rs` hidden Digest callback, legacy baked argv, discover-launch and bounded worker budget assertions → `TestDigestHookGrammarMatchesNative`, `TestDigestHookGrammarRejectsInvalidSourcesAndBudgets` and `TestHiddenNamesAreReservedButAbsentFromHelp`.
+
 - `rust/crates/tmt-cli/src/resume_command.rs::named_preset_inspection_and_clear_bypass_failed_caller_selection` and the forget assertions in `typescript/test/e2e/run-harness.e2e.test.ts` → `TestResumeNamedPresetAndForgetWithoutAHost`. The native storage-denial case `preserves human launch-state refusal and resumes normal forgotten-session lookup` → `TestResumeForgetStorageDenialLeavesDatabaseBytes`. The private tmux fixture also pins implicit preset clearing and native's nameless `--forget` dispatch.
 - `rust/crates/tmt-adapters/src/request_frame.rs` frame guidance, byte stability and sender escaping → `go/internal/output/output_test.go` coverage in `TestRequestFrameOneClosingGuidance` and `TestRequestFrameNativeSenderEscaping`.
 - `rust/crates/tmt-cli/src/exchange_command/presentation.rs` incoming reply command in JSON and human presentation → `TestExchangeListAndShowProtectContentBoundaries` in `go/internal/cli/exchange_test.go`.

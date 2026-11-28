@@ -102,7 +102,7 @@ func TestHelpAndVersionUseNoDataRoot(t *testing.T) {
 }
 
 func TestHiddenNamesAreReservedButAbsentFromHelp(t *testing.T) {
-	for _, name := range []string{"__complete", "__focus-hook", "__native-install", "team"} {
+	for _, name := range []string{"__complete", "__digest-hook", "__focus-hook", "__native-install", "team"} {
 		child := grammar.child(name)
 		if child == nil || !child.hidden {
 			t.Fatalf("hidden name %q was not reserved", name)
@@ -165,5 +165,68 @@ func TestProviderHookIsHiddenAndDispatchesSilently(t *testing.T) {
 	var stdout, stderr bytes.Buffer
 	if status := Main([]string{"__hook", "claude"}, &stdout, &stderr); status != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
 		t.Fatalf("hook exit = %d, stdout = %q, stderr = %q", status, &stdout, &stderr)
+	}
+}
+
+// Port the baked hook invocations and worker constraints from parser/tests/setup.rs.
+func TestDigestHookGrammarMatchesNative(t *testing.T) {
+	for _, command := range []string{"__digest-hook", "__focus-hook"} {
+		for _, fixture := range []struct {
+			provider string
+			tail     []string
+		}{
+			{"claude", []string{"--launch", `{"identity_id":"pinned-scope"}`}},
+			{"codex", []string{"--discover-launch"}},
+			{"agy", []string{"--discover-launch"}},
+			{"claude", []string{"--launch", "__focus-hook"}},
+		} {
+			for _, budget := range []string{"", "0", "999", "2000"} {
+				args := append([]string{command, fixture.provider}, fixture.tail...)
+				if budget != "" {
+					args = append(args, "--worker", "--work-budget-ms", budget)
+				}
+				inv, failure := parse(args)
+				if failure != nil || !slices.Equal(inv.path, []string{"__digest-hook"}) ||
+					!slices.Equal(inv.operands, []string{fixture.provider}) {
+					t.Fatalf("parse %q = %+v, %v", args, inv, failure)
+				}
+				if inv.has("worker") != (budget != "") || inv.has("work-budget-ms") != (budget != "") ||
+					inv.options["work-budget-ms"] != budget {
+					t.Fatalf("parse %q lost worker option presence: %+v", args, inv)
+				}
+				if len(fixture.tail) == 2 {
+					if inv.options["launch"] != fixture.tail[1] || inv.has("discover-launch") {
+						t.Fatalf("parse %q lost the exact launch value: %+v", args, inv)
+					}
+				} else if inv.has("launch") || !inv.has("discover-launch") {
+					t.Fatalf("parse %q did not preserve discovery mode: %+v", args, inv)
+				}
+			}
+		}
+	}
+	if inv, failure := parse([]string{"__digest-hook", "claude", "--launch", "{}", "--worker"}); failure != nil ||
+		!inv.has("worker") || inv.has("work-budget-ms") {
+		t.Fatalf("worker without explicit budget = %+v, %v", inv, failure)
+	}
+}
+
+func TestDigestHookGrammarRejectsInvalidSourcesAndBudgets(t *testing.T) {
+	reject := func(args ...string) {
+		t.Helper()
+		if _, failure := parse(args); failure == nil || failure.Code != "USAGE_ERROR" {
+			t.Fatalf("parse %q = %v, want usage error", args, failure)
+		}
+	}
+	reject("__digest-hook")
+	reject("__digest-hook", "claude")
+	reject("__digest-hook", "claude", "--launch", "{}", "--discover-launch")
+	reject("__digest-hook", "claude", "--launch", "{}", "--launch", "{}")
+	reject("__digest-hook", "claude", "--launch", "{}", "--activity-only")
+	reject("__digest-hook", "claude", "--discover-launch", "--activity-only")
+	reject("__digest-hook", "gemini", "--discover-launch")
+	reject("__digest-hook", "pi", "--discover-launch")
+	reject("__digest-hook", "codex", "--discover-launch", "--work-budget-ms", "1")
+	for _, budget := range []string{"", "-1", "+1", "1.5", "1s", "2001", "18446744073709551616"} {
+		reject("__digest-hook", "codex", "--discover-launch", "--worker", "--work-budget-ms="+budget)
 	}
 }

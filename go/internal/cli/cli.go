@@ -140,6 +140,8 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return app.runProvider(ctx, root, invocation, stdout, stderr)
 	case "__hook":
 		return publish(stdout, stderr, app.runHook(ctx, root, invocation), invocation.json)
+	case "__digest-hook":
+		return app.runDigestHook(ctx, root, invocation, stdout)
 	}
 	// NOT PORTED (CLI-07, CLI-24,
 	// CLI-30, CLI-31, CLI-32, CLI-33, CLI-34, CLI-35, CLI-36, CLI-37, CLI-38,

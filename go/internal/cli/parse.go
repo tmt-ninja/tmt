@@ -56,6 +56,9 @@ func findOption(chain []*commandSpec, name string, short rune) *optionSpec {
 }
 
 func (s *argumentScan) option(chain []*commandSpec, opt *optionSpec, value string, supplied bool, tail []string) int {
+	if chain[len(chain)-1].name == "__digest-hook" && s.has(opt.name) {
+		s.reject("Option '--%s' cannot be used multiple times.", opt.name)
+	}
 	if !opt.value {
 		if supplied {
 			s.reject("Option '--%s' does not take a value.", opt.name)
@@ -296,6 +299,9 @@ func commandConstraints(parsed invocation) (required []string, conflicts, requir
 			{"forget-launch", "model"}, {"forget-launch", "effort"}, {"forget", "model"}, {"forget", "effort"},
 			{"forget", "channel"}, {"forget", "no-channel"}, {"channel", "no-channel"},
 		}
+	case "__digest-hook":
+		conflicts = [][2]string{{"launch", "discover-launch"}}
+		requires = [][2]string{{"work-budget-ms", "worker"}}
 	case "reply":
 		required = []string{"receipt"}
 	case "x ack":
@@ -353,6 +359,19 @@ func validateOperands(parsed invocation) string {
 		if len(parsed.operands) == 0 && (parsed.has("move") || parsed.has("driver")) {
 			return "Missing required argument '<name>'."
 		}
+	case "__digest-hook":
+		switch parsed.operands[0] {
+		case "claude", "codex", "agy":
+		default:
+			return fmt.Sprintf("Invalid value '%s' for '<provider>'.", parsed.operands[0])
+		}
+		if !parsed.has("launch") && !parsed.has("discover-launch") {
+			return "Use exactly one of '--launch' or '--discover-launch'."
+		}
+		// Match the native lifecycle callback's maximum. An explicit zero
+		// remains distinct from a worker using the default budget.
+		_, failure := optionalDecimal(parsed, "work-budget-ms", 0, 2000)
+		return failure
 	case "__hook":
 		if parsed.operands[0] != "claude" {
 			return fmt.Sprintf("Invalid value '%s' for '<provider>'.", parsed.operands[0])

@@ -135,6 +135,10 @@ var options = []optionSpec{
 	{name: "client"},
 	{name: "into", value: true},
 	{name: "activity-only", hidden: true},
+	{name: "launch", value: true, hidden: true},
+	{name: "discover-launch", hidden: true},
+	{name: "worker", hidden: true},
+	{name: "work-budget-ms", value: true, hidden: true},
 }
 
 var grammar = commandSpec{
@@ -259,5 +263,9 @@ func init() {
 		name: "__hook", hidden: true, summary: "Internal bounded provider lifecycle callback",
 		operands: []operandSpec{required("provider")}, options: []string{"activity-only"},
 	})
-	grammar.children = append(grammar.children, commandSpec{name: "__digest-hook", aliases: []string{"__focus-hook"}, hidden: true})
+	grammar.children = append(grammar.children, commandSpec{
+		name: "__digest-hook", aliases: []string{"__focus-hook"}, hidden: true,
+		summary: "Internal launch-admitted Digest continuation", operands: []operandSpec{required("provider")},
+		options: []string{"launch", "discover-launch", "worker", "work-budget-ms"},
+	})
 }
