@@ -103,7 +103,7 @@ func TestSendNowFreshGenerationRefusesDelayedSettlementAfterReopen(t *testing.T)
 	_, err := service.ReadClaimedWake(ctx, old)
 	requireRequestFailure(t, err, "REQUEST_STATE_ERROR", 1)
 	payload, err := service.ReadClaimedWake(ctx, fresh)
-	if err != nil || payload == nil || payload.Attempt.RequestID != sendNowID || payload.Message != input.Message || payload.SenderName != "sender" {
+	if err != nil || payload == nil || payload.Attempt.RequestID != sendNowID || payload.Message != input.Message || payload.SenderName != "sender" || payload.ThreadRoot != nil {
 		t.Fatalf("fresh exact payload = %+v, %v", payload, err)
 	}
 	if err := service.SettleReleasedWake(ctx, core.ReleasedWakeSettlement{Proof: fresh, Outcome: core.WakeSent}); err != nil {
@@ -172,4 +172,55 @@ func TestSendNowNeverReplaysUncertainAndRechecksClosedBeforePaste(t *testing.T) 
 	}
 	_, err = other.ReleaseSendNow(ctx, core.RequestRef(sendNowOther), "sender")
 	requireRequestFailure(t, err, "SEND_NOW_CLOSED", 1)
+}
+
+func TestSendNowProjectsExactRetainedThreadRoot(t *testing.T) {
+	parallelStorageFixture(t)
+	store, service, clock := seedRequestService(t)
+	ctx := t.Context()
+	root := inboxRequest(sendNowOther)
+	root.Message = "\r\nReview the saved sketch.\nSecond line. "
+	child := inboxRequest(sendNowID)
+	child.Message = "On it."
+	for _, input := range []core.PrepareRequest{root, child} {
+		if _, err := service.Enqueue(ctx, input); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const updateRoot = "UPDATE request_attempts SET thread_root_request_id=? WHERE request_id=?"
+	if _, err := store.db.ExecContext(ctx, updateRoot, root.RequestID, child.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.ReleaseSendNow(ctx, core.RequestRef(child.RequestID), "sender"); err != nil {
+		t.Fatal(err)
+	}
+	proof := requireClaim(t, service, core.ReleasedWakeQuery{RequestID: child.RequestID, RecipientID: "receiver"})
+	readRoot := func(t *testing.T, wantID core.RequestID, wantText *string) {
+		t.Helper()
+		payload, err := service.ReadClaimedWake(t.Context(), proof)
+		if err != nil || payload == nil || payload.Message != child.Message || payload.ThreadRoot == nil {
+			t.Fatalf("threaded payload = %+v, %v", payload, err)
+		}
+		got := payload.ThreadRoot
+		if got.RequestID != wantID || (got.Text == nil) != (wantText == nil) ||
+			(wantText != nil && *got.Text != *wantText) {
+			t.Fatalf("thread root = %+v, want ID %s and text %v", got, wantID, wantText)
+		}
+	}
+
+	readRoot(t, root.RequestID, &root.Message)
+	if _, err := store.db.ExecContext(ctx, "UPDATE request_attempts SET message_expires_at_ms=? WHERE request_id=?", clock.ms, root.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	readRoot(t, root.RequestID, nil)
+	if _, err := store.db.ExecContext(ctx, "UPDATE request_attempts SET message_expires_at_ms=?,retention_expires_at_ms=? WHERE request_id=?",
+		clock.ms+1, clock.ms, root.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	readRoot(t, root.RequestID, nil)
+	missingRoot := core.RequestID("req_00112233-4455-4666-8777-8899aabbccdd")
+	if _, err := store.db.ExecContext(ctx, updateRoot, missingRoot, child.RequestID); err != nil {
+		t.Fatal(err)
+	}
+	readRoot(t, missingRoot, nil)
 }

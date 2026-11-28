@@ -114,6 +114,19 @@ func (r requestRows) FindByID(id core.RequestID) (*core.RequestAttempt, error) {
 	return optional(readAttempt(r.one("SELECT "+attemptColumns+" FROM request_attempts WHERE request_id = ?", id)))
 }
 
+// The child retains its root ID independently of the root row and prompt lifetimes.
+func readRequestThreadRoot(r records, id core.RequestID, now uint64) (*core.RequestThreadRoot, error) {
+	var root core.RequestThreadRoot
+	err := r.one(`SELECT child.thread_root_request_id, parent.message_text
+		FROM request_attempts child
+		LEFT JOIN request_attempts parent ON parent.request_id=child.thread_root_request_id
+			AND parent.retention_expires_at_ms>?2 AND parent.message_expires_at_ms>?2
+			AND parent.message_bytes IS NOT NULL
+		WHERE child.request_id=?1 AND child.thread_root_request_id IS NOT NULL`, id, now).
+		Scan(&root.RequestID, &root.Text)
+	return optional(&root, err)
+}
+
 func (r requestRows) FindByAttemptID(id core.AttemptID) (*core.RequestAttempt, error) {
 	return optional(readAttempt(r.one("SELECT "+attemptColumns+" FROM request_attempts WHERE attempt_id = ?", id)))
 }

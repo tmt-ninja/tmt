@@ -51,6 +51,11 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [x] GO1-21: Observe future schema versions through an existing API session.
 - [ ] GO1-22: Decode authoritative Digest idle activity for Agy and Pi.
 - [ ] GO1-23: Preserve the retained thread-root frame when a request is sent now.
+  - Native `storage/room/tests.rs::a_roster_post_reaches_only_the_addressed_members`
+    maps to Go `TestSendNowProjectsExactRetainedThreadRoot` for the stored root
+    ID and retained prompt. The same test pins the root ID when the prompt or
+    root retention expires, or the root row is absent. Shared frame rendering
+    and the Digest consumer remain in progress.
 
 - [x] GO1-24: Read existing discovery ownership without provisioning.
   - Native `storage/bindings/service_tests/discovery.rs::read_only_discovery_preserves_rows_and_distinguishes_known_stale_hook_only_and_duplicates`

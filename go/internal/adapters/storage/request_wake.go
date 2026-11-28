@@ -251,8 +251,11 @@ func readClaimedWakePayload(r records, q core.ReleasedWakeQuery, now uint64) (*c
 			sender = sendNowSenderLabel(string(identity.Name))
 		}
 	}
-	// NOT PORTED (#6938, GO1-23): project the native thread root alongside the prompt.
-	return &core.ReleasedWakePayload{Attempt: *attempt, Message: *prompt, SenderName: sender}, nil
+	root, err := readRequestThreadRoot(r, q.RequestID, now)
+	if err != nil {
+		return nil, err
+	}
+	return &core.ReleasedWakePayload{Attempt: *attempt, Message: *prompt, SenderName: sender, ThreadRoot: root}, nil
 }
 
 // Native previews replace line separators, display controls and bidi markers

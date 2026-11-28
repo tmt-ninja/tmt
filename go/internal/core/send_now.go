@@ -56,10 +56,16 @@ type ReleasedWakeProof struct {
 	Generation  WakeClaimGeneration
 }
 
+type RequestThreadRoot struct {
+	RequestID RequestID
+	Text      *string
+}
+
 type ReleasedWakePayload struct {
 	Attempt    RequestAttempt
 	Message    string
 	SenderName string
+	ThreadRoot *RequestThreadRoot
 }
 
 type ReleasedWakeSettlement struct {
