@@ -346,3 +346,84 @@ func TestRequestRetentionPrunesOnWriteAndPreservesPinnedFinal(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestExchangeReadHidesExpiredContentAndMetadataWithoutCleanup(t *testing.T) {
+	parallelStorageFixture(t)
+	store, service, clock := seedRequestService(t)
+	ctx := t.Context()
+	in := inboxRequest("req_abcdef01-0000-4000-8000-000000000005")
+	prepared, err := service.Enqueue(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const body = "private fixture final"
+	if _, err := service.SubmitResponse(ctx, core.SubmitResponse{RequestID: in.RequestID, Receipt: prepared.Receipt, Body: body}); err != nil {
+		t.Fatal(err)
+	}
+
+	const promptExpiry, finalExpiry, retentionExpiry = 20_000, 30_000, 40_000
+	editResumeFixture(t, store, `UPDATE request_attempts SET message_expires_at_ms=?,retention_expires_at_ms=? WHERE request_id=?`,
+		promptExpiry, retentionExpiry, in.RequestID)
+	editResumeFixture(t, store, "UPDATE request_responses SET response_expires_at_ms=? WHERE request_id=?", finalExpiry, in.RequestID)
+	var before uint64
+	if err := store.db.QueryRowContext(ctx, "SELECT value FROM change_cursor WHERE id=1").Scan(&before); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, query := range []core.XQuery{
+		{Identity: "sender", Direction: core.XOutgoing},
+		{Identity: "receiver", Direction: core.XIncoming},
+	} {
+		clock.ms = promptExpiry - 1
+		detail, err := service.ShowX(ctx, query.Identity, query.Direction, in.RequestID)
+		if err != nil || detail.Prompt == nil || *detail.Prompt != in.Message || detail.Exchange.Final.Response == nil ||
+			*detail.Exchange.Final.Response != body {
+			t.Fatalf("retained detail before expiry (%v): %+v, %v", query.Direction, detail, err)
+		}
+		clock.ms = promptExpiry
+		detail, err = service.ShowX(ctx, query.Identity, query.Direction, in.RequestID)
+		if err != nil || detail.Prompt != nil || detail.PromptExpiresAtMs == nil || *detail.PromptExpiresAtMs != promptExpiry ||
+			detail.Exchange.Final.Status != core.FinalRetained {
+			t.Fatalf("detail at prompt expiry (%v): %+v, %v", query.Direction, detail, err)
+		}
+		clock.ms = finalExpiry
+		detail, err = service.ShowX(ctx, query.Identity, query.Direction, in.RequestID)
+		if err != nil || detail.Exchange.Final.Status != core.FinalExpired || detail.Exchange.Final.Response != nil ||
+			detail.Exchange.Final.ExpiresAtMs == nil || *detail.Exchange.Final.ExpiresAtMs != finalExpiry {
+			t.Fatalf("detail at final expiry (%v): %+v, %v", query.Direction, detail, err)
+		}
+
+		clock.ms = retentionExpiry - 1
+		page, err := service.ListX(ctx, query)
+		if err != nil || len(page.Items) != 1 || page.Items[0].RequestID != in.RequestID ||
+			page.Items[0].Final.Status != core.FinalExpired {
+			t.Fatalf("retained metadata before expiry (%v): %+v, %v", query.Direction, page, err)
+		}
+		clock.ms = retentionExpiry
+		page, err = service.ListX(ctx, query)
+		if err != nil || len(page.Items) != 0 || page.NextAfter != nil {
+			t.Fatalf("list at metadata expiry (%v): %+v, %v", query.Direction, page, err)
+		}
+		_, err = service.ShowX(ctx, query.Identity, query.Direction, in.RequestID)
+		requireRequestFailure(t, err, "X_NOT_FOUND", 3)
+	}
+	// Verify the incoming response is visible before checking its expiry.
+	responseQuery := core.XQuery{Identity: "sender", Direction: core.XIncoming}
+	clock.ms = retentionExpiry - 1
+	page, err := service.ListX(ctx, responseQuery)
+	if err != nil || len(page.Items) != 1 || page.Items[0].Kind != core.XResponse {
+		t.Fatalf("response attention before metadata expiry: %+v, %v", page, err)
+	}
+	clock.ms = retentionExpiry
+	page, err = service.ListX(ctx, responseQuery)
+	if err != nil || len(page.Items) != 0 {
+		t.Fatalf("response attention at metadata expiry: %+v, %v", page, err)
+	}
+	var persistedPrompt, persistedFinal string
+	var after uint64
+	if err := store.db.QueryRowContext(ctx, `SELECT a.message_text,r.body,(SELECT value FROM change_cursor WHERE id=1)
+		FROM request_attempts a JOIN request_responses r ON r.request_id=a.request_id WHERE a.request_id=?`, in.RequestID).
+		Scan(&persistedPrompt, &persistedFinal, &after); err != nil || persistedPrompt != in.Message || persistedFinal != body || after != before {
+		t.Fatalf("expiry observation changed stored state: cursor %d to %d, %v", before, after, err)
+	}
+}

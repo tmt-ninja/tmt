@@ -23,6 +23,15 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO1-03: Registered external host target grammars.
 - [ ] GO1-04: Remote request routes and response reads.
 - [ ] GO1-05: Native Digest, flow and capture retention with incremental page reclaim.
+  - Native `storage/requests/service_tests/attention.rs::metadata_expiry_hides_show_and_ack_at_deadline_equality`
+    and `final_state_distinguishes_expired_body_from_unavailable_body_at_retention_boundary`
+    map their list/show and expired-final assertions to
+    `TestExchangeReadHidesExpiredContentAndMetadataWithoutCleanup` in both
+    directions. The Go test checks prompt,
+    final and metadata deadlines separately and verifies the read leaves the
+    stored bodies and cursor intact. The unchanged
+    `exchange.test.ts::rejects an unverified implicit caller before request housekeeping`
+    also requires a physical scrub on admitted outgoing X and remains pending.
 - [ ] GO1-06: Atomic SQLite symlink refusal when opening the hook queue or existing capture store.
 - [ ] GO1-07: SQLite no-checkpoint-on-close connection option.
 - [x] GO1-08: Digest holds and provider activity in the request delivery view.
