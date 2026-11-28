@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
@@ -20,7 +21,16 @@ var Version = "0.0.0-go-dev"
 
 // Main runs one invocation and returns the process exit status.
 func Main(args []string, stdout, stderr io.Writer) int {
-	return application{stdin: os.Stdin, caller: systemCaller()}.run(context.Background(), args, stdout, stderr)
+	return systemApplication().run(context.Background(), args, stdout, stderr)
+}
+
+func systemApplication() application {
+	client := sync.OnceValues(newTmuxClient)
+	return application{
+		stdin:  os.Stdin,
+		caller: systemCaller(client),
+		live:   systemLiveTalkHost(client),
+	}
 }
 
 type application struct {
@@ -28,6 +38,7 @@ type application struct {
 	requests ports.RequestService
 	store    ports.Store
 	caller   callerSelector
+	live     liveTalkHost
 }
 
 func (app application) run(ctx context.Context, args []string, stdout, stderr io.Writer) int {

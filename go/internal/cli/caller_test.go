@@ -26,6 +26,13 @@ func (r callerBindingRepo) FindByEndpoint(key core.EndpointKey) (*core.Binding, 
 	return nil, nil
 }
 
+func (r callerBindingRepo) FindByIdentity(id core.IdentityID) (*core.Binding, error) {
+	if id == r.row.IdentityID {
+		return &r.row, nil
+	}
+	return nil, nil
+}
+
 type callerTestStore struct {
 	ports.Store
 	tx callerTestTx
@@ -46,7 +53,7 @@ func TestCallerSelectionWithPrivateTmuxEvidence(t *testing.T) {
 	server := tmuxtest.Start(t)
 	t.Setenv("TMT_GO_HOME", t.TempDir())
 	ctx := context.Background()
-	caller := systemCaller()
+	caller := systemApplication().caller
 	pane := ports.PaneRef{Server: server.Socket, PaneID: strings.TrimSpace(server.Run("display-message", "-p", "#{pane_id}"))}
 	const nativeOption = "@tmt.agent"
 	const nativeMarker = `{"version":1,"native":"preset sentinel"}`

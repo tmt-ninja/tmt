@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"sync"
 	"unicode/utf8"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
@@ -32,8 +31,7 @@ func newTmuxClient() (tmux.Client, error) {
 	return tmux.Client{Path: path, Process: process.Runner{}}, nil
 }
 
-func systemCaller() callerSelector {
-	client := sync.OnceValues(newTmuxClient)
+func systemCaller(client func() (tmux.Client, error)) callerSelector {
 	return callerSelector{
 		lookup: os.LookupEnv,
 		probe: func(ctx context.Context, pane ports.PaneRef) (core.EndpointProbe, error) {

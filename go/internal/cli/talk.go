@@ -157,7 +157,8 @@ type talkReport struct {
 	RequestID           core.RequestID        `json:"requestId"`
 	Target              string                `json:"target"`
 	Identity            output.TargetIdentity `json:"identity"`
-	RecipientIdentityID core.IdentityID       `json:"recipientIdentityId"`
+	Pane                string                `json:"pane,omitempty"`
+	RecipientIdentityID core.IdentityID       `json:"recipientIdentityId,omitempty"`
 	Offline             bool                  `json:"offline,omitempty"`
 	Notification        string                `json:"notification,omitempty"`
 	WaitingFor          string                `json:"waitingFor,omitempty"`
@@ -174,10 +175,15 @@ func (r talkReport) ExitStatus() int            { return 0 }
 func (r talkReport) Human(w io.Writer) error {
 	var text strings.Builder
 	target := r.Identity.Name
-	if r.Response == nil {
-		fmt.Fprintf(&text, "✓ Queued request %s for %s without a live endpoint\nhint: %s\n", r.RequestID, target, r.Suggestion)
-	} else {
+	switch {
+	case r.Pane != "" && r.Response != nil:
+		fmt.Fprintf(&text, "✓ Completed request %s for %s (%s)\n%s\n", r.RequestID, target, r.Pane, *r.Response)
+	case r.Pane != "":
+		fmt.Fprintf(&text, "✓ Sent request %s to %s (%s)\n", r.RequestID, target, r.Pane)
+	case r.Response != nil:
 		fmt.Fprintf(&text, "✓ Completed queued request %s for %s\n%s\n", r.RequestID, target, *r.Response)
+	default:
+		fmt.Fprintf(&text, "✓ Queued request %s for %s without a live endpoint\nhint: %s\n", r.RequestID, target, r.Suggestion)
 	}
 	fmt.Fprintf(&text, "hint: retrieve it later with tmt-go result %s\n", r.RequestID)
 	_, err := io.WriteString(w, text.String())
@@ -190,12 +196,16 @@ func (r talkReport) recipientHints() string {
 }
 
 func (r talkReport) observerFailure(code, message string, status int) *output.Failure {
+	suggestion := fmt.Sprintf("Inspect with 'tmt-go result %s --json'. Do not resend solely because the observer ended.", r.RequestID)
+	if r.Pane == "" {
+		suggestion = fmt.Sprintf("Inspect with 'tmt-go result %s --json'. The request stays queued for a later reply; do not resend solely because the observer ended. %s.",
+			r.RequestID, r.recipientHints())
+	}
 	return &output.Failure{
 		Code: code, Message: message, Status: status,
-		Request: &output.RequestFailure{RequestID: string(r.RequestID)},
-		Target:  &output.TargetFailure{Target: r.Target, Identity: &r.Identity},
-		Suggestion: fmt.Sprintf("Inspect with 'tmt-go result %s --json'. The request stays queued for a later reply; do not resend solely because the observer ended. %s.",
-			r.RequestID, r.recipientHints()),
+		Request:    &output.RequestFailure{RequestID: string(r.RequestID)},
+		Target:     &output.TargetFailure{Target: r.Target, Pane: r.Pane, Identity: &r.Identity},
+		Suggestion: suggestion,
 	}
 }
 
@@ -204,6 +214,7 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 	var binding *core.Binding
 	var directPane bool
 	originator := core.Originator{Kind: core.OriginatorUnknown}
+	senderName := "unknown"
 	err := app.store.Read(ctx, func(tx ports.StoreTx) error {
 		var err error
 		records := tx.Identities()
@@ -223,6 +234,7 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 			sender, err := verifiedCaller(tx, plan.originator.claim, plan.originator.probe)
 			if err == nil && sender != nil {
 				originator = core.Originator{Kind: core.OriginatorVerified, IdentityID: &sender.ID}
+				senderName = sender.CanonicalName
 			}
 			return err
 		}
@@ -234,6 +246,7 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 			return &core.RequestFailure{Code: "NAME_NOT_FOUND", Message: fmt.Sprintf("Identity '%s' was not found.", *plan.originator.explicit), Status: 3}
 		}
 		originator = core.Originator{Kind: core.OriginatorExplicit, IdentityID: &sender.ID}
+		senderName = sender.CanonicalName
 		return nil
 	})
 	if err != nil {
@@ -246,11 +259,7 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 		}
 		return identityMissing(plan.target)
 	}
-	if binding != nil {
-		// Recorded ownership is neither liveness nor license to queue around
-		// an unavailable host. Live delivery will verify this exact endpoint.
-		return &output.Failure{Code: "NOT_PORTED", Message: "Talk to a bound identity is not yet ported.", Status: 2}
-	}
+
 	if !waitForTalkTimer(ctx, plan.delay) {
 		return &output.Failure{Code: "INTERRUPTED", Message: "Interrupted before preparing the request. No message was sent.", Status: 1}
 	}
@@ -260,6 +269,9 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 		Route: core.RequestRoute{Kind: core.RequestRouteInbox, Recipient: &recipient.ID}, Recipient: &recipient.ID,
 		Message: plan.message, Wait: !plan.detach, RetentionDays: plan.retention,
 		ExpiresAtMs: uint64(time.Now().Add(plan.timeout).UnixMilli()),
+	}
+	if binding != nil {
+		return app.liveTalk(ctx, plan, *recipient, *binding, req, senderName)
 	}
 	prepared, err := app.requests.Enqueue(ctx, req)
 	if err != nil {
@@ -279,16 +291,21 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 }
 
 func (app application) waitForTalk(ctx context.Context, plan talkPlan, prepared core.PreparedRequest, report talkReport) (result output.Report) {
-	deadline := time.Now().Add(plan.timeout)
-	defer func() {
-		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-		defer cancel()
-		if err := app.requests.ReleaseWait(cleanup, prepared.AttemptID); err != nil {
-			if _, failed := result.(*output.Failure); !failed {
-				result = report.observerFailure("CLEANUP_ERROR", "Could not release the request observer. Effects may already have occurred.", 1)
-			}
+	defer app.releaseTalkWait(ctx, prepared, report, &result)
+	return app.observeTalk(ctx, plan, prepared, report, time.Now().Add(plan.timeout))
+}
+
+func (app application) releaseTalkWait(ctx context.Context, prepared core.PreparedRequest, report talkReport, result *output.Report) {
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := app.requests.ReleaseWait(cleanup, prepared.AttemptID); err != nil {
+		if _, failed := (*result).(*output.Failure); !failed {
+			*result = report.observerFailure("CLEANUP_ERROR", "Could not release the request observer. Effects may already have occurred.", 1)
 		}
-	}()
+	}
+}
+
+func (app application) observeTalk(ctx context.Context, plan talkPlan, prepared core.PreparedRequest, report talkReport, deadline time.Time) output.Report {
 	for {
 		if failure := talkObserverState(ctx, plan, report, deadline); failure != nil {
 			return failure
@@ -314,7 +331,10 @@ func talkObserverState(ctx context.Context, plan talkPlan, report talkReport, de
 		return report.observerFailure("INTERRUPTED", "Interrupted while waiting for a durable reply.", 1)
 	}
 	if !time.Now().Before(deadline) {
-		message := fmt.Sprintf("%s has not responded within %gs; the request is still queued for inbox pull", report.Target, plan.timeout.Seconds())
+		message := fmt.Sprintf("Timed out waiting for %s after %gs", report.Target, plan.timeout.Seconds())
+		if report.Pane == "" {
+			message = fmt.Sprintf("%s has not responded within %gs; the request is still queued for inbox pull", report.Target, plan.timeout.Seconds())
+		}
 		failure := report.observerFailure("TIMEOUT", message, 4)
 		failure.Request.Status = "timeout"
 		return failure
