@@ -144,20 +144,28 @@ func (c Client) writeBindingDocument(ctx context.Context, binding core.Binding, 
 
 	// Compare the host and raw option inside tmux's own command queue, so
 	// a changed option cannot be overwritten between the read and mutation.
-	condition := formatEqual("pane_id", pane.PaneID)
-	for _, equal := range []string{
+	const refused = "TMT_GO_BIND_REFUSED"
+	out, err := c.run(ctx, pane.Server, 1024, nil, "if-shell", "-F", "-t", pane.PaneID,
+		bindingCondition(binding, raw), command, "display-message -p "+refused)
+	return err == nil && strings.TrimSpace(out) != refused, err
+}
+
+func bindingCondition(binding core.Binding, raw string) string {
+	return andFormats(
+		formatEqual("pane_id", binding.PaneID),
 		formatEqual("pane_pid", strconv.FormatUint(binding.PanePID, 10)),
 		formatEqual("pid", strconv.FormatUint(binding.Server.PID, 10)),
 		formatEqual("start_time", binding.Server.StartTime),
 		formatEqual(ServerIDOption, binding.Server.ID),
 		formatEqual(AgentOption, raw),
-	} {
-		condition = "#{&&:" + condition + "," + equal + "}"
+	)
+}
+
+func andFormats(first string, rest ...string) string {
+	for _, condition := range rest {
+		first = "#{&&:" + first + "," + condition + "}"
 	}
-	const refused = "TMT_GO_BIND_REFUSED"
-	out, err := c.run(ctx, pane.Server, 1024, nil, "if-shell", "-F", "-t", pane.PaneID,
-		condition, command, "display-message -p "+refused)
-	return err == nil && strings.TrimSpace(out) != refused, err
+	return first
 }
 
 var formatLiteral = strings.NewReplacer("#", "##", ",", "#,", "}", "#}")

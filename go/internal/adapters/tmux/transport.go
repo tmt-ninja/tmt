@@ -88,32 +88,43 @@ func (c Client) Deliver(ctx context.Context, pane ports.PaneRef, in ports.Delive
 // NOT PORTED (#6938): creating a missing session requires a private-server
 // guarantee that the current launch port cannot express.
 func (c Client) Launch(ctx context.Context, spec ports.LaunchSpec) (ports.PaneRef, error) {
+	id, err := c.launchWindow(ctx, spec, "#{pane_id}")
+	if err != nil {
+		return ports.PaneRef{}, err
+	}
+	if !validPane(id) {
+		return ports.PaneRef{}, errors.New("tmux launch returned an invalid pane ID")
+	}
+	return ports.PaneRef{Server: spec.Server, PaneID: id}, nil
+}
+
+func (c Client) launchWindow(ctx context.Context, spec ports.LaunchSpec, format string) (string, error) {
 	if spec.Session == "" || strings.ContainsAny(spec.Session, ":.\x00") ||
 		strings.IndexFunc(spec.Session, unicode.IsControl) >= 0 {
-		return ports.PaneRef{}, errors.New("invalid tmux session name")
+		return "", errors.New("invalid tmux session name")
 	}
 	if !filepath.IsAbs(spec.Command.Path) || len(spec.Command.Stdin) != 0 {
-		return ports.PaneRef{}, errors.New("launch requires an absolute executable and no redirected input")
+		return "", errors.New("launch requires an absolute executable and no redirected input")
 	}
 	dir := spec.Dir
 	if dir == "" {
 		dir = spec.Command.Dir
 	}
 	if dir != "" && (!filepath.IsAbs(dir) || strings.ContainsAny(dir, "#\x00") || strings.HasSuffix(dir, ";")) {
-		return ports.PaneRef{}, errors.New("invalid tmux launch directory")
+		return "", errors.New("invalid tmux launch directory")
 	}
 	if strings.ContainsAny(spec.Window, "#\x00") || strings.HasSuffix(spec.Window, ";") ||
 		strings.IndexFunc(spec.Window, unicode.IsControl) >= 0 {
-		return ports.PaneRef{}, errors.New("invalid tmux launch window")
+		return "", errors.New("invalid tmux launch window")
 	}
 
 	// Give tmux the environment overlay separately so it keeps the pane's
 	// TMUX/TMUX_PANE values and never records the overlay in pane_start_command.
-	args := []string{"new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "=" + spec.Session + ":"}
+	args := []string{"new-window", "-d", "-P", "-F", format, "-t", "=" + spec.Session + ":"}
 	for _, entry := range spec.Command.Env {
 		name, _, ok := strings.Cut(entry, "=")
 		if !ok || name == "" || strings.HasPrefix(name, "-") || strings.ContainsRune(entry, 0) {
-			return ports.PaneRef{}, errors.New("invalid child environment entry")
+			return "", errors.New("invalid child environment entry")
 		}
 		if name != "TMUX" && name != "TMUX_PANE" {
 			args = append(args, "-e", tmuxArg(entry))
@@ -125,7 +136,7 @@ func (c Client) Launch(ctx context.Context, spec ports.LaunchSpec) (ports.PaneRe
 	argv := append([]string{spec.Command.Path}, spec.Command.Args...)
 	for i, arg := range argv {
 		if strings.ContainsRune(arg, 0) {
-			return ports.PaneRef{}, errors.New("launch arguments cannot contain NUL")
+			return "", errors.New("launch arguments cannot contain NUL")
 		}
 		argv[i] = "'" + strings.ReplaceAll(arg, "'", "'\\''") + "'"
 	}
@@ -136,15 +147,11 @@ func (c Client) Launch(ctx context.Context, spec ports.LaunchSpec) (ports.PaneRe
 		args = append(args, "-c", dir)
 	}
 	args = append(args, "--", "exec "+strings.Join(argv, " "))
-	output, err := c.run(ctx, spec.Server, 128, nil, args...)
+	output, err := c.run(ctx, spec.Server, 1024, nil, args...)
 	if err != nil {
-		return ports.PaneRef{}, fmt.Errorf("launch in %q: %w", spec.Session, err)
+		return "", fmt.Errorf("launch in %q: %w", spec.Session, err)
 	}
-	id := strings.TrimSuffix(output, "\n")
-	if !validPane(id) {
-		return ports.PaneRef{}, errors.New("tmux launch returned an invalid pane ID")
-	}
-	return ports.PaneRef{Server: spec.Server, PaneID: id}, nil
+	return strings.TrimSuffix(output, "\n"), nil
 }
 
 // A trailing semicolon otherwise starts a new tmux command, even after --.
