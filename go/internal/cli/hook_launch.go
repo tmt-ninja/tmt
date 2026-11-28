@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/claude"
+	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
@@ -20,32 +22,51 @@ const hookLaunchLifetime = 24 * time.Hour
 
 var errHookLaunchChanged = errors.New("binding or launch intent changed")
 
-type hookLaunchIntent struct {
-	expected    core.Binding
-	owner       core.ProcessIncarnation
-	provider    string
-	createdAtMs uint64
-	expiresAtMs uint64
-}
-
-// hookLaunchStorage keeps the sequencing testable until the binding launch
-// intent port is wired. Implementations own the storage transaction and fence.
-type hookLaunchStorage interface {
-	createLaunchIntent(context.Context, hookLaunchIntent) (bool, error)
-	admitLaunch(context.Context, hookLaunchIntent, core.ProcessIncarnation, uint64) (*core.Binding, error)
-}
+type hookLaunchIntent = ports.LaunchIntent
 
 type hookLaunchCoordinator struct {
-	storage hookLaunchStorage
-	now     func() time.Time
+	store ports.Store
+	now   func() time.Time
+}
+
+// prepareHookLaunch uses the invocation's open store and own live incarnation.
+func (app application) prepareHookLaunch(ctx context.Context, root home.Root, binding core.Binding, provider string,
+	command ports.ProcessSpec, startupInput bool,
+) (ports.ProcessSpec, *hookLaunchIntent, error) {
+	executable, err := os.Executable()
+	if err != nil {
+		return ports.ProcessSpec{}, nil, err
+	}
+	observed, err := (runtime.Observer{Process: process.Runner{}}).Observe(ctx, os.Getpid())
+	if err != nil {
+		return ports.ProcessSpec{}, nil, err
+	}
+	if observed.State != runtime.Alive || observed.Incarnation.PID != os.Getpid() {
+		return ports.ProcessSpec{}, nil, errHookLaunchChanged
+	}
+	owner := core.ProcessIncarnation{PID: uint64(observed.Incarnation.PID), StartIdentity: observed.Incarnation.Start}
+	coordinator := hookLaunchCoordinator{store: app.store, now: time.Now}
+	return coordinator.prepare(ctx, root, binding, core.DriverName(provider), command, owner, executable, startupInput)
+}
+
+// admitHookLaunch commits an independently verified foreground observation
+// while the parent run invocation still owns that launch.
+func (app application) admitHookLaunch(ctx context.Context, _ home.Root, intent *hookLaunchIntent,
+	main core.ProcessIncarnation,
+) (*core.Binding, error) {
+	if intent == nil || intent.Owner.PID != uint64(os.Getpid()) {
+		return nil, errHookLaunchChanged
+	}
+	coordinator := hookLaunchCoordinator{store: app.store, now: time.Now}
+	return coordinator.admit(ctx, intent, main)
 }
 
 // prepare records the intent before handing the caller a launchable command.
 // The caller has already verified the binding and the launch-owner incarnation.
 func (c hookLaunchCoordinator) prepare(ctx context.Context, root home.Root, binding core.Binding,
-	provider string, command ports.ProcessSpec, owner core.ProcessIncarnation, executable string, startupInput bool,
+	provider core.DriverName, command ports.ProcessSpec, owner core.ProcessIncarnation, executable string, startupInput bool,
 ) (ports.ProcessSpec, *hookLaunchIntent, error) {
-	if !filepath.IsAbs(root.Dir) || !filepath.IsAbs(executable) || !invoke.IsExecutable(executable) ||
+	if c.store == nil || !filepath.IsAbs(root.Dir) || !filepath.IsAbs(executable) || !invoke.IsExecutable(executable) ||
 		binding.ID == "" || binding.IdentityID == "" || binding.PaneIncarnation == nil || !validHookIncarnation(owner) {
 		return ports.ProcessSpec{}, nil, errors.New("invalid managed launch coordinates")
 	}
@@ -61,7 +82,7 @@ func (c hookLaunchCoordinator) prepare(ctx context.Context, root home.Root, bind
 	}
 	overlay := []string{home.EnvHome + "=" + root.Dir, "TMT_EXECUTABLE=" + executable}
 	switch provider {
-	case "claude":
+	case core.DriverClaude:
 		launch := hookCoordinates{IdentityID: binding.IdentityID, BindingID: binding.ID, Owner: owner,
 			StartupInput: startupInput && claude.StartsAtPrompt(command)}
 		data, err := json.Marshal(launch)
@@ -73,7 +94,7 @@ func (c hookLaunchCoordinator) prepare(ctx context.Context, root home.Root, bind
 			return ports.ProcessSpec{}, nil, err
 		}
 		overlay = append(overlay, hookLaunchEnv+"="+string(data))
-	case "codex", "gemini":
+	case core.DriverCodex, core.DriverGemini:
 		// Plain launch only. Neither provider makes an initial Idle claim.
 	default:
 		return ports.ProcessSpec{}, nil, errors.New("unsupported managed launch provider")
@@ -81,9 +102,14 @@ func (c hookLaunchCoordinator) prepare(ctx context.Context, root home.Root, bind
 	command.Env = invoke.OverlayEnv(env, overlay)
 
 	now := c.now()
-	intent := hookLaunchIntent{expected: binding, owner: owner, provider: provider,
-		createdAtMs: uint64(now.UnixMilli()), expiresAtMs: uint64(now.Add(hookLaunchLifetime).UnixMilli())}
-	created, err := c.storage.createLaunchIntent(ctx, intent)
+	intent := hookLaunchIntent{Expected: binding, Owner: owner, Driver: provider,
+		CreatedAtMs: uint64(now.UnixMilli()), ExpiresAtMs: uint64(now.Add(hookLaunchLifetime).UnixMilli())}
+	var created bool
+	err := c.store.Write(ctx, func(tx ports.StoreTx) error {
+		var err error
+		created, err = tx.Bindings().CreateLaunchIntent(intent)
+		return err
+	})
 	if err != nil {
 		return ports.ProcessSpec{}, nil, err
 	}
@@ -97,17 +123,25 @@ func (c hookLaunchCoordinator) prepare(ctx context.Context, root home.Root, bind
 // incarnation. The writer decides whether matching staged evidence is present.
 func (c hookLaunchCoordinator) admit(ctx context.Context, intent *hookLaunchIntent, main core.ProcessIncarnation) (*core.Binding, error) {
 	now := uint64(c.now().UnixMilli())
-	if intent == nil || !validHookIncarnation(main) || now < intent.createdAtMs || now >= intent.expiresAtMs {
+	if c.store == nil || intent == nil || !validHookIncarnation(main) || now < intent.CreatedAtMs || now >= intent.ExpiresAtMs {
 		return nil, errHookLaunchChanged
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	binding, err := c.storage.admitLaunch(ctx, *intent, main, now)
-	if err == nil && binding == nil {
+	var binding *core.Binding
+	err := c.store.Write(ctx, func(tx ports.StoreTx) error {
+		var err error
+		binding, err = tx.Bindings().AdmitLaunch(ports.LaunchAdmission{Intent: *intent, Runtime: main, ObservedAtMs: now})
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+	if binding == nil {
 		return nil, errHookLaunchChanged
 	}
-	return binding, err
+	return binding, nil
 }
 
 func validHookIncarnation(process core.ProcessIncarnation) bool {
