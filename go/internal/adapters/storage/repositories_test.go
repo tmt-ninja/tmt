@@ -3,16 +3,32 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 func testStorage(t *testing.T) *Storage {
 	t.Helper()
-	store, err := Open(t.Context(), testRoot(t))
+	root := testRoot(t)
+	image, err := migratedFixtureImage()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(root.Dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(root.Database, image, 0600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := Open(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,6 +39,32 @@ func testStorage(t *testing.T) *Storage {
 	})
 	return store
 }
+
+// Repository fixtures copy a closed, empty DB. Fresh-open and migration
+// tests still build directly from their own roots.
+var migratedFixtureImage = sync.OnceValues(func() (image []byte, err error) {
+	dir, err := os.MkdirTemp("", "tmt-go-storage-fixture-")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
+
+	ctx := context.Background()
+	root := home.Root{Dir: dir, Database: filepath.Join(dir, home.DatabaseName)}
+	store, err := Open(ctx, root)
+	if err != nil {
+		return nil, err
+	}
+	var busy, pages, checkpointed int
+	err = store.db.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &pages, &checkpointed)
+	if err == nil && (busy != 0 || pages != checkpointed) {
+		err = fmt.Errorf("fixture checkpoint incomplete: busy=%d pages=%d checkpointed=%d", busy, pages, checkpointed)
+	}
+	if err := errors.Join(err, store.Close()); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(root.Database)
+})
 
 func TestStoreTransactions(t *testing.T) {
 	parallelStorageFixture(t)
