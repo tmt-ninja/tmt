@@ -92,3 +92,36 @@ func TestDigestSessionPersistsPolicyAndPreservesRevisionFault(t *testing.T) {
 		t.Fatalf("Digest stats = %s", lines[3])
 	}
 }
+
+func TestDigestChecklistReadKeepsSummaryCountsOnly(t *testing.T) {
+	const id = core.IdentityID("633631ab-fe10-45b3-832b-c76c9d0a97d6")
+	checklist := core.DigestChecklistID("772ea84a-0238-4e82-935c-be14058d0729")
+	const request = core.RequestID("req_09175482-a733-409c-b94e-05f93de8e1a8")
+	selected := &core.DigestChecklist{
+		ID: checklist, State: core.DigestStateDelivered, Projection: core.DigestProjectionIncomingSummary,
+		Summary: &core.DigestSummaryCounts{IncomingCount: 2, UrgentCount: 1},
+	}
+	prompt := "first\r\nsecond\u202e line"
+	page := core.DigestChecklistPage{SelectedChecklist: selected, Total: 2, Items: []core.DigestItem{{
+		DigestItemEvidence: core.DigestItemEvidence{Sequence: 4, CreatedAtMs: 50}, RequestID: request,
+		Source: core.DigestSourceIncoming, Prompt: &prompt,
+		Reply: &core.DigestReplyProof{Receipt: "v2_fixture"},
+	}}}
+	query := core.DigestChecklistQuery{IdentityID: id, ChecklistID: &checklist, Limit: 1}
+	wire, err := json.Marshal(checklistPageDocument(query, page))
+	if err != nil || string(wire) != `{"checklistId":"772ea84a-0238-4e82-935c-be14058d0729","identityId":"633631ab-fe10-45b3-832b-c76c9d0a97d6","incomingCount":2,"items":[],"nextAfter":null,"projection":"incoming_summary","remaining":0,"total":2,"urgentCount":1}` {
+		t.Fatalf("settled summary = %s, %v", wire, err)
+	}
+	page.SelectedChecklist = nil
+	wire, err = json.Marshal(checklistPageDocument(query, page))
+	if err != nil || !strings.Contains(string(wire), `"nextAfter":4`) || !strings.Contains(string(wire), `"remaining":1`) ||
+		!strings.Contains(string(wire), `"preview":"first second  line"`) ||
+		!strings.Contains(string(wire), `"inspectCommand":"tmt-go result `+string(request)+` --json"`) ||
+		!strings.Contains(string(wire), `"replyCommand":"tmt-go reply `+string(request)+` --receipt v2_fixture --message \u003ctext\u003e"`) {
+		t.Fatalf("ordinary page = %s, %v", wire, err)
+	}
+	long := strings.Repeat("界", 161)
+	if got := digestPreview(&long); got != strings.Repeat("界", 160) {
+		t.Fatalf("Unicode preview = %q", got)
+	}
+}

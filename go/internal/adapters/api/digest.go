@@ -5,6 +5,7 @@ import (
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
 	"strings"
+	"unicode"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -19,6 +20,7 @@ var digestOperations = []string{
 	"digest.checklist.dueNow",
 	"digest.stats.show",
 	"digest.checklist.history",
+	"digest.checklist.read",
 	"digest.checklist.settle",
 }
 
@@ -71,10 +73,16 @@ func decodeDigest(operation string, input jsontext.Value, now uint64) digestActi
 				"identityId": wire.IdentityID, "heldCount": due.HeldCount, "throughSequence": due.ThroughSequence,
 			}, err
 		}
-	case "digest.checklist.history":
+	case "digest.checklist.read", "digest.checklist.history":
 		query, ok := decodeChecklistQuery(input, now)
 		if !ok {
 			return nil
+		}
+		if operation == "digest.checklist.read" {
+			return func(ctx context.Context, store ports.DigestStore) (any, error) {
+				page, err := store.ReadChecklist(ctx, query)
+				return checklistPageDocument(query, page), err
+			}
 		}
 		return func(ctx context.Context, store ports.DigestStore) (any, error) {
 			page, err := store.ReadHistory(ctx, query)
@@ -230,4 +238,69 @@ func historyDocument(id core.IdentityID, page core.DigestHistoryPage) any {
 		"retainedFromSequence": page.RetainedFromSequence, "legacySettledCount": page.LegacySettledCount,
 		"deliveredDigests": page.DeliveredDigests, "nextAfter": page.NextAfter, "checklists": records,
 	}
+}
+
+func checklistPageDocument(q core.DigestChecklistQuery, page core.DigestChecklistPage) any {
+	items := make([]any, 0, len(page.Items))
+	if batch := page.SelectedChecklist; batch != nil && batch.Projection == core.DigestProjectionIncomingSummary && batch.Summary != nil {
+		return map[string]any{
+			"identityId": q.IdentityID, "checklistId": batch.ID, "projection": batch.Projection,
+			"incomingCount": batch.Summary.IncomingCount, "urgentCount": batch.Summary.UrgentCount,
+			"items": items, "total": batch.Summary.IncomingCount, "remaining": uint64(0), "nextAfter": nil,
+		}
+	}
+	for _, item := range page.Items {
+		items = append(items, digestItemDocument(item))
+	}
+	remaining := page.Total - min(page.Total, uint64(len(items)))
+	var next *uint64
+	if len(items) != 0 && remaining > 0 {
+		next = &page.Items[len(items)-1].Sequence
+	}
+	return map[string]any{
+		"identityId": q.IdentityID, "checklistId": q.ChecklistID, "activeChecklist": checklistDocument(page.ActiveChecklist),
+		"items": items, "total": page.Total, "remaining": remaining, "nextAfter": next,
+	}
+}
+
+func digestItemDocument(item core.DigestItem) map[string]any {
+	id := string(item.RequestID)
+	doc := map[string]any{
+		"sequence": item.Sequence, "requestId": id, "kind": item.Kind, "source": item.Source, "createdAtMs": item.CreatedAtMs,
+		"sender":   map[string]any{"identityId": item.SenderID, "name": item.SenderName},
+		"fromUser": item.FromUser, "urgent": item.Urgent, "preview": digestPreview(item.Prompt),
+	}
+	if item.ContextTokensAtArrival != nil && item.ContextObservedAtMs != nil {
+		doc["contextTokensAtArrival"], doc["contextObservedAtMs"] = item.ContextTokensAtArrival, item.ContextObservedAtMs
+	}
+	if suffix, ok := strings.CutPrefix(id, "req_"); ok && core.ValidUUID(suffix) {
+		doc["inspectCommand"] = "tmt-go result " + id + " --json"
+		if item.Source == core.DigestSourceIncoming && item.Reply != nil {
+			doc["replyCommand"] = "tmt-go reply " + id + " --receipt " + string(item.Reply.Receipt) + " --message <text>"
+		}
+	}
+	if item.Source == core.DigestSourceResult {
+		doc["resultPreview"] = digestPreview(item.Final.Response)
+	}
+	return doc
+}
+
+func digestPreview(text *string) any {
+	if text == nil {
+		return nil
+	}
+	var preview strings.Builder
+	count := 0
+	for _, c := range strings.ReplaceAll(*text, "\r\n", "\n") {
+		if count == 160 {
+			break
+		}
+		count++
+		if unicode.IsControl(c) || c == '\u061c' || c == '\u200e' || c == '\u200f' ||
+			(c >= '\u2028' && c <= '\u202e') || (c >= '\u2066' && c <= '\u2069') {
+			c = ' '
+		}
+		preview.WriteRune(c)
+	}
+	return preview.String()
 }

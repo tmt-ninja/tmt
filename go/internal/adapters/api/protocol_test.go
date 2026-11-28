@@ -2,12 +2,14 @@ package api
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
 
@@ -78,7 +80,7 @@ func TestServerDiscoveryAndVersionFaultCreateNoState(t *testing.T) {
 		Operations []string
 		Limits     struct{ InputBytes, OutputBytes int }
 	}
-	if err := json.Unmarshal([]byte(lines[1]), &caps); err != nil || strings.Join(caps.Operations, ",") != strings.Join(append(append([]string{"capabilities", "storage.root"}, digestOperations...), usageOperations...), ",") ||
+	if err := json.Unmarshal([]byte(lines[1]), &caps); err != nil || strings.Join(caps.Operations, ",") != strings.Join(append(append([]string{"capabilities", "storage.root", "digest.wake.step"}, digestOperations...), usageOperations...), ",") ||
 		caps.Limits.InputBytes != 6_299_648 || caps.Limits.OutputBytes != 12_648_448 {
 		t.Fatalf("capabilities = %s, %v", lines[1], err)
 	}
@@ -88,5 +90,31 @@ func TestServerDiscoveryAndVersionFaultCreateNoState(t *testing.T) {
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Fatalf("discovery created state: %v", err)
+	}
+}
+
+func TestOpenAPISessionFencesObservedSchemaAdvance(t *testing.T) {
+	dir := t.TempDir()
+	root := home.Root{Dir: dir, Database: filepath.Join(dir, home.DatabaseName)}
+	session := requestSession{root: root}
+	if fault := session.open(t.Context()); fault != nil {
+		t.Fatal(fault)
+	}
+	t.Cleanup(func() {
+		if err := session.close(); err != nil {
+			t.Error(err)
+		}
+	})
+	db, err := sql.Open("sqlite", root.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.ExecContext(t.Context(), "INSERT INTO _migrations VALUES (?, 'future-schema', 'future')", storage.SchemaVersion+1); err != nil {
+		t.Fatal(err)
+	}
+	response, err := session.respond([]byte(`{"version":1,"operation":"capabilities","input":{}}`))
+	if err != nil || !response.Stale || response.Status != 1 || !bytes.Contains(response.Body, []byte(`"code":"API_SESSION_STALE"`)) {
+		t.Fatalf("stale response = %+v (%s), %v", response, response.Body, err)
 	}
 }

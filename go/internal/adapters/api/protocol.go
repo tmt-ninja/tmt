@@ -195,6 +195,19 @@ func (s *requestSession) respond(body []byte) (SessionResponse, error) {
 		} else {
 			value = map[string]string{"dataRoot": s.root.Dir}
 		}
+	case "digest.wake.step":
+		input, ok := decodeWake(request.Input)
+		if !ok {
+			return encodeFault(invalid())
+		}
+		if fault := s.open(ctx); fault != nil {
+			return encodeFault(fault)
+		}
+		result, err := s.wake(ctx, input)
+		if err != nil {
+			return encodeFault(operationFault(err))
+		}
+		value = result
 	default:
 		digest := decodeDigest(request.Operation, request.Input, now)
 		usage := decodeUsage(request.Operation, request.Input, now)
@@ -272,7 +285,7 @@ func encodeFault(fault *Fault) (SessionResponse, error) {
 }
 
 func capabilities() any {
-	operations := append([]string{"capabilities", "storage.root"}, digestOperations...)
+	operations := append([]string{"capabilities", "storage.root", "digest.wake.step"}, digestOperations...)
 	operations = append(operations, usageOperations...)
 	return map[string]any{
 		"version":    ProtocolVersion,
