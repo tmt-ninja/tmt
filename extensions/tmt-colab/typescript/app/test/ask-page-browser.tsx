@@ -364,6 +364,8 @@ export async function mount(
     headingless?: boolean;
     /** A checked to-do in each section after the first three, so each counts as done. */
     outlineTodos?: boolean;
+    /** The page's title, when it is not the fixture's short one. */
+    pageTitle?: string;
     structuredKind?: 'duplicate' | 'image' | 'mockup' | 'table';
   } = {},
 ) {
@@ -531,7 +533,7 @@ export async function mount(
         ],
       },
     }),
-    title: 'Live shared page',
+    title: options.pageTitle ?? 'Live shared page',
     own: options.persistAttention
       ? JSON.parse(sessionStorage.getItem('test:attention-own') ?? '{}')
       : {},

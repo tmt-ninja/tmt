@@ -1049,6 +1049,31 @@ for (const [rail, outline] of [
     }
   });
 
+for (const width of [1440, 1280])
+  test(`a long page title wraps before the outline strip at ${width}`, async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('/');
+    await page.mouse.move(width / 2, 450);
+    const pageTitle =
+      'Release plan for the hosted reader, the pairing door, the collapsed outline strip, the phone bar and every rollout step that follows them';
+    await run(page, 'mount', { structuredOutline: true, pageTitle });
+    const strip = page.locator('.page-outline-strip');
+    await expect(strip).toBeVisible();
+    const title = page.locator('.page-mobile-title h1');
+    await expect(title).toContainText(pageTitle);
+    const lines = await title.evaluate(
+      (node) => node.getBoundingClientRect().height / parseFloat(getComputedStyle(node).lineHeight),
+    );
+    // The title wraps (two lines here, three with Linux's wider fonts), so its end is reached.
+    expect(Math.round(lines)).toBeGreaterThanOrEqual(2);
+    // The title shares the column's measure, so it wraps well before the strip (#6959).
+    const box = (await title.boundingBox())!;
+    const column = (await page.locator('.structured-page-stage').boundingBox())!;
+    expect(box.x + box.width).toBe(column.x + column.width);
+    expect((await strip.boundingBox())!.x - (box.x + box.width)).toBeGreaterThanOrEqual(80);
+  });
+
 for (const width of [390, 1440])
   test(`outline keeps the tapped heading after scrollend until the page moves at ${width}`, async ({
     page,
