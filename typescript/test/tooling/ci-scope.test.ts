@@ -1,4 +1,4 @@
-import childProcess, { spawnSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
@@ -12,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { writeExecutable } from '../support/executable-fixture.mjs';
-import { createRequire, syncBuiltinESMExports } from 'node:module';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import ts from 'typescript';
 import { runInNewContext } from 'node:vm';
@@ -2579,57 +2579,40 @@ describe('CI diff and command integration', () => {
     }
   }, 5000);
 
-  it('selects Colab from the resolved closure of a changed lockfile in Git', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-scope-lock-'));
-    const { git, commit } = fixtureGit(root);
-    const outputFor = (base: string, head: string) => {
-      const stdout = capture();
-      runCiScope([base, head], { cwd: root, stdout, stderr: capture() });
-      return outputs(stdout.text());
-    };
-    const originalSpawn = childProcess.spawnSync;
-    const timedSpawn = (...args: Parameters<typeof originalSpawn>) => {
-      const began = performance.now();
+  it.each([
+    ['false', 'an unrelated importer changes', lockFixture(), lockFixture('2.0.0')],
+    [
+      'true',
+      'a transitive package integrity changes',
+      lockFixture('2.0.0'),
+      lockFixture('2.0.0', 'sha512-changed'),
+    ],
+  ])(
+    'sets colab_app=%s when %s in a Git lockfile diff',
+    (expected, _change, before, after) => {
+      const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-scope-lock-'));
+      const { git, commit } = fixtureGit(root);
       try {
-        return originalSpawn(...args);
+        git(['init', '--quiet']);
+        mkdirSync(path.join(root, 'typescript'));
+        const lockPath = path.join(root, 'typescript/pnpm-lock.yaml');
+        writeFileSync(lockPath, before);
+        const base = commit();
+        writeFileSync(lockPath, after);
+        const head = commit();
+        const stdout = capture();
+        runCiScope([base, head], { cwd: root, stdout, stderr: capture() });
+        expect(outputs(stdout.text())).toMatchObject({
+          colab_app: expected,
+          colab_chrome: 'true',
+          colab_harness: 'true',
+        });
       } finally {
-        const [command, argv] = args;
-        if (command === 'git' || command === 'ruby') {
-          const label =
-            command === 'ruby'
-              ? 'ruby Psych'
-              : `git ${argv?.[0] === '-c' ? 'commit' : (argv?.[0] ?? '(no args)')}`;
-          process.stderr.write(
-            `[6930 subprocess] ${label} ${(performance.now() - began).toFixed(1)} ms\n`
-          );
-        }
+        rmSync(root, { recursive: true, force: true });
       }
-    };
-    // The wrapper forwards every argument and result of the overloaded builtin.
-    childProcess.spawnSync = timedSpawn as typeof originalSpawn;
-    syncBuiltinESMExports();
-    try {
-      git(['init', '--quiet']);
-      mkdirSync(path.join(root, 'typescript'));
-      const lockPath = path.join(root, 'typescript/pnpm-lock.yaml');
-      writeFileSync(lockPath, lockFixture());
-      const lockBase = commit();
-      writeFileSync(lockPath, lockFixture('2.0.0'));
-      const unrelatedLockHead = commit();
-      expect(outputFor(lockBase, unrelatedLockHead)).toMatchObject({
-        colab_app: 'false',
-        colab_chrome: 'true',
-        colab_harness: 'true',
-      });
-      writeFileSync(lockPath, lockFixture('2.0.0', 'sha512-changed'));
-      const relevantLockHead = commit();
-      expect(outputFor(unrelatedLockHead, relevantLockHead).colab_app).toBe('true');
-    } finally {
-      childProcess.spawnSync = originalSpawn;
-      syncBuiltinESMExports();
-      rmSync(root, { recursive: true, force: true });
-    }
-  }, 5000);
+    },
+    5000
+  );
 
   it.each([
     'extensions/tmt-colab/typescript/colab-client/src/index.ts',
@@ -2694,34 +2677,41 @@ describe('CI diff and command integration', () => {
     expect(selectBrowserUi([file])).toBe(true);
   });
 
-  it('uses the Colab resolved lockfile closure without changing the required chrome selection', () => {
-    const lock = lockFixture();
-    const linked = lock.replace('"direct":{"specifier":"1.0.0"', '"direct":{"specifier":"^1.0.0"');
-    const settings = lock.replace('"autoInstallPeers":true', '"autoInstallPeers":false');
-    const overrides = lock.replace('"settings":', '"overrides":{"unused":"1.0.0"},"settings":');
-    const patches = lock.replace(
-      '"settings":',
-      '"patchedDependencies":{"unused":"unused.patch"},"settings":'
-    );
-    const paths = ['typescript/pnpm-lock.yaml'];
-    expect(selectColabChrome(paths)).toBe(true);
-    const duplicate = lock.replace('"settings":{', '"settings":{},"settings":{');
-    const missingApp = lock.replace('../extensions/tmt-colab/typescript/app', '../unknown');
-    const missingLinked = lock.replace('"../design/browser-ui"', '"../unknown"');
-    for (const variant of [
-      linked,
-      settings,
-      overrides,
-      patches,
-      duplicate,
-      missingApp,
-      missingLinked,
-      'not: [yaml',
-    ]) {
+  const lock = lockFixture();
+  it.each([
+    [
+      'a linked workspace specifier change',
+      lock.replace('"direct":{"specifier":"1.0.0"', '"direct":{"specifier":"^1.0.0"'),
+    ],
+    ['a settings change', lock.replace('"autoInstallPeers":true', '"autoInstallPeers":false')],
+    ['new overrides', lock.replace('"settings":', '"overrides":{"unused":"1.0.0"},"settings":')],
+    [
+      'new patches',
+      lock.replace('"settings":', '"patchedDependencies":{"unused":"unused.patch"},"settings":'),
+    ],
+    ['a duplicate key', lock.replace('"settings":{', '"settings":{},"settings":{')],
+    [
+      'an absent app importer',
+      lock.replace('../extensions/tmt-colab/typescript/app', '../unknown'),
+    ],
+    ['an absent linked importer', lock.replace('"../design/browser-ui"', '"../unknown"')],
+    ['malformed YAML', 'not: [yaml'],
+  ])(
+    'keeps Colab selected for %s',
+    (_change, variant) => {
       expect(colabAppLockfilesDiffer(lock, variant)).toBe(true);
-    }
+    },
+    5000
+  );
+
+  it('recognizes an unchanged app closure in the repository lockfile', () => {
     const current = readFileSync(new URL('../../pnpm-lock.yaml', import.meta.url), 'utf8');
     expect(colabAppLockfilesDiffer(current, current)).toBe(false);
+  }, 5000);
+
+  it('keeps Chrome selected and honors direct Colab and resolution inputs', () => {
+    const paths = ['typescript/pnpm-lock.yaml'];
+    expect(selectColabChrome(paths)).toBe(true);
     expect(
       selectColabApp([...paths, 'typescript/pnpm-workspace.yaml'], undefined, () => false)
     ).toBe(true);
