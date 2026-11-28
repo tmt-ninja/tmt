@@ -3694,6 +3694,16 @@ impl App {
             self.update_mentions();
             return Effect::None;
         }
+        if let Some(input) = self.input.as_mut()
+            && matches!(input.compose, Compose::Talk { .. })
+            && let Some(result) = super::composer::paste_shell(&mut input.text, text)
+        {
+            if let Err(notice) = result {
+                return self.say(notice);
+            }
+            self.update_mentions();
+            return Effect::None;
+        }
         if let Some(effect) = self.drop_files(text) {
             return effect;
         }

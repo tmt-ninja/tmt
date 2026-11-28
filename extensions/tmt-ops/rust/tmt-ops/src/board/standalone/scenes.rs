@@ -208,6 +208,58 @@ pub(in crate::board) fn run_hits(app: &App) -> Value {
 }
 
 #[test]
+fn talk_shell_paste_keeps_paths_literal_and_refuses_multiline_commands() {
+    let dir = crate::test_support::Scratch::new("talk-command-paste");
+    let file = dir.join("command.sh");
+    std::fs::write(&file, "#!/bin/sh\n").unwrap();
+    let path = file.to_str().unwrap();
+    let mut app = capture_talk_run("talk-run-marker", crate::look::Look::default(), 100);
+    app.input.as_mut().unwrap().text = "！ ".into();
+
+    assert_eq!(app.paste(&format!("{path}\r\n")), Effect::None);
+    let draft = app.input.as_ref().unwrap().text.clone();
+    assert!(
+        draft.folds().is_empty(),
+        "a command path is not a file chip"
+    );
+    assert_eq!(draft.as_str(), format!("！ {path}"));
+
+    app.paste("\necho another command\n");
+    assert_eq!(app.input.as_ref().unwrap().text, draft);
+    assert_eq!(
+        app.notice.as_deref(),
+        Some("Paste one visible command line; the draft is unchanged.")
+    );
+    app.paste(&"x".repeat(tmt_pty_protocol::COMMAND_LIMIT));
+    assert_eq!(app.input.as_ref().unwrap().text, draft);
+    assert_eq!(
+        app.notice.as_deref(),
+        Some("Pasted command exceeds 4,096 bytes; the draft is unchanged.")
+    );
+
+    let Effect::Standalone(Task::Target(generation, member)) = press(&mut app, KeyCode::Enter)
+    else {
+        panic!("the pasted command should open Run");
+    };
+    let Effect::Standalone(Task::Run(_, request)) = app.standalone_completed(Completed::Target(
+        generation,
+        member,
+        Ok(json!({"cwd":"/work", "bindingId":"fixture", "paneIncarnation":"fixture"})),
+    )) else {
+        panic!("the command should run after resolving the member directory");
+    };
+    assert_eq!(request["command"], path);
+
+    let mut app = capture_talk_run("talk-run-marker", crate::look::Look::default(), 160);
+    app.input.as_mut().unwrap().text.clear();
+    let long = format!("! echo {}", "x".repeat(520));
+    assert_eq!(app.paste(&format!("{long}\n")), Effect::None);
+    let editor = &app.input.as_ref().unwrap().text;
+    assert_eq!(editor.as_str(), long);
+    assert!(editor.folds().is_empty());
+}
+
+#[test]
 fn talk_run_sends_exact_bounded_output_to_its_original_member() {
     let mut app = capture_talk_run("talk-run-result", crate::look::Look::default(), 160);
     let frozen = app
