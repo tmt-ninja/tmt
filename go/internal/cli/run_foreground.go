@@ -5,7 +5,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -15,7 +14,6 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
-	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -26,22 +24,22 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 ) int {
 	app.store = store
 	if entry.binding == nil || entry.identity == nil || app.tmux == nil {
-		return output.Publish(stdout, stderr, bindingUnverified(), false)
+		return publish(stdout, stderr, bindingUnverified(), false)
 	}
 	client, err := app.tmux()
 	if err != nil {
-		return output.Publish(stdout, stderr, bindingUnverified(), false)
+		return publish(stdout, stderr, bindingUnverified(), false)
 	}
 	pane := ports.PaneRef{Server: entry.binding.Server.Socket, PaneID: entry.binding.PaneID}
 	probe, err := client.ProbeBinding(ctx, pane)
 	if state, _ := core.EvaluateBinding(*entry.identity, entry.binding, probe); err != nil || state != core.BindingActive {
-		return output.Publish(stdout, stderr, bindingUnverified(), false)
+		return publish(stdout, stderr, bindingUnverified(), false)
 	}
 
 	command, intent, err := app.prepareHookLaunch(ctx, root, *entry.binding, plan.provider, plan.command, true)
 	if err != nil || intent == nil {
 		failure := bindingFailure("RUN_LAUNCH_FAILED", "Could not prepare the provider launch intent. No agent was launched.", 1)
-		return output.Publish(stdout, stderr, failure, false)
+		return publish(stdout, stderr, failure, false)
 	}
 	// Keep the child in the invoking shell's foreground process group. The
 	// terminal delivers Ctrl-C to the group, and the CLI waits for the child
@@ -50,14 +48,14 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 	signal.Notify(interrupts, os.Interrupt)
 	defer signal.Stop(interrupts)
 	if err := ctx.Err(); err != nil {
-		return output.Publish(stdout, stderr, bindingFailure("INTERRUPTED", "Interrupted before launching the agent.", 1), false)
+		return publish(stdout, stderr, bindingFailure("INTERRUPTED", "Interrupted before launching the agent.", 1), false)
 	}
 	child := exec.Command(command.Path, command.Args...)
 	child.Dir, child.Env = command.Dir, command.Env
 	child.Stdin, child.Stdout, child.Stderr = app.stdin, stdout, stderr
 	if err := child.Start(); err != nil {
 		failure := bindingFailure("RUN_LAUNCH_FAILED", "Could not start the requested provider. No agent was launched.", 1)
-		return output.Publish(stdout, stderr, failure, false)
+		return publish(stdout, stderr, failure, false)
 	}
 	exited := make(chan error, 1)
 	go func() { exited <- child.Wait() }()
@@ -93,12 +91,12 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 	cancel()
 	tick.Stop()
 	if admitted == nil {
-		fmt.Fprintln(stderr, "warning: command started, but runtime ownership could not be recorded; automatic delivery is not established")
+		_ = warn(stderr, "command started, but runtime ownership could not be recorded; automatic delivery is not established")
 	}
 	waited := <-exited
 	if admitted != nil && child.ProcessState != nil {
 		if err := settleForeground(ctx, store, *admitted); err != nil {
-			fmt.Fprintln(stderr, "warning: could not settle the exited runtime; inspect identity status before retrying")
+			_ = warn(stderr, "could not settle the exited runtime; inspect identity status before retrying")
 		}
 	}
 	return foregroundExit(waited)

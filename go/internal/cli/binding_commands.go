@@ -123,15 +123,14 @@ func bindingUnavailable(option string) *output.Failure {
 
 type bindingReport struct {
 	document any
-	text     string
+	render   func(io.Writer) error
 }
 
 func (r bindingReport) JSON() any                  { return r.document }
 func (r bindingReport) HumanStream() output.Stream { return output.Stdout }
 func (r bindingReport) ExitStatus() int            { return 0 }
 func (r bindingReport) Human(w io.Writer) error {
-	_, err := io.WriteString(w, r.text)
-	return err
+	return r.render(w)
 }
 
 type boundIdentityDocument struct {

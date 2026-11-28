@@ -23,8 +23,7 @@ func (r exchangeAckReport) ExitStatus() int            { return 0 }
 
 func (r exchangeAckReport) Human(w io.Writer) error {
 	if r.Changed {
-		_, err := fmt.Fprintf(w, "✓ Acknowledged %s at revision %d\n", r.RequestID, r.Revision)
-		return err
+		return success(w, fmt.Sprintf("Acknowledged %s at revision %d", r.RequestID, r.Revision))
 	}
 	_, err := fmt.Fprintf(w, "%s was already acknowledged at revision %d\n", r.RequestID, r.Revision)
 	return err
@@ -40,8 +39,7 @@ func (r exchangeAckAllReport) HumanStream() output.Stream { return output.Stdout
 func (r exchangeAckAllReport) ExitStatus() int            { return 0 }
 
 func (r exchangeAckAllReport) Human(w io.Writer) error {
-	_, err := fmt.Fprintf(w, "✓ Acknowledged '%s' through revision %d; later revisions remain unacknowledged\n", r.Identity.Name, r.AcknowledgedThrough)
-	return err
+	return success(w, fmt.Sprintf("Acknowledged '%s' through revision %d; later revisions remain unacknowledged", r.Identity.Name, r.AcknowledgedThrough))
 }
 
 type exchangeWithdrawReport struct {
@@ -62,8 +60,7 @@ func (r exchangeWithdrawReport) Human(w io.Writer) error {
 	if r.Changed {
 		action = "Withdrew"
 	}
-	_, err := fmt.Fprintf(w, "✓ %s %s: %q\n", action, r.RequestID, r.Reason)
-	return err
+	return success(w, fmt.Sprintf("%s %s: %s", action, r.RequestID, r.Reason))
 }
 
 func (app application) mutateExchange(ctx context.Context, inv invocation, me *core.Identity, direction core.XDirection) output.Report {

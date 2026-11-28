@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -79,28 +78,28 @@ func prepareRun(root home.Root, inv invocation) (runPlan, *output.Failure) {
 func (app application) runProvider(ctx context.Context, root home.Root, inv invocation, stdout, stderr io.Writer) int {
 	plan, failure := prepareRun(root, inv)
 	if failure != nil {
-		return output.Publish(stdout, stderr, failure, false)
+		return publish(stdout, stderr, failure, false)
 	}
 	if app.launch == nil {
 		// NOT PORTED (#6938): foreground launch and runtime admission.
-		return output.Publish(stdout, stderr, bindingUnavailable("foreground runtime admission"), false)
+		return publish(stdout, stderr, bindingUnavailable("foreground runtime admission"), false)
 	}
 
 	bindings := newBindingCLI(app.store, app.caller.lookup)
 	claim, failure := bindings.callerClaim()
 	if failure != nil {
-		return output.Publish(stdout, stderr, failure, false)
+		return publish(stdout, stderr, failure, false)
 	}
 	store := app.store
 	if store == nil {
 		opened, err := storage.Open(ctx, root)
 		if err != nil {
 			failure := bindingFailure("IDENTITY_ERROR", "Could not access launch identity state.", 1)
-			return output.Publish(stdout, stderr, failure, false)
+			return publish(stdout, stderr, failure, false)
 		}
 		defer func() {
 			if err := opened.Close(); err != nil {
-				fmt.Fprintln(stderr, "warning: could not close launch state cleanly; inspect identity status before retrying")
+				_ = warn(stderr, "could not close launch state cleanly; inspect identity status before retrying")
 			}
 		}()
 		store = opened
@@ -108,7 +107,7 @@ func (app application) runProvider(ctx context.Context, root home.Root, inv invo
 	bindings.store = store
 	entry, failure := bindings.bind(ctx, claim.pane, claim.serverPID, plan.binding)
 	if failure != nil {
-		return output.Publish(stdout, stderr, failure, false)
+		return publish(stdout, stderr, failure, false)
 	}
 	return app.launch(ctx, root, store, entry, plan, stdout, stderr)
 }

@@ -5,10 +5,12 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"slices"
 	"strings"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
+	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -170,17 +172,24 @@ func (b bindingCLI) whoami(ctx context.Context, inv invocation) output.Report {
 		Unbound any `json:"unbound"`
 	}
 	var session *sessionDocument
-	text := fmt.Sprintf("Pane %s is unbound\n  hint: tmt name <name>\n", claim.pane.PaneID)
 	if identity != nil {
 		session = &sessionDocument{}
-		text = fmt.Sprintf("%s (%s) on pane %s\n", identity.Name, identity.Lifetime, claim.pane.PaneID)
 	}
 	return bindingReport{document: struct {
 		boundIdentityDocument
 		Session       *sessionDocument `json:"session,omitempty"`
 		InterfaceKind string           `json:"interfaceKind"`
 		SessionState  string           `json:"sessionState"`
-	}{boundIdentityJSON(identity, claim.pane.PaneID), session, "container", state}, text: text}
+	}{boundIdentityJSON(identity, claim.pane.PaneID), session, "container", state}, render: func(w io.Writer) error {
+		if identity != nil {
+			_, err := fmt.Fprintf(w, "%s (%s) on pane %s\n", identity.Name, identity.Lifetime, claim.pane.PaneID)
+			return err
+		}
+		if _, err := fmt.Fprintf(w, "Pane %s is unbound\n", claim.pane.PaneID); err != nil {
+			return err
+		}
+		return clistyle.WriteHint(w, outputTerminal(w), "tmt-go name <name>")
+	}}
 }
 
 func (b bindingCLI) list(ctx context.Context, inv invocation) output.Report {
@@ -234,9 +243,7 @@ func (b bindingCLI) list(ctx context.Context, inv invocation) output.Report {
 	if err != nil {
 		return bindingRejected(err)
 	}
-	rows := []bindingListDocument{}
-	var text strings.Builder
-	var offline []string
+	rows := []bindingPresence{}
 	for _, entry := range entries {
 		p := b.presence(ctx, entry)
 		if here != nil && (p.pane == nil || p.pane.Location == nil || p.pane.Location.Session != here.Session || entry.binding.Server.Socket != here.Pane.Server) {
@@ -245,26 +252,87 @@ func (b bindingCLI) list(ctx context.Context, inv invocation) output.Report {
 		if inv.has("socket") && entry.binding != nil && entry.binding.Server.Socket != inv.options["socket"] {
 			continue
 		}
-		rows = append(rows, p.listed())
-		if p.pane == nil && !inv.has("all") {
-			offline = append(offline, string(p.identity.Name))
-			continue
-		}
-		pane := "-"
-		if p.pane != nil {
-			pane = p.pane.ID
-		}
-		fmt.Fprintf(&text, "%s\t%s\t%s\t%s\n", p.identity.Name, p.identity.Lifetime, p.presence, pane)
+		rows = append(rows, p)
 	}
-	if len(offline) > 0 {
-		fmt.Fprintf(&text, "Offline: %s\n", strings.Join(offline, ", "))
+	userHome, _ := b.lookup("HOME")
+	return bindingListReport{rows: rows, all: inv.has("all"), home: userHome}
+}
+
+type bindingListReport struct {
+	rows []bindingPresence
+	all  bool
+	home string
+}
+
+func (r bindingListReport) JSON() any {
+	rows := make([]bindingListDocument, 0, len(r.rows))
+	for _, row := range r.rows {
+		rows = append(rows, row.listed())
 	}
-	if len(rows) == 0 {
-		text.WriteString("No identities.\n")
-	}
-	return bindingReport{document: struct {
+	return struct {
 		Identities []bindingListDocument `json:"identities"`
-	}{rows}, text: text.String()}
+	}{rows}
+}
+func (r bindingListReport) HumanStream() output.Stream { return output.Stdout }
+func (r bindingListReport) ExitStatus() int            { return 0 }
+
+func (r bindingListReport) Human(w io.Writer) error {
+	term := outputTerminal(w)
+	if len(r.rows) == 0 {
+		if _, err := fmt.Fprintln(w, "No identities found."); err != nil {
+			return err
+		}
+		return clistyle.WriteHint(w, term, "tmt-go name <name>")
+	}
+	rows := slices.Clone(r.rows)
+	slices.SortFunc(rows, func(a, b bindingPresence) int {
+		return strings.Compare(a.identity.CanonicalName, b.identity.CanonicalName)
+	})
+	var sections []clistyle.ListSection
+	for _, lifetime := range []core.Lifetime{core.LifetimeSaved, core.LifetimeTemporary} {
+		table := clistyle.NewTable(clistyle.ColumnFixed, clistyle.ColumnName, clistyle.ColumnFixed, clistyle.ColumnDetail)
+		var offline []string
+		count := 0
+		for _, row := range rows {
+			if row.identity.Lifetime != lifetime {
+				continue
+			}
+			count++
+			if row.pane == nil && !r.all {
+				offline = append(offline, string(row.identity.Name))
+				continue
+			}
+			row.writeListRow(table, r.home)
+		}
+		if count > 0 {
+			section := clistyle.ListSection{Title: string(lifetime), Count: &count, Rows: table}
+			if len(offline) > 0 {
+				section.Note = "offline: " + strings.Join(offline, " · ")
+			}
+			sections = append(sections, section)
+		}
+	}
+	return clistyle.WriteList(w, term, sections)
+}
+
+func (p bindingPresence) writeListRow(table *clistyle.Table, userHome string) {
+	mark := p.mark()
+	address, cwd := "-", ""
+	if p.pane != nil {
+		address = clistyle.Address(p.binding.Server.Host, p.pane.ID)
+		cwd = clistyle.HomePath(p.pane.CWD, userHome)
+	}
+	cells := []clistyle.Cell{
+		{Text: mark.Symbol(), Token: mark.Token()},
+		{Text: string(p.identity.Name)},
+		{Text: address, Token: clistyle.TokenDim},
+		{Text: cwd},
+	}
+	if mark == clistyle.MarkIdle {
+		table.AddAction("shell", cells...)
+	} else {
+		table.AddRow(cells...)
+	}
 }
 
 func (b bindingCLI) listTarget(ctx context.Context, target, socket string) output.Report {
@@ -298,7 +366,44 @@ func (b bindingCLI) listTarget(ctx context.Context, target, socket string) outpu
 		Address  *string                `json:"address"`
 		Driver   *string                `json:"driver"`
 	}{target, identityJSON(row.identity), row.presence, row.pane, row.session, row.address, row.driver},
-		text: fmt.Sprintf("%s\n  lifetime: %s\n  presence: %s\n", row.identity.Name, row.identity.Lifetime, row.presence)}
+		render: row.writeDetail}
+}
+
+func (p bindingPresence) mark() clistyle.Mark {
+	if p.pane == nil {
+		return clistyle.MarkOffline
+	}
+	if (p.binding != nil && p.binding.Session.RuntimeState == "running") || !bindingShell(p.pane.Command) {
+		return clistyle.MarkRunning
+	}
+	return clistyle.MarkIdle
+}
+
+func (p bindingPresence) writeDetail(w io.Writer) error {
+	address, pane, target, cwd, command := "-", "-", "-", "-", "-"
+	if p.address != nil {
+		address = *p.address
+	}
+	if p.pane != nil {
+		pane, target, cwd, command = p.pane.ID, detailValue(p.pane.Target), detailValue(p.pane.CWD), p.pane.Command
+	}
+	fields := []clistyle.DetailField{
+		{Label: "lifetime", Value: string(p.identity.Lifetime)},
+		{Label: "state", Value: p.mark().Symbol() + " " + p.presence},
+		{Label: "address", Value: address},
+		{Label: "pane", Value: pane},
+		{Label: "target", Value: target},
+		{Label: "cwd", Value: cwd},
+		{Label: "command", Value: command},
+	}
+	return clistyle.WriteDetail(w, outputTerminal(w), string(p.identity.Name), fields)
+}
+
+func detailValue(text string) string {
+	if text == "" {
+		return "-"
+	}
+	return text
 }
 
 func (b bindingCLI) listPaneTarget(ctx context.Context, target, socket string) output.Report {
@@ -326,15 +431,26 @@ func (b bindingCLI) listPaneTarget(ctx context.Context, target, socket string) o
 		}
 	}
 	pane := bindingPaneJSON(ref.PaneID, details)
-	text := fmt.Sprintf("%s\n  target: %s\n  cwd: %s\n  command: %s\n", pane.ID, pane.Target, pane.CWD, pane.Command)
-	if identity == nil {
-		text += fmt.Sprintf("  hint: tmt add %s <name>\n", ref.PaneID)
-	}
 	return bindingReport{document: struct {
 		Target   string               `json:"target"`
 		Identity *identityDocument    `json:"identity"`
 		Pane     *bindingPaneDocument `json:"pane"`
-	}{target, identity, pane}, text: text}
+	}{target, identity, pane}, render: func(w io.Writer) error {
+		if identity != nil {
+			member := &core.Identity{ID: identity.ID, Name: identity.Name, CanonicalName: identity.CanonicalName, Lifetime: identity.Lifetime}
+			return (bindingPresence{identity: member, pane: pane, presence: "active"}).writeDetail(w)
+		}
+		term := outputTerminal(w)
+		fields := []clistyle.DetailField{
+			{Label: "target", Value: detailValue(pane.Target)},
+			{Label: "cwd", Value: detailValue(pane.CWD)},
+			{Label: "command", Value: pane.Command},
+		}
+		if err := clistyle.WriteDetail(w, term, pane.ID, fields); err != nil {
+			return err
+		}
+		return clistyle.WriteHint(w, term, fmt.Sprintf("tmt-go add %s <name>", pane.ID))
+	}}
 }
 
 func bindingShell(command string) bool {

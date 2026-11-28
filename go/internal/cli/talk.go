@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/config"
+	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
@@ -173,21 +174,32 @@ func (r talkReport) HumanStream() output.Stream { return output.Stdout }
 func (r talkReport) ExitStatus() int            { return 0 }
 
 func (r talkReport) Human(w io.Writer) error {
-	var text strings.Builder
-	target := r.Identity.Name
+	target := r.Target
+	term := outputTerminal(w)
+	var message string
 	switch {
 	case r.Pane != "" && r.Response != nil:
-		fmt.Fprintf(&text, "✓ Completed request %s for %s (%s)\n%s\n", r.RequestID, target, r.Pane, *r.Response)
+		message = fmt.Sprintf("Completed request %s for %s (%s)", r.RequestID, target, r.Pane)
 	case r.Pane != "":
-		fmt.Fprintf(&text, "✓ Sent request %s to %s (%s)\n", r.RequestID, target, r.Pane)
+		message = fmt.Sprintf("Sent request %s to %s (%s)", r.RequestID, target, r.Pane)
 	case r.Response != nil:
-		fmt.Fprintf(&text, "✓ Completed queued request %s for %s\n%s\n", r.RequestID, target, *r.Response)
+		message = fmt.Sprintf("Completed queued request %s for %s", r.RequestID, target)
 	default:
-		fmt.Fprintf(&text, "✓ Queued request %s for %s without a live endpoint\nhint: %s\n", r.RequestID, target, r.Suggestion)
+		message = fmt.Sprintf("Queued request %s for %s without a live endpoint", r.RequestID, target)
 	}
-	fmt.Fprintf(&text, "hint: retrieve it later with tmt-go result %s\n", r.RequestID)
-	_, err := io.WriteString(w, text.String())
-	return err
+	if err := clistyle.WriteSuccess(w, term, message); err != nil {
+		return err
+	}
+	if r.Response != nil {
+		if _, err := fmt.Fprintln(w, *r.Response); err != nil {
+			return err
+		}
+	} else if r.Offline && r.Suggestion != "" {
+		if err := clistyle.WriteHint(w, term, r.Suggestion); err != nil {
+			return err
+		}
+	}
+	return clistyle.WriteHint(w, term, fmt.Sprintf("retrieve it later with tmt-go result %s", r.RequestID))
 }
 
 func (r talkReport) recipientHints() string {

@@ -32,8 +32,7 @@ func (r responseReport) ExitStatus() int { return 0 }
 func (r responseReport) Human(w io.Writer) error {
 	switch r.Status {
 	case "submitted":
-		_, err := fmt.Fprintf(w, "✓ Submitted response for request %s (%d bytes)\n", r.RequestID, *r.BodyBytes)
-		return err
+		return success(w, fmt.Sprintf("Submitted response for request %s (%d bytes)", r.RequestID, *r.BodyBytes))
 	case "completed":
 		_, err := fmt.Fprintf(w, "Response for request '%s':\n%s\n", r.RequestID, *r.Response)
 		return err

@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"strings"
+	"strconv"
 
+	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 )
@@ -77,16 +78,30 @@ func (r exchangeListReport) Human(w io.Writer) error {
 		_, err := fmt.Fprintln(w, "No unacknowledged exchanges.")
 		return err
 	}
-	var text strings.Builder
-	fmt.Fprintf(&text, "unacknowledged exchanges (%d)\n", len(r.Items))
+	rows := clistyle.NewTable(clistyle.ColumnName, clistyle.ColumnFixed, clistyle.ColumnFixed, clistyle.ColumnFixed, clistyle.ColumnFixed)
 	for _, item := range r.Items {
-		fmt.Fprintf(&text, "  %s  %s  %s  %d\n", item.RequestID, item.Delivery, item.Final.Status, item.Revision)
+		recipient := "-"
+		if item.RecipientIdentityID != nil {
+			recipient = clistyle.ShortID(string(*item.RecipientIdentityID))
+		}
+		delivery := item.MessageState.State
+		if item.Urgent {
+			delivery += " urgent"
+		}
+		rows.AddRow(
+			clistyle.Cell{Text: string(item.RequestID)},
+			clistyle.Cell{Text: recipient, Token: clistyle.TokenDim},
+			clistyle.Cell{Text: delivery},
+			clistyle.Cell{Text: string(item.Final.Status)},
+			clistyle.Cell{Text: "r" + strconv.FormatUint(item.Revision, 10), Token: clistyle.TokenDim},
+		)
 	}
+	count := len(r.Items)
+	section := clistyle.ListSection{Title: "exchanges", Count: &count, Rows: rows}
 	if r.NextAfter != nil {
-		fmt.Fprintf(&text, "hint: more with tmt-go x ls --after %d --identity %s\n", *r.NextAfter, r.Identity.ID)
+		section.Hint = fmt.Sprintf("more with tmt-go x ls --after %d --identity %s", *r.NextAfter, core.CommandWord(r.Identity.CanonicalName))
 	}
-	_, err := io.WriteString(w, text.String())
-	return err
+	return clistyle.WriteList(w, outputTerminal(w), []clistyle.ListSection{section})
 }
 
 type exchangePromptDocument struct {
@@ -130,28 +145,51 @@ func (r exchangeShowReport) HumanStream() output.Stream { return output.Stdout }
 func (r exchangeShowReport) ExitStatus() int            { return 0 }
 
 func (r exchangeShowReport) Human(w io.Writer) error {
-	var text strings.Builder
 	e := r.Exchange
-	fmt.Fprintf(&text, "%s\nmessage: %q\nurgent: %t\ndigest kind: %s\n", e.RequestID, e.MessageState.Reason.Text, e.Urgent, e.DigestKind)
-	if e.Mode == "passthrough" {
-		fmt.Fprintf(&text, "mode: %s\n", e.Mode)
+	term := outputTerminal(w)
+	message := e.MessageState.State
+	if reason := e.MessageState.Reason.Text; reason != message {
+		message += ": " + reason
 	}
-	fmt.Fprintf(&text, "final: %s\nrevision: %d\nacknowledged: %t\nsettled: %t\nPROMPT %s\n",
-		e.Final.Status, e.Revision, e.Acknowledged, e.Settled, e.Prompt.Status)
+	fields := []clistyle.DetailField{
+		{Label: "message", Value: message},
+		{Label: "urgent", Value: strconv.FormatBool(e.Urgent)},
+		{Label: "digest kind", Value: e.DigestKind},
+	}
+	if e.Mode == "passthrough" {
+		fields = append(fields, clistyle.DetailField{Label: "mode", Value: e.Mode})
+	}
+	fields = append(fields,
+		clistyle.DetailField{Label: "final", Value: string(e.Final.Status)},
+		clistyle.DetailField{Label: "revision", Value: strconv.FormatUint(e.Revision, 10)},
+		clistyle.DetailField{Label: "acknowledged", Value: strconv.FormatBool(e.Acknowledged)},
+		clistyle.DetailField{Label: "settled", Value: strconv.FormatBool(e.Settled)},
+	)
+	if err := clistyle.WriteDetail(w, term, string(e.RequestID), fields); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(w, term.Paint(clistyle.TokenTitle, "PROMPT"), term.Paint(clistyle.TokenDim, e.Prompt.Status)); err != nil {
+		return err
+	}
 	if e.Prompt.Message != nil {
-		fmt.Fprintln(&text, *e.Prompt.Message)
+		if _, err := fmt.Fprintln(w, *e.Prompt.Message); err != nil {
+			return err
+		}
 	}
 	if e.Final.Response != nil {
-		fmt.Fprintf(&text, "FINAL\n%s\n", *e.Final.Response)
+		if _, err := fmt.Fprintf(w, "%s\n%s\n", term.Paint(clistyle.TokenTitle, "FINAL"), *e.Final.Response); err != nil {
+			return err
+		}
 	}
 	if e.Final.WithdrawnAtMs != nil && e.Final.Reason != nil {
-		fmt.Fprintf(&text, "Withdrawn at %d: %q\n", *e.Final.WithdrawnAtMs, *e.Final.Reason)
+		if _, err := fmt.Fprintf(w, "Withdrawn at %d: %s\n", *e.Final.WithdrawnAtMs, *e.Final.Reason); err != nil {
+			return err
+		}
 	}
 	if e.Reply != nil {
-		fmt.Fprintln(&text, "hint: "+e.Reply.Command)
+		return clistyle.WriteHint(w, term, e.Reply.Command)
 	}
-	_, err := io.WriteString(w, text.String())
-	return err
+	return nil
 }
 
 func (app application) exchange(ctx context.Context, inv invocation, selected identitySelection) output.Report {

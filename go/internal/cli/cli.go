@@ -50,7 +50,7 @@ type application struct {
 func (app application) run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	invocation, failure := parse(args)
 	if failure != nil {
-		return output.Publish(stdout, stderr, failure, invocation.json)
+		return publish(stdout, stderr, failure, invocation.json)
 	}
 	var err error
 	switch {
@@ -72,30 +72,30 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 	userHome, err := os.UserHomeDir()
 	if err != nil {
 		failure := &output.Failure{Code: "HOME_UNKNOWN", Message: err.Error(), Status: 1}
-		return output.Publish(stdout, stderr, failure, invocation.json)
+		return publish(stdout, stderr, failure, invocation.json)
 	}
 	root, err := home.Resolve(os.LookupEnv, userHome)
 	if err != nil {
 		failure := &output.Failure{Code: "NATIVE_ROOT_REFUSED", Message: err.Error(), Status: 2}
-		return output.Publish(stdout, stderr, failure, invocation.json)
+		return publish(stdout, stderr, failure, invocation.json)
 	}
 	switch invocation.path[0] {
 	case "reply", "result", "inbox", "answer", "x", "talk":
-		return output.Publish(stdout, stderr, app.runRequest(ctx, root, invocation), invocation.json)
+		return publish(stdout, stderr, app.runRequest(ctx, root, invocation), invocation.json)
 	case "check":
-		return output.Publish(stdout, stderr, app.check(ctx, root, invocation), invocation.json)
+		return publish(stdout, stderr, app.check(ctx, root, invocation), invocation.json)
 	case "stop":
-		return output.Publish(stdout, stderr, app.runStop(ctx, root, invocation), invocation.json)
+		return publish(stdout, stderr, app.runStop(ctx, root, invocation), invocation.json)
 	case "add", "name", "rm", "mv", "whoami", "ls":
-		return output.Publish(stdout, stderr, app.runBinding(ctx, root, invocation), invocation.json)
+		return publish(stdout, stderr, app.runBinding(ctx, root, invocation), invocation.json)
 	case "run":
 		return app.runProvider(ctx, root, invocation, stdout, stderr)
 	case "__hook":
-		return output.Publish(stdout, stderr, app.runHook(ctx, root, invocation), invocation.json)
+		return publish(stdout, stderr, app.runHook(ctx, root, invocation), invocation.json)
 	}
 	// NOT PORTED (#6938): compose the remaining commands over storage and host ports.
 	failure := &output.Failure{
 		Code: "NOT_PORTED", Message: fmt.Sprintf("Command '%s' is not yet ported.", strings.Join(invocation.path, " ")), Status: 2,
 	}
-	return output.Publish(stdout, stderr, failure, invocation.json)
+	return publish(stdout, stderr, failure, invocation.json)
 }

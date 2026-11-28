@@ -9,6 +9,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/config"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
+	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
@@ -28,7 +29,8 @@ func (r checkReport) HumanStream() output.Stream { return output.Stdout }
 func (r checkReport) ExitStatus() int            { return 0 }
 
 func (r checkReport) Human(w io.Writer) error {
-	_, err := fmt.Fprintf(w, "OUTPUT %s %s\n%s\n", r.Target, r.Pane, r.Output)
+	title := fmt.Sprintf("OUTPUT %s %s", clistyle.Escape(r.Target), r.Pane)
+	_, err := fmt.Fprintf(w, "%s\n%s\n", outputTerminal(w).Paint(clistyle.TokenTitle, title), r.Output)
 	return err
 }
 

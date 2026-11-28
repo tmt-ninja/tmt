@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
+	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -74,21 +76,31 @@ func (r inboxReport) Human(w io.Writer) error {
 		_, err := fmt.Fprintln(w, "Nothing is waiting on you.")
 		return err
 	}
-	var text strings.Builder
-	fmt.Fprintf(&text, "waiting on you (%d)\n", len(r.Items))
+	now := time.Now()
+	rows := clistyle.NewTable(clistyle.ColumnFixed, clistyle.ColumnFixed, clistyle.ColumnFixed, clistyle.ColumnDetail)
 	for _, item := range r.Items {
 		preview := "(prompt no longer retained)"
-		if item.Preview != nil {
-			preview, _, _ = strings.Cut(*item.Preview, "\n")
+		if item.Preview != nil && *item.Preview != "" {
+			line, _, found := strings.Cut(*item.Preview, "\n")
+			preview = line
+			if found {
+				preview = strings.TrimSuffix(preview, "\r")
+			}
 		}
-		fmt.Fprintf(&text, "  %q  %s  %q\n", partyName(item.From, "anonymous"), item.RequestID, preview)
+		elapsed := now.Sub(time.UnixMilli(int64(item.PreparedAtMs)))
+		rows.AddRow(
+			clistyle.Cell{Text: partyName(item.From, "anonymous")},
+			clistyle.Cell{Text: clistyle.RelativeTime(elapsed), Token: clistyle.TokenDim},
+			clistyle.Cell{Text: string(item.RequestID), Token: clistyle.TokenDim},
+			clistyle.Cell{Text: preview},
+		)
 	}
+	count := len(r.Items)
+	section := clistyle.ListSection{Title: "waiting on you", Count: &count, Rows: rows, Hint: "tmt-go answer <name> \"…\""}
 	if r.More {
-		fmt.Fprintln(&text, "newer requests not shown; raise --limit")
+		section.Note = "newer requests not shown; raise --limit"
 	}
-	fmt.Fprintln(&text, "hint: tmt-go answer <name> \"…\"")
-	_, err := io.WriteString(w, text.String())
-	return err
+	return clistyle.WriteList(w, outputTerminal(w), []clistyle.ListSection{section})
 }
 
 type answerReport struct {
@@ -105,8 +117,7 @@ func (r answerReport) HumanStream() output.Stream { return output.Stdout }
 func (r answerReport) ExitStatus() int            { return 0 }
 
 func (r answerReport) Human(w io.Writer) error {
-	_, err := fmt.Fprintf(w, "✓ Answered %s (%s)\n", partyName(r.From, "an anonymous sender"), r.RequestID)
-	return err
+	return success(w, fmt.Sprintf("Answered %s (%s)", partyName(r.From, "an anonymous sender"), r.RequestID))
 }
 
 func partyName(party *partyDocument, fallback string) string {

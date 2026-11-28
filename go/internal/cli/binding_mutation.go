@@ -5,11 +5,13 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"reflect"
 	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
+	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -69,7 +71,9 @@ func (b bindingCLI) bindCommand(ctx context.Context, inv invocation) output.Repo
 	}
 	return bindingReport{
 		document: boundIdentityJSON(entry.identity, entry.binding.PaneID),
-		text:     fmt.Sprintf("✓ Bound %s identity '%s' on pane %s\n", entry.identity.Lifetime, entry.identity.Name, entry.binding.PaneID),
+		render: func(w io.Writer) error {
+			return success(w, fmt.Sprintf("Bound %s identity '%s' on pane %s", entry.identity.Lifetime, entry.identity.Name, entry.binding.PaneID))
+		},
 	}
 }
 
@@ -422,16 +426,18 @@ func (b bindingCLI) rename(ctx context.Context, selector, change string) output.
 			pane = &refresh{ID: entry.binding.PaneID, Updated: ok}
 		}
 	}
-	text := fmt.Sprintf("%s already has this name\n", renamed.Name)
-	if changed {
-		text = fmt.Sprintf("✓ Renamed %s to %s\n", entry.identity.Name, renamed.Name)
-	}
 	return bindingReport{document: struct {
 		Renamed      bool             `json:"renamed"`
 		PreviousName core.Name        `json:"previousName"`
 		Identity     identityDocument `json:"identity"`
 		Pane         *refresh         `json:"pane"`
-	}{changed, entry.identity.Name, identityJSON(renamed), pane}, text: text}
+	}{changed, entry.identity.Name, identityJSON(renamed), pane}, render: func(w io.Writer) error {
+		if changed {
+			return success(w, fmt.Sprintf("Renamed %s to %s", entry.identity.Name, renamed.Name))
+		}
+		_, err := fmt.Fprintf(w, "%s already has this name\n", clistyle.Escape(string(renamed.Name)))
+		return err
+	}}
 }
 
 func (b bindingCLI) remove(ctx context.Context, selector string, force bool) output.Report {
@@ -481,7 +487,9 @@ func (b bindingCLI) remove(ctx context.Context, selector string, force bool) out
 	return bindingReport{document: struct {
 		Removed  bool             `json:"removed"`
 		Identity identityDocument `json:"identity"`
-	}{true, identityJSON(&identity)}, text: fmt.Sprintf("✓ Removed identity '%s'; exchanges are retained\n", identity.Name)}
+	}{true, identityJSON(&identity)}, render: func(w io.Writer) error {
+		return success(w, fmt.Sprintf("Removed identity '%s'; exchanges are retained", identity.Name))
+	}}
 }
 
 func (b bindingCLI) checkRemovable(ctx context.Context, identity core.Identity, binding core.Binding) *output.Failure {

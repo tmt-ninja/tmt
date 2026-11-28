@@ -36,24 +36,20 @@ func (r stopReport) HumanStream() output.Stream { return output.Stdout }
 func (r stopReport) ExitStatus() int            { return 0 }
 
 func (r stopReport) Human(w io.Writer) error {
+	name := r.Identity.Name
 	switch r.Outcome {
 	case "stopped":
 		if r.Pane == "closed" {
-			_, err := fmt.Fprintf(w, "✓ Stopped %s's agent and closed its pane; its binding and remembered session are kept\n", r.Identity.Name)
-			return err
+			return success(w, fmt.Sprintf("Stopped %s's agent and closed its pane; its binding and remembered session are kept", name))
 		}
-		_, err := fmt.Fprintf(w, "✓ Stopped %s's agent; its binding and remembered session are kept\n", r.Identity.Name)
-		return err
+		return success(w, fmt.Sprintf("Stopped %s's agent; its binding and remembered session are kept", name))
 	case "already_ended":
 		if r.Pane == "closed" {
-			_, err := fmt.Fprintf(w, "✓ %s's agent had already ended; closed its pane, nothing was signalled\n", r.Identity.Name)
-			return err
+			return success(w, fmt.Sprintf("%s's agent had already ended; closed its pane, nothing was signalled", name))
 		}
-		_, err := fmt.Fprintf(w, "✓ %s's agent had already ended; nothing was signalled\n", r.Identity.Name)
-		return err
+		return success(w, fmt.Sprintf("%s's agent had already ended; nothing was signalled", name))
 	default:
-		_, err := fmt.Fprintf(w, "✓ %s has no running agent; nothing to stop\n", r.Identity.Name)
-		return err
+		return success(w, fmt.Sprintf("%s has no running agent; nothing to stop", name))
 	}
 }
 
