@@ -146,7 +146,7 @@ func answerOperands(inv invocation) answerArguments {
 func (app application) incoming(ctx context.Context, inv invocation) output.Report {
 	if !inv.has("identity") {
 		// NOT PORTED (#6938): select the implicit caller using a verified live binding.
-		return &output.Failure{Code: "IDENTITY_REQUIRED", Message: "An identity is required; use --identity or run from a verified bound pane.", Status: 1}
+		return identityRequired()
 	}
 	selector := inv.options["identity"]
 	if inv.path[0] == "answer" {
@@ -193,6 +193,10 @@ func (app application) requestIdentities(ctx context.Context, selector string, s
 		return nil, nil, identityMissing(*sender)
 	}
 	return me, from, nil
+}
+
+func identityRequired() *output.Failure {
+	return &output.Failure{Code: "IDENTITY_REQUIRED", Message: "An identity is required; use --identity or run from a verified bound pane.", Status: 1}
 }
 
 func identityMissing(selector string) *output.Failure {

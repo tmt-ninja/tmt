@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 )
 
@@ -283,6 +284,8 @@ func validateOperands(parsed invocation) string {
 	case "inbox":
 		_, failure := optionalDecimal(parsed, "limit", 1, 200)
 		return failure
+	case "x":
+		return validateExchangeOptions(parsed)
 	}
 	return ""
 }
@@ -312,4 +315,22 @@ func optionalDecimal(inv invocation, name string, minimum, maximum uint64) (uint
 		return 0, fmt.Sprintf("--%s must be a decimal integer between %d and %d.", name, minimum, maximum)
 	}
 	return number, ""
+}
+
+func validateExchangeOptions(inv invocation) string {
+	if len(inv.path) == 2 {
+		switch inv.path[1] {
+		case "ack":
+			_, failure := optionalDecimal(inv, "revision", 1, core.MaxJSSafeInteger)
+			return failure
+		case "ls":
+		default:
+			return ""
+		}
+	}
+	if _, failure := optionalDecimal(inv, "limit", 1, 200); failure != "" {
+		return failure
+	}
+	_, failure := optionalDecimal(inv, "after", 0, core.MaxJSSafeInteger)
+	return failure
 }

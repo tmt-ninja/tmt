@@ -68,6 +68,13 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 			if app.store != nil {
 				return output.Publish(stdout, stderr, app.incoming(ctx, invocation), invocation.json)
 			}
+		case "x":
+			if app.store != nil && len(invocation.path) == 2 {
+				switch invocation.path[1] {
+				case "ack", "ackall", "withdraw":
+					return output.Publish(stdout, stderr, app.mutateExchange(ctx, invocation), invocation.json)
+				}
+			}
 		}
 	}
 	// NOT PORTED (#6938): open the real request store after its adapter lands,
