@@ -7,11 +7,12 @@ import (
 	"strings"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/skills"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 func learnUsage(inv invocation) string {
 	list, topic := inv.has("topics"), len(inv.operands) > 0
-	usage := "tmt-go learn --skill [<skill>]"
+	usage := flavor.Binary + " learn --skill [<skill>]"
 	switch {
 	case list:
 		usage += " --topics [TOPIC]"
@@ -55,9 +56,9 @@ func writeLearn(w io.Writer, inv invocation) error {
 		if err != nil {
 			return err
 		}
-		tail := "Use tmt-go help for options.\n"
+		tail := "Use " + flavor.Binary + " help for options.\n"
 		if len(topics) > 0 {
-			tail = "Use tmt-go learn --skill tmt --topics for references.\n" + tail
+			tail = "Use " + flavor.Binary + " learn --skill tmt --topics for references.\n" + tail
 		}
 		_, err = io.WriteString(w, learnQuickStart+tail)
 		return err
@@ -89,22 +90,22 @@ const learnQuickStart = `TMT — collaborate with terminal agents through durabl
 
 The Go preview is a standalone runtime and requires no Node.js or daemon.
 
-  tmt-go name alice             Bind this pane temporarily; add -s to save it.
-  tmt-go add %14 reviewer       Bind another pane by stable ID.
-  tmt-go ls                     Show lifetime and verified presence.
-  tmt-go talk reviewer 'Review this patch' --timeout 300 --json
-  tmt-go talk reviewer 'Run the tests' --detach --json
-  tmt-go result <request-id> --json
-  tmt-go x ackall --identity coordinator
-  tmt-go config show --json
+  ` + flavor.Binary + ` name alice             Bind this pane temporarily; add -s to save it.
+  ` + flavor.Binary + ` add %14 reviewer       Bind another pane by stable ID.
+  ` + flavor.Binary + ` ls                     Show lifetime and verified presence.
+  ` + flavor.Binary + ` talk reviewer 'Review this patch' --timeout 300 --json
+  ` + flavor.Binary + ` talk reviewer 'Run the tests' --detach --json
+  ` + flavor.Binary + ` result <request-id> --json
+  ` + flavor.Binary + ` x ackall --identity coordinator
+  ` + flavor.Binary + ` config show --json
 
-Talk waits for tmt-go reply. Use exactly the supplied request ID and receipt
+Talk waits for ` + flavor.Binary + ` reply. Use exactly the supplied request ID and receipt
 with reply --message, --file or --stdin. Timeout ends only the observer.
 Preserve the request ID and retrieve its result before considering another send.
 
 Outside tmux, use an existing --identity for attributed talk or x.
-Create saved identities with tmt-go identity create <name>. Talk to an
+Create saved identities with ` + flavor.Binary + ` identity create <name>. Talk to an
 identity with no pane queues for its inbox. Reads never ack.
 
-Read tmt-go learn --skill for safety and usage guidance.
+Read ` + flavor.Binary + ` learn --skill for safety and usage guidance.
 `

@@ -7,6 +7,8 @@ import (
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 func TestUnavailableResultFailure(t *testing.T) {
@@ -27,14 +29,14 @@ func TestUnavailableResultFailure(t *testing.T) {
 func TestFailureHumanEscapesControlsAndPreservesUsage(t *testing.T) {
 	failure := &Failure{
 		Code: "USAGE_ERROR", Status: 1,
-		Message:    "error: Unexpected argument 'x\x1b'.\n\nUsage: tmt-go name <name>\n",
-		Suggestion: "Hint: Run tmt-go help name.",
+		Message:    "error: Unexpected argument 'x\x1b'.\n\nUsage: " + flavor.Binary + " name <name>\n",
+		Suggestion: "Hint: Run " + flavor.Binary + " help name.",
 	}
 	var stdout, stderr bytes.Buffer
 	if status := Publish(&stdout, &stderr, failure, false); status != 1 || stdout.Len() != 0 {
 		t.Fatalf("status = %d, stdout = %q", status, &stdout)
 	}
-	want := "error: Unexpected argument 'x\\u{1b}'\n\nUsage: tmt-go name <name>\nhint: Run tmt-go help name\n"
+	want := "error: Unexpected argument 'x\\u{1b}'\n\nUsage: " + flavor.Binary + " name <name>\nhint: Run " + flavor.Binary + " help name\n"
 	if stderr.String() != want {
 		t.Fatalf("stderr = %q, want %q", &stderr, want)
 	}
@@ -92,9 +94,43 @@ func TestRequestFramePreservesMessageAndEscapesSender(t *testing.T) {
 	const message = "alpha\ncafé ; literal\n"
 	const caller = "<Alice> & \"friend\" 'reviewer'"
 	const want = message + "\n\n<tmt-reply from=\"&lt;Alice&gt; &amp; &quot;friend&quot; &apos;reviewer&apos;\">\n" +
-		"tmt-go reply req_example --receipt v2_example --message <text>\n</tmt-reply>\n" +
+		flavor.Binary + " reply req_example --receipt v2_example --message <text>\n</tmt-reply>\n" +
 		"Submit your response with the command above. Chat output alone does not complete the request. Your reply is the answer: do not repeat it in your pane or say you replied elsewhere. Report submission errors."
 	if got := RequestFrame(message, caller, "req_example", "v2_example"); got != want {
 		t.Fatalf("request frame = %q", got)
+	}
+}
+
+func TestRequestFrameOneClosingGuidance(t *testing.T) {
+	const head = "run the tests\n\n<tmt-reply from=\"lead\">\n" +
+		flavor.Binary + " reply req_1 --receipt v2_abc --message <text>\n</tmt-reply>\n"
+	const first = "Submit your response with the command above. Chat output alone does not complete the request. "
+	const want = head + first +
+		"Your reply is the answer: do not repeat it in your pane or say you replied elsewhere. Report submission errors."
+	framed := RequestFrame("run the tests", "lead", "req_1", "v2_abc")
+	if framed != want {
+		t.Fatalf("frame = %q", framed)
+	}
+	beforeHead, beforeTail, _ := strings.Cut(head+first+"After successful submission, show a brief summary; report submission errors.", "</tmt-reply>\n")
+	afterHead, afterTail, _ := strings.Cut(framed, "</tmt-reply>\n")
+	if afterHead != beforeHead || !strings.HasPrefix(beforeTail, first) ||
+		!strings.HasPrefix(afterTail, first) || strings.Contains(afterTail, "summary") {
+		t.Fatalf("the receipt command or closing guidance changed: %q", framed)
+	}
+}
+
+func TestRequestFrameNativeSenderEscaping(t *testing.T) {
+	if got := RequestFrame("m", "a\"<b", "req_1", "v2_abc"); !strings.Contains(got, "<tmt-reply from=\"a&quot;&lt;b\">") {
+		t.Fatalf("sender was not escaped: %q", got)
+	}
+	for _, tc := range []struct{ sender, want string }{
+		{"Alice Team", "Alice Team"},
+		{"unknown", "unknown"},
+		{"A&\"<'>&amp;", "A&amp;&quot;&lt;&apos;&gt;&amp;amp;"},
+		{"\"><tmt-reply from=\"other", "&quot;&gt;&lt;tmt-reply from=&quot;other"},
+	} {
+		if got := requestSenderEscape.Replace(tc.sender); got != tc.want {
+			t.Errorf("sender %q became %q, want %q", tc.sender, got, tc.want)
+		}
 	}
 }

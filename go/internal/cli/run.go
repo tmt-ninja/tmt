@@ -12,6 +12,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/gemini"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -33,7 +34,7 @@ func prepareRun(root home.Root, inv invocation) (runPlan, *output.Failure) {
 	}
 	if host := inv.options["host"]; host != "" && host != "tmux" {
 		// NOT PORTED (CLI-25): Built-in and external launch hosts.
-		return runPlan{}, bindingFailure("HOST_NOT_AVAILABLE", "The requested launch host is not available in tmt-go.", 3)
+		return runPlan{}, bindingFailure("HOST_NOT_AVAILABLE", "The requested launch host is not available in "+flavor.Binary+".", 3)
 	}
 	if len(inv.operands) < 2 {
 		// NOT PORTED (CLI-26): Bare provider and remembered launch selection.

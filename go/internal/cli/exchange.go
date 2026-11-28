@@ -8,6 +8,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 )
 
@@ -99,7 +100,7 @@ func (r exchangeListReport) Human(w io.Writer) error {
 	count := len(r.Items)
 	section := clistyle.ListSection{Title: "exchanges", Count: &count, Rows: rows}
 	if r.NextAfter != nil {
-		section.Hint = fmt.Sprintf("more with tmt-go x ls --after %d --identity %s", *r.NextAfter, core.CommandWord(r.Identity.CanonicalName))
+		section.Hint = fmt.Sprintf("more with "+flavor.Binary+" x ls --after %d --identity %s", *r.NextAfter, core.CommandWord(r.Identity.CanonicalName))
 	}
 	return clistyle.WriteList(w, outputTerminal(w), []clistyle.ListSection{section})
 }
@@ -230,7 +231,7 @@ func (app application) exchange(ctx context.Context, inv invocation, selected id
 		if direction == core.XIncoming && detail.Receipt != nil {
 			report.Reply = &exchangeReplyDocument{
 				Receipt: *detail.Receipt,
-				Command: fmt.Sprintf("tmt-go reply %s --receipt %s --message <text>", detail.Exchange.RequestID, *detail.Receipt),
+				Command: output.ReplyCommand(string(detail.Exchange.RequestID), string(*detail.Receipt)),
 			}
 		}
 		return exchangeShowReport{Identity: identityJSON(me), Exchange: report}

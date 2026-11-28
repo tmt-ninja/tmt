@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
 )
 
 func TestCheckCapturesExplicitPrivatePaneWithPositionalLinePrecedence(t *testing.T) {
 	server := tmuxtest.Start(t)
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	pane := strings.TrimSpace(server.Run("new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "t:",
 		"/bin/sh", "-c", `printf 'private-capture-marker\n'; read -r ignored`))
 	pid := strings.TrimSpace(server.Run("display-message", "-p", "-t", pane, "#{pid}"))
@@ -40,7 +41,7 @@ func TestCheckCapturesExplicitPrivatePaneWithPositionalLinePrecedence(t *testing
 }
 
 func TestCheckRejectsMismatchedPinnedNameBeforeProbe(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	store, me, _ := requestIdentitiesFixture()
 	app := application{
 		store: callerTestStore{tx: callerTestTx{identityTxFake: identityTxFake{records: store.records}}},

@@ -13,6 +13,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 )
 
@@ -69,9 +70,9 @@ func (r completionReport) Human(w io.Writer) error {
 
 func completionSetupLine(shell string) string {
 	if shell == "fish" {
-		return "tmt-go __completion-script fish | source"
+		return flavor.Binary + " __completion-script fish | source"
 	}
-	return "source <(tmt-go __completion-script " + shell + ")"
+	return "source <(" + flavor.Binary + " __completion-script " + shell + ")"
 }
 
 func inspectCompletion(inv invocation, lookup func(string) (string, bool)) output.Report {
@@ -142,7 +143,7 @@ func (r *completionReport) inspectText(text string) {
 		})
 		found := false
 		for i := 1; i < len(tokens); i++ {
-			if tokens[i] == "__completion-script" && filepath.Base(strings.Trim(tokens[i-1], "\"'")) == "tmt-go" {
+			if tokens[i] == "__completion-script" && filepath.Base(strings.Trim(tokens[i-1], "\"'")) == flavor.Binary {
 				found = true
 				break
 			}
@@ -185,28 +186,28 @@ const bashCompletion = `_tmt_go_complete() {
     COMPREPLY=()
     while IFS= read -r candidate; do
         COMPREPLY+=("$candidate")
-    done < <(tmt-go __complete -- "${COMP_WORDS[@]:1:COMP_CWORD}")
+    done < <(` + flavor.Binary + ` __complete -- "${COMP_WORDS[@]:1:COMP_CWORD}")
 }
-complete -o default -F _tmt_go_complete tmt-go
+complete -o default -F _tmt_go_complete ` + flavor.Binary + `
 `
 
 const zshCompletion = `_tmt_go_complete() {
     local -a candidates
-    candidates=("${(@f)$(tmt-go __complete -- "${(@)words[2,CURRENT]}")}")
+    candidates=("${(@f)$(` + flavor.Binary + ` __complete -- "${(@)words[2,CURRENT]}")}")
     if (( ${#candidates} )); then
         compadd -a candidates
     else
         _files
     fi
 }
-compdef _tmt_go_complete tmt-go
+compdef _tmt_go_complete ` + flavor.Binary + `
 `
 
 const fishCompletion = `function __tmt_go_complete
     set -l prior (commandline -opc)
-    tmt-go __complete -- $prior[2..-1] (commandline -ct | string collect --allow-empty)
+    ` + flavor.Binary + ` __complete -- $prior[2..-1] (commandline -ct | string collect --allow-empty)
 end
-complete -c tmt-go -a '(__tmt_go_complete)'
+complete -c ` + flavor.Binary + ` -a '(__tmt_go_complete)'
 `
 
 func writeCompletionScript(w io.Writer, shell string) error {

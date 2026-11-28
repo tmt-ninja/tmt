@@ -12,6 +12,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -188,7 +189,7 @@ func (b bindingCLI) whoami(ctx context.Context, inv invocation) output.Report {
 		if _, err := fmt.Fprintf(w, "Pane %s is unbound\n", claim.pane.PaneID); err != nil {
 			return err
 		}
-		return clistyle.WriteHint(w, outputTerminal(w), "tmt-go name <name>")
+		return clistyle.WriteHint(w, outputTerminal(w), flavor.Binary+" name <name>")
 	}}
 }
 
@@ -213,7 +214,7 @@ func (b bindingCLI) list(ctx context.Context, inv invocation) output.Report {
 			here = b.paneDetails(ctx, claim.pane)
 		}
 		if here == nil {
-			failure := bindingFailure("PANE_NOT_FOUND", "`tmt ls --here` needs a tmux pane, and this is not one.", 3)
+			failure := bindingFailure("PANE_NOT_FOUND", "`"+flavor.Binary+" ls --here` needs a tmux pane, and this is not one.", 3)
 			failure.Suggestion = "Run it inside tmux, or drop --here to list every agent."
 			return failure
 		}
@@ -283,7 +284,7 @@ func (r bindingListReport) Human(w io.Writer) error {
 		if _, err := fmt.Fprintln(w, "No identities found."); err != nil {
 			return err
 		}
-		return clistyle.WriteHint(w, term, "tmt-go name <name>")
+		return clistyle.WriteHint(w, term, flavor.Binary+" name <name>")
 	}
 	rows := slices.Clone(r.rows)
 	slices.SortFunc(rows, func(a, b bindingPresence) int {
@@ -450,7 +451,7 @@ func (b bindingCLI) listPaneTarget(ctx context.Context, target, socket string) o
 		if err := clistyle.WriteDetail(w, term, pane.ID, fields); err != nil {
 			return err
 		}
-		return clistyle.WriteHint(w, term, fmt.Sprintf("tmt-go add %s <name>", pane.ID))
+		return clistyle.WriteHint(w, term, fmt.Sprintf(flavor.Binary+" add %s <name>", pane.ID))
 	}}
 }
 

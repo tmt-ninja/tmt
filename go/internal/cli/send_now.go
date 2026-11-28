@@ -11,6 +11,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/delivery"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -53,7 +54,7 @@ func (app application) sendNow(ctx context.Context, root home.Root, selected ide
 		}
 		if outcome == core.WakeSent {
 			failed := bindingFailure("SEND_NOW_ERROR", "Could not settle send-now delivery.", 1)
-			failed.Suggestion = fmt.Sprintf("Inspect with 'tmt-go result %s'.", id)
+			failed.Suggestion = fmt.Sprintf("Inspect with '"+flavor.Binary+" result %s'.", id)
 			report = failed
 			return
 		}
@@ -160,7 +161,7 @@ func sendNowFailure(err error) *output.Failure {
 	if errors.As(err, &typed) && typed != nil {
 		failure := responseServiceFailure(typed)
 		if failure.Code == "SEND_NOW_UNCONFIRMED" {
-			failure.Suggestion = strings.Replace(failure.Suggestion, "Inspect with 'tmt result ", "Inspect with 'tmt-go result ", 1)
+			failure.Suggestion = strings.Replace(failure.Suggestion, "Inspect with 'tmt result ", "Inspect with '"+flavor.Binary+" result ", 1)
 		}
 		return failure
 	}
@@ -182,13 +183,13 @@ func sendNowUntyped(id core.RequestID, code string) *output.Failure {
 		message = "Could not send now: the agent's channel is not available"
 	case "DELIVERY_UNCERTAIN":
 		failure := bindingFailure(code, "It may have been sent. Delivery is not confirmed, so do not send it again.", 1)
-		failure.Suggestion = fmt.Sprintf("Inspect with 'tmt-go result %s'.", id)
+		failure.Suggestion = fmt.Sprintf("Inspect with '"+flavor.Binary+" result %s'.", id)
 		return failure
 	default:
 		code = "SEND_NOW_UNREACHABLE"
 		message = "Could not send now: the agent could not be reached"
 	}
 	failure := bindingFailure(code, message, 1)
-	failure.Suggestion = fmt.Sprintf("Nothing was typed; retry 'tmt-go send-now %s' after it continues.", id)
+	failure.Suggestion = fmt.Sprintf("Nothing was typed; retry '"+flavor.Binary+" send-now %s' after it continues.", id)
 	return failure
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -267,7 +268,7 @@ func (r identityListReport) Human(w io.Writer) error {
 		if _, err := fmt.Fprintln(w, "No identities found."); err != nil {
 			return err
 		}
-		return clistyle.WriteHint(w, term, "tmt-go name <name>")
+		return clistyle.WriteHint(w, term, flavor.Binary+" name <name>")
 	}
 	sorted := slices.Clone(r)
 	slices.SortFunc(sorted, func(a, b core.Identity) int { return strings.Compare(a.CanonicalName, b.CanonicalName) })

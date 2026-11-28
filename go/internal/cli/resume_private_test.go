@@ -15,6 +15,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
@@ -24,7 +25,7 @@ func TestResumeForegroundUsesSavedCodexSession(t *testing.T) {
 	server := tmuxtest.Start(t)
 	world := t.TempDir()
 	t.Setenv(home.EnvHome, filepath.Join(world, "state"))
-	binary := filepath.Join(world, "tmt-go")
+	binary := filepath.Join(world, flavor.Binary)
 	fakeBin := filepath.Join(world, "bin")
 	if err := os.Mkdir(fakeBin, 0700); err != nil {
 		t.Fatal(err)
@@ -38,7 +39,7 @@ func TestResumeForegroundUsesSavedCodexSession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	for _, spec := range [][2]string{{binary, "../../cmd/tmt-go"}, {fake, "../../test/fixtures/fakeprovider"}} {
-		cmd := exec.CommandContext(ctx, "go", "build", "-o", spec[0], spec[1])
+		cmd := privateFixtureBuild(ctx, spec[0], spec[1])
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("build %s: %v %q", spec[1], err, output)
 		}

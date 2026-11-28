@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"maps"
+	"strings"
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -24,18 +27,18 @@ func (f exchangeReaderFake) ShowX(_ context.Context, identity core.IdentityID, d
 }
 
 func TestExchangeListAndShowProtectContentBoundaries(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	store, me, other := requestIdentitiesFixture()
 	const id = "req_exact"
 	message := "☃\n\x00"
 	response := ""
 	receipt := core.Receipt("v2_fixture")
-	bytes, submitted, expires, after := uint64(0), uint64(10), uint64(20), uint64(12)
+	bodyBytes, submitted, expires, after := uint64(0), uint64(10), uint64(20), uint64(12)
 	item := core.XItem{
 		RequestID: id, Recipient: &other.ID, Urgent: true, DigestKind: "review", Mode: "request",
 		PreparedAtMs: 7, Delivery: core.AttemptSent, Revision: after, RetentionExpiresAtMs: 30,
 		MessageState: core.DeliveryView{State: "answered", Reason: "answered_by_reply", ReasonText: "answered"},
-		Final:        core.XFinal{Status: core.FinalRetained, BodyBytes: &bytes, SubmittedAtMs: &submitted, ExpiresAtMs: &expires, Response: &response},
+		Final:        core.XFinal{Status: core.FinalRetained, BodyBytes: &bodyBytes, SubmittedAtMs: &submitted, ExpiresAtMs: &expires, Response: &response},
 	}
 	var showDirection core.XDirection
 	service := exchangeReaderFake{
@@ -80,9 +83,14 @@ func TestExchangeListAndShowProtectContentBoundaries(t *testing.T) {
 	showDirection = core.XIncoming
 	detail["reply"] = map[string]any{
 		"receipt": string(receipt),
-		"command": "tmt-go reply " + id + " --receipt " + string(receipt) + " --message <text>",
+		"command": flavor.Binary + " reply " + id + " --receipt " + string(receipt) + " --message <text>",
 	}
 	assertResponse(t, app, append(args, "--incoming"), 0, want)
+	var stdout, stderr bytes.Buffer
+	if status := app.run(t.Context(), []string{"x", "show", id, "--identity", "worker", "--incoming"}, &stdout, &stderr); status != 0 ||
+		!strings.HasSuffix(stdout.String(), "hint: "+flavor.Binary+" reply "+id+" --receipt "+string(receipt)+" --message <text>\n") || stderr.Len() != 0 {
+		t.Fatalf("human reply command: exit %d, stdout %q, stderr %q", status, &stdout, &stderr)
+	}
 }
 
 func TestExchangePromptDistinguishesExpiredFromUnavailable(t *testing.T) {

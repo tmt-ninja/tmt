@@ -14,6 +14,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -53,7 +54,7 @@ func (b bindingCLI) bindCommand(ctx context.Context, inv invocation) output.Repo
 		rawName = inv.operands[1]
 		if !core.IsPaneTarget(target) && core.IsPaneTarget(rawName) {
 			failure := bindingFailure("LEGACY_ADD_ORDER", "The v4 add argument order is no longer supported.", 1)
-			failure.Suggestion = fmt.Sprintf("Use: tmt add %s %s", core.CommandWord(rawName), core.CommandWord(target))
+			failure.Suggestion = fmt.Sprintf("Use: "+flavor.Binary+" add %s %s", core.CommandWord(rawName), core.CommandWord(target))
 			return failure
 		}
 		var failure *output.Failure
@@ -524,7 +525,7 @@ func (b bindingCLI) checkRemovable(ctx context.Context, identity core.Identity, 
 		return bindingFailure("AGENT_RUNNING", fmt.Sprintf("%s's agent is suspended or could not be observed, so it cannot be proven ended; exit it in its pane, then remove. Nothing was removed.", identity.Name), 5)
 	}
 	running := func() *output.Failure {
-		return bindingFailure("AGENT_RUNNING", fmt.Sprintf("%s's agent is still running; stop it first with tmt stop %s or quit it in its pane, then remove. Nothing was removed.", identity.Name, core.CommandWord(string(identity.Name))), 5)
+		return bindingFailure("AGENT_RUNNING", fmt.Sprintf("%s's agent is still running; stop it first with "+flavor.Binary+" stop %s or quit it in its pane, then remove. Nothing was removed.", identity.Name, core.CommandWord(string(identity.Name))), 5)
 	}
 	if recorded := binding.Session.Runtime; binding.Session.RuntimeState == "running" && recorded != nil {
 		if b.process == nil {

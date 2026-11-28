@@ -11,6 +11,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/delivery"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -81,7 +82,7 @@ func TestLiveTalkFencesDeliveryAndSettlesBeforeReadingFinal(t *testing.T) {
 					actions = append(actions, "deliver")
 					if root.Dir != "/fixture" || target.Pane != pane || target.Identity.ID != recipient.ID ||
 						!reflect.DeepEqual(target.Binding, &binding) || !strings.HasPrefix(in.Text, message+"\n\n") ||
-						!strings.Contains(in.Text, "<tmt-reply from=\"a&lt;b\">\ntmt-go reply "+requestID+" --receipt "+receipt+" --message <text>") ||
+						!strings.Contains(in.Text, "<tmt-reply from=\"a&lt;b\">\n"+flavor.Binary+" reply "+requestID+" --receipt "+receipt+" --message <text>") ||
 						len(in.Submit) != 1 || in.Submit[0].Key != "Enter" {
 						t.Fatalf("unexpected delivery frame or target: %+v, %+v", target, in)
 					}

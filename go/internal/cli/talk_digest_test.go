@@ -11,6 +11,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -82,7 +83,7 @@ func TestTalkDigestHoldReturnsWithoutAWaiterOrHostIO(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := "Queued " + requestID + ": worker is in digest mode for 0 seconds (until UTC epoch 0 ms); delivery is in its next checklist.\n" +
-				"hint: retrieve it later with tmt-go result " + requestID + "\n"
+				"hint: retrieve it later with " + flavor.Binary + " result " + requestID + "\n"
 			if stdout.String() != want {
 				t.Fatalf("held human output: %q", &stdout)
 			}

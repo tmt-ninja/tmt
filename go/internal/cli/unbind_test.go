@@ -11,6 +11,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
 )
 
@@ -19,7 +20,7 @@ func TestUnbindDetachesSavedAndRetiresTemporaryOnPrivateTmux(t *testing.T) {
 	pane := strings.TrimSpace(server.Run("display-message", "-p", "#{pane_id}"))
 	pid := strings.TrimSpace(server.Run("display-message", "-p", "#{pid}"))
 	const nativeMarker = "native-marker-to-preserve"
-	server.Run("set-option", "-p", "-t", pane, "@tmt.agent", nativeMarker)
+	server.Run("set-option", "-p", "-t", pane, otherFlavorTMUXOption("agent"), nativeMarker)
 	claims := map[string]string{"TMUX": server.Socket + "," + pid + ",0", "TMUX_PANE": pane}
 	lookup := func(key string) (string, bool) {
 		v, ok := claims[key]
@@ -27,7 +28,7 @@ func TestUnbindDetachesSavedAndRetiresTemporaryOnPrivateTmux(t *testing.T) {
 	}
 	world := t.TempDir()
 	t.Setenv("HOME", world)
-	t.Setenv("TMT_GO_HOME", filepath.Join(world, "data"))
+	t.Setenv(flavor.EnvHome, filepath.Join(world, "data"))
 	app := application{store: bindingCommandStore(t), caller: callerSelector{lookup: lookup}}
 	run := func(status int, args ...string) map[string]any {
 		t.Helper()
@@ -62,7 +63,7 @@ func TestUnbindDetachesSavedAndRetiresTemporaryOnPrivateTmux(t *testing.T) {
 		if goMarker := server.Run("show-options", "-pqv", "-t", pane, tmux.AgentOption); goMarker != "" {
 			t.Fatalf("own marker not cleared: %q", goMarker)
 		}
-		if original := server.Run("show-options", "-pqv", "-t", pane, "@tmt.agent"); strings.TrimSpace(original) != nativeMarker {
+		if original := server.Run("show-options", "-pqv", "-t", pane, otherFlavorTMUXOption("agent")); strings.TrimSpace(original) != nativeMarker {
 			t.Fatalf("native pane marker changed: %q", original)
 		}
 		if life == core.LifetimeSaved {

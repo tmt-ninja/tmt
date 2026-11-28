@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 func TestRoleAndPreambleKeepIndependentIdentityContent(t *testing.T) {
 	world := t.TempDir()
 	t.Setenv("HOME", world)
-	t.Setenv("TMT_GO_HOME", filepath.Join(world, "go"))
+	t.Setenv(flavor.EnvHome, filepath.Join(world, "go"))
 	run := func(want int, args ...string) map[string]any {
 		t.Helper()
 		var stdout, stderr bytes.Buffer

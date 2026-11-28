@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
 
@@ -104,7 +105,7 @@ func TestStorageReportsPrivateFootprintWithoutMaintenance(t *testing.T) {
 		t.Fatalf("populated footprint: %+v", present)
 	}
 	human := run()
-	if !strings.Contains(human, "5 B in 1 files") || !strings.Contains(human, "space.db.pre-v2.bak 6 B") || strings.Contains(human, "tmt-go upgrade") {
+	if !strings.Contains(human, "5 B in 1 files") || !strings.Contains(human, "space.db.pre-v2.bak 6 B") || strings.Contains(human, flavor.Binary+" upgrade") {
 		t.Fatalf("human footprint: %q", human)
 	}
 	after, err := os.ReadFile(root.Database)

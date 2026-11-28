@@ -15,6 +15,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
@@ -93,7 +94,7 @@ func TestResumeUsesExactSnapshotThroughPrivateBinding(t *testing.T) {
 	if out, diagnostic := run(0, "resume", "--show", string(id)); out != "{\n  \"identity\": \"Worker\",\n  \"launch\": null\n}\n" || diagnostic != "" {
 		t.Fatalf("resume show stdout=%q stderr=%q", out, diagnostic)
 	}
-	if out, diagnostic := run(1, "resume", "Worker"); out != "" || !strings.Contains(diagnostic, "Worker has no remembered session to resume. Start fresh with: tmt-go run Worker") {
+	if out, diagnostic := run(1, "resume", "Worker"); out != "" || !strings.Contains(diagnostic, "Worker has no remembered session to resume. Start fresh with: "+flavor.Binary+" run Worker") {
 		t.Fatalf("resume without a saved session stdout=%q stderr=%q", out, diagnostic)
 	}
 	if got := server.Run("show-options", "-sqv", tmux.ServerIDOption); got != "" {

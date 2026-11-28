@@ -16,6 +16,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
@@ -25,15 +26,15 @@ func TestLiveTalkGetsDurableReplyFromPrivateFakeProvider(t *testing.T) {
 	server := tmuxtest.Start(t)
 	rootDir := t.TempDir()
 	bin := t.TempDir()
-	t.Setenv("TMT_GO_HOME", rootDir)
+	t.Setenv(flavor.EnvHome, rootDir)
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
-	fake, binary := filepath.Join(bin, "codex"), filepath.Join(bin, "tmt-go")
+	fake, binary := filepath.Join(bin, "codex"), filepath.Join(bin, flavor.Binary)
 	for _, build := range []struct{ destination, source string }{
 		{fake, "../../test/fixtures/fakeprovider"},
 		{binary, "../../cmd/tmt-go"},
 	} {
-		cmd := exec.CommandContext(ctx, "go", "build", "-o", build.destination, build.source)
+		cmd := privateFixtureBuild(ctx, build.destination, build.source)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("build %s: %v\n%s", build.source, err, out)
 		}
@@ -56,7 +57,7 @@ IFS= read -r ignored || exit
 "$1" run --save Worker "$2"
 printf '%s\n' "$?" > "$4"
 IFS= read -r ignored`, "fixture", binary, fake, exitFile, secondExit},
-			Env: []string{"TMT_GO_HOME=" + rootDir, "PATH=" + os.Getenv("PATH")},
+			Env: []string{flavor.EnvHome + "=" + rootDir, "PATH=" + os.Getenv("PATH")},
 		},
 	})
 	if err != nil {
@@ -218,7 +219,7 @@ IFS= read -r ignored`, "fixture", binary, fake, exitFile, secondExit},
 			Args: []string{"-c", `/bin/stty -echo || exit
 "$1" run --save Owned "$2"
 IFS= read -r ignored`, "fixture", binary, fake},
-			Env: []string{"TMT_GO_HOME=" + rootDir, "PATH=" + os.Getenv("PATH")},
+			Env: []string{flavor.EnvHome + "=" + rootDir, "PATH=" + os.Getenv("PATH")},
 		},
 	}, owned)
 	if err != nil {
@@ -275,4 +276,12 @@ func waitForPrivateFake(t *testing.T, ctx context.Context, probe func() (bool, e
 		case <-ticker.C:
 		}
 	}
+}
+
+func privateFixtureBuild(ctx context.Context, path, pkg string) *exec.Cmd {
+	args := []string{"build"}
+	if flavor.NativeCompatible {
+		args = append(args, "-tags=nativecompat")
+	}
+	return exec.CommandContext(ctx, "go", append(args, "-o", path, pkg)...)
 }

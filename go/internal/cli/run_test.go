@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
@@ -19,7 +20,7 @@ import (
 func TestRunBindsAndPreparesProviderBeforeForegroundLaunch(t *testing.T) {
 	server := tmuxtest.Start(t)
 	root := t.TempDir()
-	t.Setenv("TMT_GO_HOME", root)
+	t.Setenv(flavor.EnvHome, root)
 	provider := filepath.Join(t.TempDir(), "codex")
 	if err := os.WriteFile(provider, []byte("#!/bin/sh\nexit 99\n"), 0700); err != nil {
 		t.Fatal(err)
@@ -27,7 +28,7 @@ func TestRunBindsAndPreparesProviderBeforeForegroundLaunch(t *testing.T) {
 	pane := strings.TrimSpace(server.Run("display-message", "-p", "#{pane_id}"))
 	pid := strings.TrimSpace(server.Run("display-message", "-p", "-t", pane, "#{pid}"))
 	const nativeMarker = "native marker must survive"
-	server.Run("set-option", "-p", "-t", pane, "@tmt.agent", nativeMarker)
+	server.Run("set-option", "-p", "-t", pane, otherFlavorTMUXOption("agent"), nativeMarker)
 	app := systemApplication()
 	app.caller.lookup = func(key string) (string, bool) {
 		switch key {
@@ -55,7 +56,7 @@ func TestRunBindsAndPreparesProviderBeforeForegroundLaunch(t *testing.T) {
 		}); err != nil {
 			t.Fatal(err)
 		}
-		if native := server.Run("show-options", "-p", "-v", "-t", pane, "@tmt.agent"); native != nativeMarker+"\n" {
+		if native := server.Run("show-options", "-p", "-v", "-t", pane, otherFlavorTMUXOption("agent")); native != nativeMarker+"\n" {
 			t.Fatalf("native pane marker changed: %q", native)
 		}
 		return 7

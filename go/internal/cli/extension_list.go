@@ -8,6 +8,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/extcmd"
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 )
 
@@ -91,10 +92,10 @@ func listExtensions(inv invocation, searchPath string) output.Report {
 	}
 	report := extensionListReport{}
 	report.Guidance.Actions = append(report.Guidance.Actions,
-		extensionAction{"setup", "use", []string{"tmt-go", "setup"}, "Set up agents and optional features"})
+		extensionAction{"setup", "use", []string{flavor.Binary, "setup"}, "Set up agents and optional features"})
 	if len(shadowed) > 0 {
 		report.Guidance.Actions = append(report.Guidance.Actions,
-			extensionAction{"upgrade", "use", []string{"tmt-go", "upgrade"}, "Review available updates"})
+			extensionAction{"upgrade", "use", []string{flavor.Binary, "upgrade"}, "Review available updates"})
 	}
 	for _, product := range officialExtensions {
 		// PATH evidence alone never establishes an official managed install.
@@ -105,14 +106,14 @@ func listExtensions(inv invocation, searchPath string) output.Report {
 		})
 		if len(shadowed[product.name]) > 0 && len(report.Guidance.Actions) < 5 {
 			report.Guidance.Actions = append(report.Guidance.Actions, extensionAction{
-				"help-" + product.name, "use", []string{"tmt-go", product.name, "--help"}, product.explore,
+				"help-" + product.name, "use", []string{flavor.Binary, product.name, "--help"}, product.explore,
 			})
 		}
 	}
 	for _, product := range officialExtensions {
 		if len(shadowed[product.name]) == 0 {
 			report.Guidance.Actions = append(report.Guidance.Actions, extensionAction{
-				"install-" + product.name, "install", []string{"tmt-go", "extension", "install", product.name, "--yes"}, product.description,
+				"install-" + product.name, "install", []string{flavor.Binary, "extension", "install", product.name, "--yes"}, product.description,
 			})
 		}
 	}

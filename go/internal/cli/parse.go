@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 )
 
@@ -196,10 +197,10 @@ func parse(args []string) (invocation, *output.Failure) {
 		}
 	}
 	if parsed.json && command.name == "resume" {
-		return fail("USAGE_ERROR", "Unknown option or argument 'json' for resume.\nUsage: tmt-go resume [OPTIONS] [name]\nTry `tmt-go help resume` for supported options.")
+		return fail("USAGE_ERROR", "Unknown option or argument 'json' for resume.\nUsage: "+flavor.Binary+" resume [OPTIONS] [name]\nTry `"+flavor.Binary+" help resume` for supported options.")
 	}
 	if parsed.json && command.name == "run" && parsed.has("resume") {
-		return fail("USAGE_ERROR", "Unknown option or argument 'json' for run.\nUsage: tmt-go run [OPTIONS] <AGENT [ARGS...] | NAME [COMMAND...]>...\nTry `tmt-go help run` for supported options.")
+		return fail("USAGE_ERROR", "Unknown option or argument 'json' for run.\nUsage: "+flavor.Binary+" run [OPTIONS] <AGENT [ARGS...] | NAME [COMMAND...]>...\nTry `"+flavor.Binary+" help run` for supported options.")
 	}
 	if parsed.json && command.humanOnly {
 		return fail("JSON_UNSUPPORTED", "This command does not support --json.")
@@ -299,7 +300,7 @@ func validateOperands(parsed invocation) string {
 				"host":      "templates",
 			}
 			name := parsed.path[0]
-			return fmt.Sprintf("error: 'tmt-go %s' requires a subcommand but one was not provided\n  [subcommands: %s]\n\nUsage: tmt-go %s [OPTIONS] <COMMAND>\n", name, subcommands[name], name)
+			return fmt.Sprintf("error: '"+flavor.Binary+" %s' requires a subcommand but one was not provided\n  [subcommands: %s]\n\nUsage: "+flavor.Binary+" %s [OPTIONS] <COMMAND>\n", name, subcommands[name], name)
 		}
 	case "completion", "__completion-script":
 		if len(parsed.operands) == 1 && !slices.Contains(completionShells, parsed.operands[0]) {
@@ -351,7 +352,7 @@ func validateOperands(parsed invocation) string {
 		return validateContent(parsed, parsed.has("message"))
 	case "answer":
 		if !parsed.has("request") && len(parsed.operands) == 0 {
-			return "Usage: name who is waiting (tmt-go answer <from> <text>) or choose --request <id>."
+			return "Usage: name who is waiting (" + flavor.Binary + " answer <from> <text>) or choose --request <id>."
 		}
 		return validateContent(parsed, answerOperands(parsed).inline)
 	case "inbox":
@@ -375,10 +376,10 @@ func validateRunOperands(inv invocation) string {
 		return ""
 	}
 	if !nativeRunProvider(name) && strings.HasPrefix(inv.operands[1], "-") {
-		return "The command must not start with '-'. TMT options go before the name: tmt-go run -s Alice <command>."
+		return "The command must not start with '-'. TMT options go before the name: " + flavor.Binary + " run -s Alice <command>."
 	}
 	if inv.has("resume") {
-		return "Use `tmt-go run --resume <name>` to resume, or pass the command's own flags after the name; do not combine both forms."
+		return "Use `" + flavor.Binary + " run --resume <name>` to resume, or pass the command's own flags after the name; do not combine both forms."
 	}
 	return ""
 }

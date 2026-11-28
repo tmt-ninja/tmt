@@ -15,6 +15,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/config"
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 )
@@ -136,7 +137,7 @@ func (r configShow) HumanDiagnostic(w io.Writer) error {
 	file, _ := w.(*os.File)
 	term := clistyle.DiagnosticTerminal(file, nil)
 	if r.problem.Key == "theme.base" && r.theme["base"] == "auto" {
-		return clistyle.WriteError(w, term, "theme.base auto only works for the board, not in config.json", "tmt-go ops sq theme set auto")
+		return clistyle.WriteError(w, term, "theme.base auto only works for the board, not in config.json", flavor.Binary+" ops sq theme set auto")
 	}
 	message := strings.TrimSuffix(r.problem.Message, ".")
 	return clistyle.WriteError(w, term, r.problem.Key+" "+message+"; commands use the terminal's colors until it is fixed", "")
@@ -176,7 +177,7 @@ func runConfig(ctx context.Context, root home.Root, inv invocation) output.Repor
 func configFailure(err error) *output.Failure {
 	failure := &output.Failure{Code: "ERROR", Message: err.Error(), Status: 1}
 	if errors.Is(err, config.ErrChanged) {
-		failure.Suggestion = "Read the current settings with tmt-go config show before retrying"
+		failure.Suggestion = "Read the current settings with " + flavor.Binary + " config show before retrying"
 	}
 	return failure
 }

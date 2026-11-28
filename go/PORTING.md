@@ -85,7 +85,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-11` Implement `ls --room` membership filtering.
 - [ ] `CLI-12` Implement `ls --detected` with host and socket selection.
 - [ ] `CLI-13` Implement bounded `whoami --context` output.
-- [ ] `CLI-14` High priority: implement direct-pane `talk` with verified driver routing. The existing TypeScript durable-talk and smoke request cases depend on this route.
+- [ ] `CLI-14` High priority after focus: implement direct-pane `talk` with verified driver routing. Reuse the native durable-talk, smoke request, and response-integrity assertions.
 - [ ] `CLI-15` Implement `talk --remote` through Remote delivery.
 - [ ] `CLI-16` Implement `talk --room` and its membership rules.
 - [ ] `CLI-17` Implement `talk --passthrough` through guarded raw paste.
@@ -121,6 +121,12 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-47` Compose internal worker commands for the channel server, PTY server, reply notices and request observation.
 - [ ] `CLI-48` Compose internal managed-installation setup, refresh, upgrade and database maintenance commands.
 - [ ] `CLI-49` Compose internal allowance, consumption, flush and Digest callbacks.
+
+### Native test mappings from merged main
+
+- `rust/crates/tmt-adapters/src/request_frame.rs` frame guidance, byte stability and sender escaping → `go/internal/output/output_test.go` coverage in `TestRequestFrameOneClosingGuidance` and `TestRequestFrameNativeSenderEscaping`.
+- `rust/crates/tmt-cli/src/exchange_command/presentation.rs` incoming reply command in JSON and human presentation → `TestExchangeListAndShowProtectContentBoundaries` in `go/internal/cli/exchange_test.go`.
+- `typescript/test/e2e/talk-completion.e2e.test.ts` receipt line and request correlation → `TestLiveTalkGetsDurableReplyFromPrivateFakeProvider` in `go/internal/cli/talk_private_test.go`, with the exact line pinned by the output frame tests.
 
 ## go-4 (install, extensions, api, mcp, digest, tick)
 

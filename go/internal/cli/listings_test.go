@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 func TestListingsReadOnlyAndKeepPATHSeparateFromApproval(t *testing.T) {
@@ -26,7 +27,7 @@ func TestListingsReadOnlyAndKeepPATHSeparateFromApproval(t *testing.T) {
 		}
 	}
 	t.Setenv("HOME", world)
-	t.Setenv("TMT_GO_HOME", root)
+	t.Setenv(flavor.EnvHome, root)
 	t.Setenv("PATH", strings.Join([]string{first, second, first}, string(os.PathListSeparator)))
 	t.Setenv("TMUX", "")
 	t.Setenv("TMUX_PANE", "")

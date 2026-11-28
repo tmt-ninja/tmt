@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -28,7 +29,7 @@ func (f exchangeFake) Withdraw(_ context.Context, identity core.IdentityID, requ
 }
 
 func TestExchangeMutationsUseObservedRevisionAndSelectedIdentity(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	store, me, _ := requestIdentitiesFixture()
 	identity := map[string]any{"id": string(me.ID), "name": "Worker", "canonicalName": "worker", "lifetime": "saved"}
 	const request = "req_exact"
@@ -66,7 +67,7 @@ func TestExchangeMutationsUseObservedRevisionAndSelectedIdentity(t *testing.T) {
 }
 
 func TestExchangeAckRejectsUnsafeOrStaleRevision(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	store, _, _ := requestIdentitiesFixture()
 	const stale = "Exchange attention revision changed after observation."
 	service := exchangeFake{ack: func(_ core.IdentityID, _ core.XDirection, _ core.RequestID, revision uint64) (core.AckResult, error) {

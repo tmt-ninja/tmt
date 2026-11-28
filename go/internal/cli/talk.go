@@ -14,6 +14,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -159,7 +160,7 @@ func (r talkReport) Human(w io.Writer) error {
 			r.RequestID, clistyle.Escape(target), seconds, *r.DigestUntilMs); err != nil {
 			return err
 		}
-		return clistyle.WriteHint(w, term, fmt.Sprintf("retrieve it later with tmt-go result %s", r.RequestID))
+		return clistyle.WriteHint(w, term, fmt.Sprintf("retrieve it later with "+flavor.Binary+" result %s", r.RequestID))
 	}
 	var message string
 	switch {
@@ -184,7 +185,7 @@ func (r talkReport) Human(w io.Writer) error {
 			return err
 		}
 	}
-	return clistyle.WriteHint(w, term, fmt.Sprintf("retrieve it later with tmt-go result %s", r.RequestID))
+	return clistyle.WriteHint(w, term, fmt.Sprintf("retrieve it later with "+flavor.Binary+" result %s", r.RequestID))
 }
 
 func (r talkReport) heldByDigest(until uint64, recipient core.IdentityID, now uint64) talkReport {
@@ -197,14 +198,14 @@ func (r talkReport) heldByDigest(until uint64, recipient core.IdentityID, now ui
 }
 
 func (r talkReport) recipientHints() string {
-	return fmt.Sprintf("recipient pull: tmt-go inbox --identity '%s' --json; recipient inspection: tmt-go x show %s --incoming --identity '%s' --json",
+	return fmt.Sprintf("recipient pull: "+flavor.Binary+" inbox --identity '%s' --json; recipient inspection: "+flavor.Binary+" x show %s --incoming --identity '%s' --json",
 		r.RecipientIdentityID, r.RequestID, r.RecipientIdentityID)
 }
 
 func (r talkReport) observerFailure(code, message string, status int) *output.Failure {
-	suggestion := fmt.Sprintf("Inspect with 'tmt-go result %s --json'. Do not resend solely because the observer ended.", r.RequestID)
+	suggestion := fmt.Sprintf("Inspect with '"+flavor.Binary+" result %s --json'. Do not resend solely because the observer ended.", r.RequestID)
 	if r.Pane == "" {
-		suggestion = fmt.Sprintf("Inspect with 'tmt-go result %s --json'. The request stays queued for a later reply; do not resend solely because the observer ended. %s.",
+		suggestion = fmt.Sprintf("Inspect with '"+flavor.Binary+" result %s --json'. The request stays queued for a later reply; do not resend solely because the observer ended. %s.",
 			r.RequestID, r.recipientHints())
 	}
 	return &output.Failure{

@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -60,7 +61,7 @@ func (app application) run(ctx context.Context, args []string, stdout, stderr io
 	case invocation.help:
 		err = renderHelp(stdout, invocation.path)
 	case invocation.version:
-		_, err = fmt.Fprintf(stdout, "tmt-go %s\n", Version)
+		_, err = fmt.Fprintf(stdout, flavor.Binary+" %s\n", Version)
 	case invocation.path[0] == "learn":
 		err = writeLearn(stdout, invocation)
 	case invocation.path[0] == "__completion-script":

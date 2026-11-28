@@ -9,6 +9,8 @@ import (
 	"io"
 	"strings"
 	"unicode"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 // Stream selects the destination of a human report. JSON always uses stdout.
@@ -165,10 +167,15 @@ func Publish(stdout, stderr io.Writer, report Report, asJSON bool) int {
 
 var requestSenderEscape = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", "\"", "&quot;", "'", "&apos;")
 
+// ReplyCommand renders the command for a validated request ID and receipt.
+func ReplyCommand(requestID, receipt string) string {
+	return flavor.Binary + " reply " + requestID + " --receipt " + receipt + " --message <text>"
+}
+
 // RequestFrame appends the reply command to an exact retained message.
 // Validated request IDs and receipts are converted to text by the callers.
 func RequestFrame(message, sender, requestID, receipt string) string {
-	return fmt.Sprintf("%s\n\n<tmt-reply from=\"%s\">\ntmt-go reply %s --receipt %s --message <text>\n</tmt-reply>\n"+
+	return fmt.Sprintf("%s\n\n<tmt-reply from=\"%s\">\n%s\n</tmt-reply>\n"+
 		"Submit your response with the command above. Chat output alone does not complete the request. Your reply is the answer: do not repeat it in your pane or say you replied elsewhere. Report submission errors.",
-		message, requestSenderEscape.Replace(sender), requestID, receipt)
+		message, requestSenderEscape.Replace(sender), ReplyCommand(requestID, receipt))
 }

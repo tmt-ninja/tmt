@@ -15,6 +15,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -37,7 +38,7 @@ func (app application) runResume(ctx context.Context, root home.Root, inv invoca
 	}
 	if host := inv.options["host"]; host != "" && host != "tmux" {
 		// NOT PORTED (CLI-25): Resume in built-in or external hosts.
-		return fail(bindingFailure("HOST_NOT_AVAILABLE", "The requested launch host is not available in tmt-go.", 3))
+		return fail(bindingFailure("HOST_NOT_AVAILABLE", "The requested launch host is not available in "+flavor.Binary+".", 3))
 	}
 	for _, option := range []string{"model", "effort"} {
 		if inv.has(option) && !validResumeSetting(inv.options[option]) {
@@ -193,10 +194,10 @@ func resumeOutputFailure(err error) *output.Failure {
 	// this executable while the Go home is isolated.
 	report := *failure
 	report.Message = strings.NewReplacer(
-		"Start fresh with: tmt run ", "Start fresh with: tmt-go run ",
-		"Forget it with: tmt resume ", "Forget it with: tmt-go resume ",
-		"try it once more with: tmt resume ", "try it once more with: tmt-go resume ",
-		"Start fresh from its notes: tmt resume ", "Start fresh from its notes: tmt-go resume ",
+		"Start fresh with: tmt run ", "Start fresh with: "+flavor.Binary+" run ",
+		"Forget it with: tmt resume ", "Forget it with: "+flavor.Binary+" resume ",
+		"try it once more with: tmt resume ", "try it once more with: "+flavor.Binary+" resume ",
+		"Start fresh from its notes: tmt resume ", "Start fresh from its notes: "+flavor.Binary+" resume ",
 	).Replace(report.Message)
 	return &report
 }
@@ -275,7 +276,7 @@ func preflightResume(ctx context.Context, observe func(context.Context, int) (ru
 	if observed.State == runtime.Alive || observed.State == runtime.Suspended {
 		reason = fmt.Sprintf("The recorded agent is still attached to pane %s (possibly suspended).", binding.PaneID)
 	}
-	message := fmt.Sprintf("%s No new agent was launched. Check the old pane and exit the agent, or move it with: tmt-go resume --move -- %s",
+	message := fmt.Sprintf("%s No new agent was launched. Check the old pane and exit the agent, or move it with: "+flavor.Binary+" resume --move -- %s",
 		reason, core.CommandWord(string(snapshot.Identity.Name)))
 	return bindingFailure("RUNTIME_CONFLICT", message, 5)
 }

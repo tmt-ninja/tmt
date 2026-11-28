@@ -12,6 +12,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -25,8 +26,8 @@ func TestBindingCommandsUseOnlyGoMetadataOnPrivateTmux(t *testing.T) {
 	pid := strings.TrimSpace(server.Run("display-message", "-p", "#{pid}"))
 	const nativePane = `{"version":1,"native":"untouched"}`
 	const nativeServer = "47056d21-31b6-4f04-af6b-5b48ee610513"
-	server.Run("set-option", "-p", "-t", pane, "@tmt.agent", nativePane)
-	server.Run("set-option", "-s", "@tmt.server-id", nativeServer)
+	server.Run("set-option", "-p", "-t", pane, otherFlavorTMUXOption("agent"), nativePane)
+	server.Run("set-option", "-s", otherFlavorTMUXOption("server-id"), nativeServer)
 
 	lookup := func(key string) (string, bool) {
 		value, present := map[string]string{
@@ -99,10 +100,10 @@ func TestBindingCommandsUseOnlyGoMetadataOnPrivateTmux(t *testing.T) {
 	if option := server.Run("show-options", "-pqv", "-t", pane, tmux.AgentOption); option != "" {
 		t.Fatalf("Go marker was not cleared: %q", option)
 	}
-	if option := server.Run("show-options", "-pv", "-t", pane, "@tmt.agent"); option != nativePane+"\n" {
+	if option := server.Run("show-options", "-pv", "-t", pane, otherFlavorTMUXOption("agent")); option != nativePane+"\n" {
 		t.Fatalf("native pane metadata changed: %q", option)
 	}
-	if option := server.Run("show-options", "-sv", "@tmt.server-id"); option != nativeServer+"\n" {
+	if option := server.Run("show-options", "-sv", otherFlavorTMUXOption("server-id")); option != nativeServer+"\n" {
 		t.Fatalf("native server ID changed: %q", option)
 	}
 
@@ -156,4 +157,12 @@ func bindingTestJSON(t *testing.T, report output.Report) map[string]any {
 		t.Fatal(fmt.Errorf("parse binding output: %w", err))
 	}
 	return decoded
+}
+
+// The alternate namespace remains untouched by both flavors.
+func otherFlavorTMUXOption(name string) string {
+	if flavor.NativeCompatible {
+		return "@tmt-go." + name
+	}
+	return "@tmt." + name
 }

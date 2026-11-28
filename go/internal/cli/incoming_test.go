@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -64,7 +65,7 @@ func requestIdentitiesFixture() (identityStoreFake, *core.Identity, *core.Identi
 }
 
 func TestInboxSelectsIdentityAndMapsSenderMetadata(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	store, me, from := requestIdentitiesFixture()
 	content := "first line\nsecond line"
 	unknown := core.IdentityID("retired")
@@ -105,7 +106,7 @@ func TestInboxSelectsIdentityAndMapsSenderMetadata(t *testing.T) {
 }
 
 func TestAnswerByRequestIDPassesExactBodyWithoutSupposingSender(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	store, me, _ := requestIdentitiesFixture()
 	const body = "\ufeff\r\n\x00"
 	id := core.RequestID("req_anonymous")
@@ -124,7 +125,7 @@ func TestAnswerByRequestIDPassesExactBodyWithoutSupposingSender(t *testing.T) {
 }
 
 func TestAnswerLeavesAmbiguousRequestsUnselected(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	store, me, from := requestIdentitiesFixture()
 	const message = "lead is waiting on you for 2 requests; nothing was sent.\n  req_first  One\n  req_second  Two"
 	service := incomingFake{answer: func(input core.AnswerRequest) (core.AnswerResult, error) {

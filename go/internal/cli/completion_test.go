@@ -9,16 +9,18 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 func TestCompletionInspectsStartupWithoutChangingIt(t *testing.T) {
 	world := t.TempDir()
 	t.Setenv("HOME", world)
-	t.Setenv("TMT_GO_HOME", filepath.Join(world, "go"))
+	t.Setenv(flavor.EnvHome, filepath.Join(world, "go"))
 	t.Setenv("ZDOTDIR", world)
 	t.Setenv("SHELL", "/bin/zsh")
 	path := filepath.Join(world, ".zshrc")
-	setup := "source <(tmt-go __completion-script zsh)\ncommand compinit\ntmt-go __completion-script bash\n"
+	setup := "source <(" + flavor.Binary + " __completion-script zsh)\ncommand compinit\n" + flavor.Binary + " __completion-script bash\n"
 	if err := os.WriteFile(path, []byte(setup), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +67,7 @@ func TestCompletionEmitsLiteralCandidatesAndRunnableSetup(t *testing.T) {
 	for _, shell := range completionShells {
 		var stdout, stderr bytes.Buffer
 		if status := (application{}).run(t.Context(), []string{"__completion-script", shell}, &stdout, &stderr); status != 0 ||
-			stderr.Len() != 0 || !strings.Contains(stdout.String(), "tmt-go __complete --") {
+			stderr.Len() != 0 || !strings.Contains(stdout.String(), flavor.Binary+" __complete --") {
 			t.Fatalf("%s script exit %d: %q, %q", shell, status, &stdout, &stderr)
 		}
 	}

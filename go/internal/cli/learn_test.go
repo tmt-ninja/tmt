@@ -9,11 +9,12 @@ import (
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/skills"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 func TestLearnReadsBundledGuidanceWithoutState(t *testing.T) {
 	root := filepath.Join(t.TempDir(), "unused")
-	t.Setenv("TMT_GO_HOME", root)
+	t.Setenv(flavor.EnvHome, root)
 
 	for _, tc := range []struct {
 		skill  string
@@ -49,7 +50,7 @@ func TestLearnReadsBundledGuidanceWithoutState(t *testing.T) {
 	}
 	var quickStart, stderr bytes.Buffer
 	if status := (application{}).run(t.Context(), []string{"learn"}, &quickStart, &stderr); status != 0 || stderr.Len() != 0 ||
-		!strings.Contains(quickStart.String(), "tmt-go learn --skill") {
+		!strings.Contains(quickStart.String(), flavor.Binary+" learn --skill") {
 		t.Fatalf("quick start: exit %d, stdout %q, stderr %q", status, &quickStart, &stderr)
 	}
 	if _, err := os.Stat(root); !errors.Is(err, os.ErrNotExist) {

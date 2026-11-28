@@ -15,6 +15,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/verifiedstop"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -227,7 +228,7 @@ func (app application) finishStop(ctx context.Context, closePane bool, stopped s
 	case tmux.PaneGone:
 		stopped.Pane = "gone"
 	default:
-		return kept("its host cannot say whether tmt-go opened that pane")
+		return kept("its host cannot say whether " + flavor.Binary + " opened that pane")
 	}
 	return stopped
 }

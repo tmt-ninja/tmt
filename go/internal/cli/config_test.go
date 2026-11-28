@@ -9,12 +9,14 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 func TestConfigSettingsThroughCLI(t *testing.T) {
 	user := t.TempDir()
 	t.Setenv("HOME", user)
-	t.Setenv("TMT_GO_HOME", filepath.Join(user, "go"))
+	t.Setenv(flavor.EnvHome, filepath.Join(user, "go"))
 	workspace := filepath.Join(user, "workspace")
 	if err := os.Mkdir(workspace, 0700); err != nil {
 		t.Fatal(err)
@@ -34,7 +36,7 @@ func TestConfigSettingsThroughCLI(t *testing.T) {
 		}
 		return value
 	}
-	localPath := filepath.Join(workspace, "tmt-go.json")
+	localPath := filepath.Join(workspace, flavor.WorkspaceFile)
 	run(0, "config", "rm", "preambleEvery")
 	if _, err := os.Stat(localPath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("clearing an absent key created a file: %v", err)

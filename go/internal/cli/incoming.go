@@ -9,6 +9,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -96,7 +97,7 @@ func (r inboxReport) Human(w io.Writer) error {
 		)
 	}
 	count := len(r.Items)
-	section := clistyle.ListSection{Title: "waiting on you", Count: &count, Rows: rows, Hint: "tmt-go answer <name> \"…\""}
+	section := clistyle.ListSection{Title: "waiting on you", Count: &count, Rows: rows, Hint: flavor.Binary + " answer <name> \"…\""}
 	if r.More {
 		section.Note = "newer requests not shown; raise --limit"
 	}

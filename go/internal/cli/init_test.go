@@ -6,20 +6,22 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 func TestInitCreatesOnlyWorkspaceConfigAndPreservesExistingFiles(t *testing.T) {
 	world := t.TempDir()
 	data := filepath.Join(world, "data")
 	t.Setenv("HOME", world)
-	t.Setenv("TMT_GO_HOME", data)
+	t.Setenv(flavor.EnvHome, data)
 	workspace := filepath.Join(world, "workspace")
 	nested := filepath.Join(workspace, "nested")
 	if err := os.MkdirAll(nested, 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(workspace)
-	path := filepath.Join(workspace, "tmt-go.json")
+	path := filepath.Join(workspace, flavor.WorkspaceFile)
 	run := func(want int, json bool) string {
 		t.Helper()
 		args := []string{"init"}
@@ -53,7 +55,7 @@ func TestInitCreatesOnlyWorkspaceConfigAndPreservesExistingFiles(t *testing.T) {
 	if err != nil || string(body) != "leave me" {
 		t.Fatalf("workspace changed: %q, %v", body, err)
 	}
-	if _, err := os.Stat(filepath.Join(nested, "tmt-go.json")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(nested, flavor.WorkspaceFile)); !os.IsNotExist(err) {
 		t.Fatalf("init created a second file: %v", err)
 	}
 }

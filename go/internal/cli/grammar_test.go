@@ -6,6 +6,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 func TestGrammarRecognizesAliasesAndDataBoundaries(t *testing.T) {
@@ -74,7 +76,7 @@ func TestGrammarRejectsInvalidOptionsBeforeExecution(t *testing.T) {
 
 func TestHelpAndVersionUseNoDataRoot(t *testing.T) {
 	t.Setenv("HOME", "")
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	for _, args := range [][]string{{"send", "-h"}, {"help", "send"}} {
 		var stdout, stderr bytes.Buffer
 		status := Main(args, &stdout, &stderr)
@@ -82,7 +84,7 @@ func TestHelpAndVersionUseNoDataRoot(t *testing.T) {
 			t.Fatalf("exit %d, stderr %q", status, &stderr)
 		}
 		page := stdout.String()
-		for _, text := range []string{"Usage: tmt-go talk", "--detach", "--identity"} {
+		for _, text := range []string{"Usage: " + flavor.Binary + " talk", "--detach", "--identity"} {
 			if !strings.Contains(page, text) {
 				t.Errorf("help missing %q", text)
 			}
@@ -94,7 +96,7 @@ func TestHelpAndVersionUseNoDataRoot(t *testing.T) {
 		}
 	}
 	var stdout, stderr bytes.Buffer
-	if status := Main([]string{"-V"}, &stdout, &stderr); status != 0 || stdout.String() != "tmt-go "+Version+"\n" || stderr.Len() != 0 {
+	if status := Main([]string{"-V"}, &stdout, &stderr); status != 0 || stdout.String() != flavor.Binary+" "+Version+"\n" || stderr.Len() != 0 {
 		t.Fatalf("exit %d, stdout %q, stderr %q", status, &stdout, &stderr)
 	}
 }
@@ -151,7 +153,7 @@ func TestRunSeparatesLaunchOptionsFromProviderArguments(t *testing.T) {
 }
 
 func TestProviderHookIsHiddenAndDispatchesSilently(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	t.Setenv(hookLaunchEnv, "")
 	inv, failure := parse([]string{"__hook", "claude", "--activity-only"})
 	if failure != nil || !slices.Equal(inv.path, []string{"__hook"}) || !inv.has("activity-only") {

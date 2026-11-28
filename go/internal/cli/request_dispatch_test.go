@@ -11,12 +11,13 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 func TestMainUsesRealRequestStoreAcrossInvocations(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	ctx := t.Context()
 	root, err := home.Resolve(os.LookupEnv, t.TempDir())
 	if err != nil {
@@ -106,7 +107,7 @@ func TestMainUsesRealRequestStoreAcrossInvocations(t *testing.T) {
 
 func TestMainRejectsMalformedReceiptBeforeCreatingDatabase(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("TMT_GO_HOME", dir)
+	t.Setenv(flavor.EnvHome, dir)
 	var stdout, stderr bytes.Buffer
 	if code := Main([]string{"reply", "req_1", "--receipt", "invalid", "--message", "body", "--json"}, &stdout, &stderr); code != 1 ||
 		stderr.Len() != 0 || !bytes.Contains(stdout.Bytes(), []byte("RESPONSE_RECEIPT_INVALID")) {

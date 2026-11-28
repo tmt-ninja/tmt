@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/config"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 )
@@ -45,7 +46,7 @@ func createWorkspaceConfig(path string) error {
 
 	// Publish only the fully written file. Link fails if another init or
 	// editor already owns the destination, even if it is a dangling symlink.
-	stage := ".tmt-go-init-" + rand.Text()
+	stage := "." + flavor.Binary + "-init-" + rand.Text()
 	file, err := dir.OpenFile(stage, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err

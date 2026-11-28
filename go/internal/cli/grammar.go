@@ -1,6 +1,10 @@
 package cli
 
-import "slices"
+import (
+	"slices"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
+)
 
 type optionSpec struct {
 	name, help   string
@@ -85,7 +89,7 @@ var options = []optionSpec{
 	{name: "socket", value: true, help: "Exact host socket"},
 	{name: "expect", value: true, help: "Require the exact discovery target digest before binding"},
 	{name: "identity", value: true, help: "Select an explicit identity"},
-	{name: "close", help: "Also close the pane tmt opened for the agent; never one you created"},
+	{name: "close", help: "Also close the pane " + flavor.Binary + " opened for the agent; never one you created"},
 	{name: "capture-only", help: "Capture the pane without delivering a retained Digest checklist"},
 	{name: "expect-name", value: true, help: "Refuse unless the UUID still has this name"},
 	{name: "context", help: "Read bounded identity and pending-work context without changing state"},
@@ -132,7 +136,7 @@ var options = []optionSpec{
 }
 
 var grammar = commandSpec{
-	name: "tmt-go", summary: "TMT native alpha: collaborate with terminal agents through durable exchanges",
+	name: flavor.Binary, summary: "TMT native alpha: collaborate with terminal agents through durable exchanges",
 	children: []commandSpec{
 		{name: "help", summary: "Show help for a command", trailing: true, humanOnly: true, operands: []operandSpec{optional("command-path")}},
 		{name: "extension", summary: "Manage consented extension integrations", children: []commandSpec{

@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -31,7 +32,7 @@ func (f responseFake) ResultByPrefix(_ context.Context, id string) (core.Request
 }
 
 func TestReplyPassesExactInputAndPublishesOnlyAcknowledgment(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	for _, body := range []string{"", "\ufeff\r\n\x00—\n"} {
 		const id = "req_12345678-0000-4000-8000-000000000000"
 		const receipt = "v2_AAAAAAAAAAAAAAAAAAAAAA"
@@ -49,7 +50,7 @@ func TestReplyPassesExactInputAndPublishesOnlyAcknowledgment(t *testing.T) {
 }
 
 func TestReplyRejectsInvalidInputBeforeCallingService(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	app := application{requests: responseFake{}}
 	for _, tc := range []struct{ body, code string }{
 		{body: "\xff", code: "RESPONSE_INPUT_INVALID"},
@@ -64,7 +65,7 @@ func TestReplyRejectsInvalidInputBeforeCallingService(t *testing.T) {
 }
 
 func TestReplyReadsExactFileAndStdinBodies(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	const body = "\ufeff\r\n\x00—\n"
 	path := filepath.Join(t.TempDir(), "response")
 	if err := os.WriteFile(path, []byte(body), 0600); err != nil {
@@ -101,7 +102,7 @@ func TestReplyReadsExactFileAndStdinBodies(t *testing.T) {
 }
 
 func TestReplyRejectsFileReadErrorsBeforeCallingService(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	app := application{requests: responseFake{}}
 	path := filepath.Join(t.TempDir(), "missing-private-file")
 	assertResponse(t, app, []string{"reply", "req", "--receipt", "v2_AAAAAAAAAAAAAAAAAAAAAA", "--file", path, "--json"}, 1, map[string]any{
@@ -110,7 +111,7 @@ func TestReplyRejectsFileReadErrorsBeforeCallingService(t *testing.T) {
 }
 
 func TestResultUsesServiceSelectionAndNativeReports(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	const prefix = "12345678"
 	const id = "req_12345678-0000-4000-8000-000000000000"
 	for _, tc := range []struct {
@@ -155,7 +156,7 @@ func TestResultUsesServiceSelectionAndNativeReports(t *testing.T) {
 }
 
 func TestServiceRejectionsKeepNativeCodesMessagesAndStatuses(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	for _, tc := range []struct {
 		command string
 		reject  core.RequestFailure
@@ -190,7 +191,7 @@ func TestServiceRejectionsKeepNativeCodesMessagesAndStatuses(t *testing.T) {
 }
 
 func TestUnmatchedResultPrefixKeepsRequestedID(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	const prefix = "12345678"
 	service := responseFake{result: func(input string) (core.RequestID, core.ResponseLookup, error) {
 		return core.RequestID(input), core.ResponseLookup{Status: core.ResponseUnavailable}, nil
@@ -203,7 +204,7 @@ func TestUnmatchedResultPrefixKeepsRequestedID(t *testing.T) {
 }
 
 func TestResultUnexpectedServiceErrorIsRedacted(t *testing.T) {
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	service := responseFake{result: func(string) (core.RequestID, core.ResponseLookup, error) {
 		return "", core.ResponseLookup{}, errors.New("private endpoint data")
 	}}

@@ -9,6 +9,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
@@ -51,11 +52,11 @@ func (tx callerTestTx) Bindings() ports.BindingRepo { return tx.bindings }
 
 func TestCallerSelectionWithPrivateTmuxEvidence(t *testing.T) {
 	server := tmuxtest.Start(t)
-	t.Setenv("TMT_GO_HOME", t.TempDir())
+	t.Setenv(flavor.EnvHome, t.TempDir())
 	ctx := context.Background()
 	caller := systemApplication().caller
 	pane := ports.PaneRef{Server: server.Socket, PaneID: strings.TrimSpace(server.Run("display-message", "-p", "#{pane_id}"))}
-	const nativeOption = "@tmt.agent"
+	nativeOption := otherFlavorTMUXOption("agent")
 	const nativeMarker = `{"version":1,"native":"preset sentinel"}`
 	server.Run("set-option", "-p", "-t", pane.PaneID, nativeOption, nativeMarker)
 	client, err := newTmuxClient()

@@ -17,6 +17,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
@@ -103,7 +104,7 @@ func TestSendNowUncertainPasteIsNeverRepeated(t *testing.T) {
 		t.Fatalf("unexpected attempt after the uncertain wake: %d calls", len(pasted))
 	}
 	input := pasted[0]
-	requestLine := fmt.Sprintf("tmt-go reply %s --receipt ", queued.RequestID)
+	requestLine := fmt.Sprintf(flavor.Binary+" reply %s --receipt ", queued.RequestID)
 	if pasted[1].Text != input.Text || pasted[1].BeforeSubmit != input.BeforeSubmit ||
 		input.BeforeSubmit != 32*time.Millisecond || !strings.HasPrefix(input.Text, message+"\n\n") ||
 		!strings.Contains(input.Text, `<tmt-reply from="Sender">`) || !strings.Contains(input.Text, requestLine) {
@@ -130,8 +131,8 @@ func TestSendNowReportsNativeOutput(t *testing.T) {
 		}
 	}
 	for _, fixture := range []struct{ code, message, suggestion string }{
-		{"SEND_NOW_UNREACHABLE", "Could not send now: the agent could not be reached", "Nothing was typed; retry 'tmt-go send-now " + string(request) + "' after it continues."},
-		{"DELIVERY_UNCERTAIN", "It may have been sent. Delivery is not confirmed, so do not send it again.", "Inspect with 'tmt-go result " + string(request) + "'."},
+		{"SEND_NOW_UNREACHABLE", "Could not send now: the agent could not be reached", "Nothing was typed; retry '" + flavor.Binary + " send-now " + string(request) + "' after it continues."},
+		{"DELIVERY_UNCERTAIN", "It may have been sent. Delivery is not confirmed, so do not send it again.", "Inspect with '" + flavor.Binary + " result " + string(request) + "'."},
 	} {
 		failure := sendNowUntyped(request, fixture.code)
 		if failure.Code != fixture.code || failure.Message != fixture.message || failure.Suggestion != fixture.suggestion || failure.Status != 1 {
