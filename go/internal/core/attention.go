@@ -75,6 +75,7 @@ type XFinal struct {
 }
 
 type XItem struct {
+	RoomID               *RoomID
 	Urgent               bool
 	DigestKind           string
 	Mode                 string

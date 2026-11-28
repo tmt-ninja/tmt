@@ -3,22 +3,22 @@ package orchestration
 import "github.com/tmt-ninja/tmt/go/internal/core"
 
 type jobRecentRun struct {
-	ID           uint64                      `json:"id"`
-	SlotMs       int64                       `json:"slotMs"`
-	RecordedAtMs uint64                      `json:"recordedAtMs"`
-	Acceptance   core.OrchDispatchAcceptance `json:"acceptance"`
+	ID           uint64                  `json:"id"`
+	SlotMs       int64                   `json:"slotMs"`
+	RecordedAtMs uint64                  `json:"recordedAtMs"`
+	Acceptance   core.DispatchAcceptance `json:"acceptance"`
 }
 
 type jobLastRun struct {
-	ID              uint64                      `json:"id"`
-	Revision        uint64                      `json:"revision"`
-	SlotMs          int64                       `json:"slotMs"`
-	RecordedAtMs    uint64                      `json:"recordedAtMs"`
-	OperationID     string                      `json:"operationId"`
-	RequestID       core.RequestID              `json:"requestId"`
-	Acceptance      core.OrchDispatchAcceptance `json:"acceptance"`
-	Request         *jobRequest                 `json:"request"`
-	ResultReference *jobResultReference         `json:"resultReference"`
+	ID              uint64                   `json:"id"`
+	Revision        uint64                   `json:"revision"`
+	SlotMs          int64                    `json:"slotMs"`
+	RecordedAtMs    uint64                   `json:"recordedAtMs"`
+	OperationID     core.DispatchOperationID `json:"operationId"`
+	RequestID       core.RequestID           `json:"requestId"`
+	Acceptance      core.DispatchAcceptance  `json:"acceptance"`
+	Request         *jobRequest              `json:"request"`
+	ResultReference *jobResultReference      `json:"resultReference"`
 }
 
 type jobResultReference struct {
@@ -70,7 +70,7 @@ type jobRequestFinal struct {
 	ExpiresAtMs   *uint64          `json:"expiresAtMs,omitempty"`
 }
 
-func projectLastJobRun(run core.OrchJobRun, item core.OrchDispatchItem) *jobLastRun {
+func projectLastJobRun(run core.OrchJobRun, item core.DispatchItem) *jobLastRun {
 	last := &jobLastRun{
 		ID: run.ID, Revision: run.Revision, SlotMs: run.SlotMs, RecordedAtMs: run.RecordedMs,
 		OperationID: run.Receipt.OperationID, RequestID: item.RequestID, Acceptance: item.Acceptance,

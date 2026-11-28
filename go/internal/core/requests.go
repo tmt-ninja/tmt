@@ -88,6 +88,7 @@ type RequestDeliveryPolicy struct {
 }
 
 type PrepareRequest struct {
+	RoomID         *RoomID
 	RequestID      RequestID
 	AttemptID      AttemptID
 	Kind           RequestKind
@@ -110,6 +111,7 @@ type PreparedRequest struct {
 }
 
 type RequestAttempt struct {
+	RoomID                *RoomID
 	RequestID             RequestID
 	AttemptID             AttemptID
 	Kind                  RequestKind

@@ -163,7 +163,7 @@ func projectAttention(delivery *deliveryProjector, key attentionKey) (core.XItem
 		return core.XItem{}, nil, err
 	}
 	item := core.XItem{
-		RequestID: key.id, Kind: core.XKind(attempt.Kind), Sender: attempt.Originator.IdentityID,
+		RequestID: key.id, RoomID: attempt.RoomID, Kind: core.XKind(attempt.Kind), Sender: attempt.Originator.IdentityID,
 		Recipient: attempt.Recipient, PreparedAtMs: attempt.PreparedAtMs, Delivery: attempt.Status,
 		MessageState: view, Final: final, Revision: key.revision, Acknowledged: key.acknowledged,
 		Settled: attempt.Withdrawal != nil || (key.acknowledged &&

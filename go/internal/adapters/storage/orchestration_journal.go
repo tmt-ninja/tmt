@@ -110,3 +110,27 @@ func decodeOrchJournalSources(raw []byte) ([]core.OrchDecisionSource, error) {
 	}
 	return sources, nil
 }
+
+func appendOrchJournal(r records, entry core.OrchJournalEntry) error {
+	if !safeTime(entry.RecordedAtMs) || entry.RecordedAtMs == core.MaxJSSafeInteger ||
+		!entry.Subject.Valid() || !entry.Action.Valid() || !entry.Outcome.Valid() ||
+		!core.ValidJSSafeInteger(entry.ConfigurationRevision) || !validJournalIdentity(entry.ActorID) ||
+		!validJournalIdentity(entry.RecipientID) || !validOrchJournalZone(entry.TimeZone) ||
+		!validOrchJournalReason(entry.Reason) {
+		return errInvalidOrchRow
+	}
+	sources, err := json.Marshal(entry.Sources)
+	if err != nil {
+		return err
+	}
+	if _, err := decodeOrchJournalSources(sources); err != nil {
+		return err
+	}
+	expires := entry.RecordedAtMs + min(orchJournalRetentionMs, core.MaxJSSafeInteger-entry.RecordedAtMs)
+	// NOT PORTED (#6938, GO1-05): physical pruning of expired decisions.
+	_, err = r.exec(`INSERT INTO orchestration_decisions(recorded_ms,expires_ms,subject_kind,subject_id,actor_id,recipient_id,
+		action,outcome,reason,configuration_revision,time_zone,sources) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
+		entry.RecordedAtMs, expires, entry.Subject.Kind, entry.Subject.ID, entry.ActorID, entry.RecipientID, entry.Action,
+		entry.Outcome, entry.Reason, entry.ConfigurationRevision, entry.TimeZone, string(sources))
+	return err
+}

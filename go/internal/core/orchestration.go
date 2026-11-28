@@ -96,30 +96,9 @@ type OrchJobRun struct {
 	Revision   uint64
 	SlotMs     int64
 	RecordedMs uint64
-	Receipt    OrchDispatchReceipt
+	Receipt    DispatchReceipt
 	Request    *OrchJobRequest
 }
-
-type OrchDispatchReceipt struct {
-	OperationID string             `json:"operationId"`
-	CreatedAtMs uint64             `json:"createdAtMs"`
-	Items       []OrchDispatchItem `json:"items"`
-}
-
-type OrchDispatchItem struct {
-	RecipientID IdentityID             `json:"recipientId"`
-	RequestID   RequestID              `json:"requestId"`
-	Acceptance  OrchDispatchAcceptance `json:"acceptance"`
-}
-
-type OrchDispatchAcceptance string
-
-const (
-	OrchDispatchQueued      OrchDispatchAcceptance = "queued"
-	OrchDispatchUnavailable OrchDispatchAcceptance = "recipientUnavailable"
-	OrchDispatchRestricted  OrchDispatchAcceptance = "routeRestricted"
-	OrchDispatchHeld        OrchDispatchAcceptance = "heldForPerson"
-)
 
 type OrchJobRequest struct {
 	Attempt               RequestAttempt

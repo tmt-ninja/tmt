@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json/v2"
 	"errors"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
@@ -43,37 +42,49 @@ func (s *Storage) ReadPolicySnapshot(ctx context.Context, q core.OrchSnapshotQue
 	}
 	var page core.OrchSnapshotPage
 	err := s.transact(ctx, true, func(r records) error {
-		type member struct {
-			id   core.IdentityID
-			name core.Name
-		}
-		members, err := scanRows(r, `SELECT id,name FROM identities WHERE retired_at_ms IS NULL
-			AND (?1 IS NULL OR instr(canonical_name,?1)>0)
-			ORDER BY CASE WHEN ?1 IS NOT NULL AND substr(canonical_name,1,length(?1))=?1 THEN 0 ELSE 1 END,
-			canonical_name COLLATE BINARY LIMIT ?2`, func(row scanner) (member, error) {
-			var m member
-			err := row.Scan(&m.id, &m.name)
-			return m, err
-		}, normalized, orchSnapshotMemberLimit+1)
+		members, err := readOrchMembers(r, normalized)
 		if err != nil {
 			return err
 		}
-		if len(members) > orchSnapshotMemberLimit {
-			return orchReadLimit()
-		}
-		identities := make(map[core.IdentityID]core.Name, len(members))
 		page.IdentityIDs = make([]core.IdentityID, 0, len(members))
-		for _, m := range members {
-			identities[m.id] = m.name
-			page.IdentityIDs = append(page.IdentityIDs, m.id)
+		for _, member := range members {
+			page.IdentityIDs = append(page.IdentityIDs, member.id)
 		}
-		page.Policy, err = readOrchPolicy(r, identities)
+		page.Policy, err = readOrchPolicy(r, orchMemberNames(members))
 		return err
 	})
 	if err != nil {
 		return core.OrchSnapshotPage{}, err
 	}
 	return page, nil
+}
+
+type orchMember struct {
+	id   core.IdentityID
+	name core.Name
+}
+
+func readOrchMembers(r records, normalized *string) ([]orchMember, error) {
+	members, err := scanRows(r, `SELECT id,name FROM identities WHERE retired_at_ms IS NULL
+		AND (?1 IS NULL OR instr(canonical_name,?1)>0)
+		ORDER BY CASE WHEN ?1 IS NOT NULL AND substr(canonical_name,1,length(?1))=?1 THEN 0 ELSE 1 END,
+		canonical_name COLLATE BINARY LIMIT ?2`, func(row scanner) (orchMember, error) {
+		var member orchMember
+		err := row.Scan(&member.id, &member.name)
+		return member, err
+	}, normalized, orchSnapshotMemberLimit+1)
+	if err == nil && len(members) > orchSnapshotMemberLimit {
+		return nil, orchReadLimit()
+	}
+	return members, err
+}
+
+func orchMemberNames(members []orchMember) map[core.IdentityID]core.Name {
+	names := make(map[core.IdentityID]core.Name, len(members))
+	for _, member := range members {
+		names[member.id] = member.name
+	}
+	return names
 }
 
 func (s *Storage) ReadPlans(ctx context.Context) (core.OrchPlansPage, error) {
@@ -255,8 +266,8 @@ func orchJobRuns(delivery *deliveryProjector, id string) ([]core.OrchJobRun, err
 		if err := rows.Scan(&run.ID, &run.Revision, &run.SlotMs, &run.RecordedMs, &operation, &receipt); err != nil {
 			return nil, err
 		}
-		if err := json.Unmarshal(receipt, &run.Receipt, json.RejectUnknownMembers(true)); err != nil ||
-			!validOrchDispatchReceipt(run.Receipt, operation) || !safeTime(run.ID) || !safeTime(run.Revision) ||
+		run.Receipt, err = decodeDispatchReceipt(receipt, core.DispatchOperationID(operation))
+		if err != nil || len(run.Receipt.Items) != 1 || !safeTime(run.ID) || !safeTime(run.Revision) ||
 			!safeTime(run.RecordedMs) || run.SlotMs < -core.MaxJSSafeInteger || run.SlotMs > core.MaxJSSafeInteger {
 			return nil, errInvalidOrchRow
 		}
@@ -269,23 +280,6 @@ func orchJobRuns(delivery *deliveryProjector, id string) ([]core.OrchJobRun, err
 		runs[0].Request, err = orchJobRequest(delivery, runs[0].Receipt.Items[0].RequestID)
 	}
 	return runs, err
-}
-
-func validOrchDispatchReceipt(receipt core.OrchDispatchReceipt, operation string) bool {
-	if receipt.OperationID != operation || !core.ValidUUID(operation) || !safeTime(receipt.CreatedAtMs) || len(receipt.Items) != 1 {
-		return false
-	}
-	item := receipt.Items[0]
-	requestUUID, hasPrefix := strings.CutPrefix(string(item.RequestID), "req_")
-	if !core.ValidUUID(string(item.RecipientID)) || !hasPrefix || !core.ValidUUID(requestUUID) {
-		return false
-	}
-	switch item.Acceptance {
-	case core.OrchDispatchQueued, core.OrchDispatchRestricted, core.OrchDispatchUnavailable, core.OrchDispatchHeld:
-		return true
-	default:
-		return false
-	}
 }
 
 func orchJobRequest(delivery *deliveryProjector, id core.RequestID) (*core.OrchJobRequest, error) {
@@ -307,16 +301,16 @@ func orchJobRequest(delivery *deliveryProjector, id core.RequestID) (*core.OrchJ
 		return nil, err
 	}
 	request := &core.OrchJobRequest{
-		Attempt: *attempt, Final: final, DeliveryView: view,
+		Attempt: *attempt, Final: final, DeliveryView: view, RoomID: attempt.RoomID,
 		Urgent: policy.urgent, DigestKind: policy.kind, Mode: policy.mode,
 	}
-	err = r.one(`SELECT a.thread_root_request_id,a.room_id,
+	err = r.one(`SELECT a.thread_root_request_id,
 		a.route_kind='inbox' AND a.recipient_attention_revision>0 AND
 		MAX(a.recipient_attention_acknowledged_revision,COALESCE(c.acknowledged_through,0))>=a.recipient_attention_revision
 		FROM request_attempts a
 		LEFT JOIN request_recipient_attention_identities c ON c.identity_id=a.recipient_identity_id
 		WHERE a.request_id=?`, id).
-		Scan(&request.ParentRequestID, &request.RoomID, &request.RecipientAcknowledged)
+		Scan(&request.ParentRequestID, &request.RecipientAcknowledged)
 	if err != nil {
 		return nil, err
 	}

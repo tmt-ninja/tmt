@@ -67,7 +67,7 @@ func TestReadJobsFiltersPagesAndProjectsPolicyAndRuns(t *testing.T) {
 		t.Fatalf("owner policy: %+v", policy)
 	}
 	runs := page.RecentRuns[orchFirstJob]
-	if len(runs) != 1 || runs[0].Receipt.Items[0].Acceptance != core.OrchDispatchUnavailable || runs[0].Request != nil {
+	if len(runs) != 1 || runs[0].Receipt.Items[0].Acceptance != core.DispatchUnavailable || runs[0].Request != nil {
 		t.Fatalf("recent runs: %+v", runs)
 	}
 	query.AfterNumber = *page.NextAfter

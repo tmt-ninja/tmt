@@ -22,7 +22,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO1-02: ICU final-sigma context beyond 30 case-ignorable runes.
 - [ ] GO1-03: Registered external host target grammars.
 - [ ] GO1-04: Remote request routes and response reads.
-- [ ] GO1-05: Native Digest, flow and capture retention with incremental page reclaim.
+- [ ] GO1-05: Native Digest, flow, capture and decision retention with incremental page reclaim.
   - Native `storage/requests/service_tests/attention.rs::metadata_expiry_hides_show_and_ack_at_deadline_equality`
     and `final_state_distinguishes_expired_body_from_unavailable_body_at_retention_boundary`
     map their list/show and expired-final assertions to
@@ -161,6 +161,24 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     and `final_room_revision_can_retire_once_and_replay_without_overflow` map to
     `TestRoomRetirementPreservesHistoricalRosterAndReplaysAtMaxRevision`.
     CLI selectors and durable dispatch composition are separate.
+
+- [x] GO1-29: Durable Room dispatch with an immutable receipt.
+  - Native `storage/dispatch/tests.rs` deduplicated replay, conflicting message
+    and audience, concurrent replay, and receipt rollback assertions map to
+    `TestRoomDispatchFreezesAudienceAndConflictsNeverWrite` and
+    `TestRoomDispatchReceiptFailureRollsBackAndRetryPublishesOnce`. The replay
+    test pins exact matches after room retirement with an unread clock.
+  - Native `dispatch/tests.rs` exact text, sender provenance, and request/announcement
+    digest assertions map to `TestRoomDispatchDigestMatchesCurrentNativeBytes`.
+    Hash vectors come from the pinned main adapter's actual SQLite ledger.
+    `TestRoomBroadcastHasNoReplyAndRosterRevisionFencesActiveAudience` covers
+    the no-reply announcement and the effective-roster fence after retirement.
+  - Native `storage/orchestration/sending.rs` dispatch admission maps to
+    `TestRoomDispatchUsesNativeRouteGrantsAndTalkLimit` for allowed grants,
+    route refusals, limited pairs, and their same-transaction journal evidence.
+    Native flow events remain tracked under GO1-11. Physical cleanup remains
+    pending under GO1-05. The unchanged native Room CLI case
+    also needs the Room CLI and room-scoped X listen.
 
 - [x] GO1-30: Keep fresh-open migrations convergent under contention.
   - Native `storage/tests.rs::concurrent_openers_commit_each_migration_only_once`

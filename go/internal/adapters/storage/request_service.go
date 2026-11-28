@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"sync"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
@@ -34,12 +35,20 @@ func requestState() *core.RequestFailure {
 
 func (s *RequestService) transact(ctx context.Context, readOnly bool, fn func(records, uint64) error) error {
 	return s.store.transact(ctx, readOnly, func(r records) error {
-		now := s.clock.NowMs()
-		if now <= 0 || !core.ValidJSSafeInteger(uint64(now)) {
-			return core.ErrAttemptTime
+		now, err := requestNow(s.clock)
+		if err != nil {
+			return err
 		}
-		return fn(r, uint64(now))
+		return fn(r, now)
 	})
+}
+
+func requestNow(clock ports.Clock) (uint64, error) {
+	now := clock.NowMs()
+	if now <= 0 || !core.ValidJSSafeInteger(uint64(now)) {
+		return 0, core.ErrAttemptTime
+	}
+	return uint64(now), nil
 }
 
 func (s *RequestService) Prepare(ctx context.Context, in core.PrepareRequest) (core.PreparedRequest, error) {
@@ -63,8 +72,17 @@ func (s *RequestService) prepare(ctx context.Context, in core.PrepareRequest, en
 		}
 	}
 	var prepared core.PreparedRequest
-	var refused error
+	var unavailable bool
 	err := s.transact(ctx, false, func(r records, now uint64) error {
+		if in.RoomID != nil {
+			room, err := (roomRows{r}).FindActive(*in.RoomID)
+			if err != nil {
+				return err
+			}
+			if room == nil || !slices.Contains(room.MemberIDs, *in.Recipient) {
+				return requestFailure("ROOM_RECIPIENT_NOT_MEMBER", "The target is no longer a member of the selected room.", 1)
+			}
+		}
 		attempt, err := prepareAttempt(in, now)
 		if err != nil {
 			return err
@@ -76,60 +94,70 @@ func (s *RequestService) prepare(ctx context.Context, in core.PrepareRequest, en
 		if err != nil {
 			return err
 		}
-		if hold != nil {
-			attempt.WaitActive = false
-		}
-		requests, responses := requestRows{r}, responseRows{r}
-		existing, err := responses.FindByRequest(in.RequestID)
-		if err != nil {
-			return err
-		}
-		if existing != nil {
-			return requestFailure("REQUEST_STATE_ERROR", "Request ID already has a retained final.", 1)
-		}
-		if err := requests.Insert(attempt, in.Message); err != nil {
-			return err
-		}
-		if in.DeliveryPolicy != nil {
-			if err := insertRequestDeliveryPolicy(r, in.RequestID, *in.DeliveryPolicy); err != nil {
-				return err
-			}
-		}
-		if in.Originator.IdentityID != nil {
-			if err := raiseAttention(r, in.RequestID, *in.Originator.IdentityID, false); err != nil {
-				return err
-			}
-		}
-		if enqueue || hold != nil {
-			status, err := queueAttempt(r, attempt, now)
-			if err != nil {
-				return err
-			}
-			if status == core.AttemptDefinitelyFailed {
-				refused = requestFailure("REQUEST_STATE_ERROR", "Request attempt was not found.", 1)
-				return nil
-			}
-		}
-		prepared = core.PreparedRequest{RequestID: in.RequestID, AttemptID: in.AttemptID}
-		if hold != nil {
-			if err := recordIncomingDigestHold(r, in, *hold, now); err != nil {
-				return err
-			}
-			prepared.DigestUntilMs = &hold.until
-		}
-		if in.Kind == core.RequestKindRequest &&
-			(in.DeliveryPolicy == nil || in.DeliveryPolicy.Mode == core.RequestDeliveryRequest) {
-			prepared.Receipt = core.EncodeReceipt(in.RequestID, in.AttemptID, in.Route)
-		}
-		return nil
+		prepared, unavailable, err = prepareRequestRows(r, in, attempt, hold, enqueue)
+		return err
 	})
 	if err != nil {
 		return core.PreparedRequest{}, err
 	}
-	return prepared, refused
+	if unavailable {
+		return core.PreparedRequest{}, requestFailure("REQUEST_STATE_ERROR", "Request attempt was not found.", 1)
+	}
+	return prepared, nil
+}
+
+// prepareRequestRows is the single attempt, policy and attention writer after
+// the caller validates its input and determines the applicable hold.
+func prepareRequestRows(r records, in core.PrepareRequest, attempt core.RequestAttempt, hold *digestHoldAdmission, enqueue bool) (core.PreparedRequest, bool, error) {
+	now := attempt.PreparedAtMs
+	if hold != nil {
+		attempt.WaitActive = false
+	}
+	existing, err := r.Responses().FindByRequest(in.RequestID)
+	if err != nil {
+		return core.PreparedRequest{}, false, err
+	}
+	if existing != nil {
+		return core.PreparedRequest{}, false, requestFailure("REQUEST_STATE_ERROR", "Request ID already has a retained final.", 1)
+	}
+	if err := r.Requests().Insert(attempt, in.Message); err != nil {
+		return core.PreparedRequest{}, false, err
+	}
+	if in.DeliveryPolicy != nil {
+		if err := insertRequestDeliveryPolicy(r, in.RequestID, *in.DeliveryPolicy); err != nil {
+			return core.PreparedRequest{}, false, err
+		}
+	}
+	if in.Originator.IdentityID != nil {
+		if err := raiseAttention(r, in.RequestID, *in.Originator.IdentityID, false); err != nil {
+			return core.PreparedRequest{}, false, err
+		}
+	}
+	if enqueue || hold != nil {
+		status, err := queueAttempt(r, attempt, now)
+		if err != nil || status == core.AttemptDefinitelyFailed {
+			return core.PreparedRequest{}, status == core.AttemptDefinitelyFailed, err
+		}
+	}
+	prepared := core.PreparedRequest{RequestID: in.RequestID, AttemptID: in.AttemptID}
+	if hold != nil {
+		if err := recordIncomingDigestHold(r, in, *hold, now); err != nil {
+			return core.PreparedRequest{}, false, err
+		}
+		prepared.DigestUntilMs = &hold.until
+	}
+	if in.Kind == core.RequestKindRequest &&
+		(in.DeliveryPolicy == nil || in.DeliveryPolicy.Mode == core.RequestDeliveryRequest) {
+		prepared.Receipt = core.EncodeReceipt(in.RequestID, in.AttemptID, in.Route)
+	}
+	return prepared, false, nil
 }
 
 func validatePrepared(in core.PrepareRequest, enqueue bool) error {
+	if in.RoomID != nil && (in.Recipient == nil || !core.ValidUUID(string(*in.RoomID)) ||
+		*in.RoomID == "00000000-0000-0000-0000-000000000000") {
+		return requestFailure("REQUEST_INPUT_INVALID", "A room-scoped request requires a valid room and identified recipient.", 1)
+	}
 	if !core.ValidExchangeText(in.Message) {
 		return requestFailure("REQUEST_INPUT_TOO_LARGE", "Original request exceeds the UTF-8 byte limit.", 1)
 	}
@@ -193,7 +221,7 @@ func prepareAttempt(in core.PrepareRequest, now uint64) (core.RequestAttempt, er
 		return core.RequestAttempt{}, core.ErrAttemptDeadline
 	}
 	return core.RequestAttempt{
-		RequestID: in.RequestID, AttemptID: in.AttemptID, Kind: in.Kind, Origin: in.Origin,
+		RequestID: in.RequestID, AttemptID: in.AttemptID, Kind: in.Kind, Origin: in.Origin, RoomID: in.RoomID,
 		Route: in.Route, Originator: in.Originator, Recipient: in.Recipient, WaitActive: in.Wait,
 		Status: core.AttemptPrepared, PreparedAtMs: now, ExpiresAtMs: expires,
 		RetentionDays: in.RetentionDays, RetentionExpiresAtMs: max(prompt, acceptance, settlement),

@@ -72,7 +72,7 @@ func TestJobsCarryExactShowBodyAndBodyFreeCanonicalRunEvidence(t *testing.T) {
 		Items: []core.OrchJob{row}, Policy: core.OrchPolicySnapshot{TimeZone: &zone, Identities: map[core.IdentityID]core.Name{owner: ownerName}},
 		FullMessage: &message, RecentRuns: map[string][]core.OrchJobRun{jobID: {{
 			ID: 6, Revision: 1, SlotMs: int64(at), RecordedMs: at,
-			Receipt: core.OrchDispatchReceipt{OperationID: "44444444-4444-4444-8444-444444444444", Items: []core.OrchDispatchItem{{RequestID: runRequest, Acceptance: core.OrchDispatchQueued}}},
+			Receipt: core.DispatchReceipt{OperationID: "44444444-4444-4444-8444-444444444444", Items: []core.DispatchItem{{RequestID: runRequest, Acceptance: core.DispatchQueued}}},
 			Request: &core.OrchJobRequest{Attempt: core.RequestAttempt{RequestID: runRequest, Recipient: &owner, Route: core.RequestRoute{Kind: core.RequestRouteInbox}},
 				RoomID: &room, ParentRequestID: &parent, RecipientAcknowledged: ack,
 				Final: core.XFinal{Status: core.FinalRetained, Response: &response, BodyBytes: &length, SubmittedAtMs: &at, ExpiresAtMs: &at}},

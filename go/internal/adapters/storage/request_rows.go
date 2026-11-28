@@ -73,7 +73,7 @@ func routeValues(route core.RequestRoute) ([]any, error) {
 }
 
 const attemptColumns = `attempt_id, request_id, request_kind, COALESCE(origin, 'unknown'),
-	originator_kind, originator_identity_id, recipient_identity_id, wait_active, status, cadence_reserved,
+	originator_kind, originator_identity_id, recipient_identity_id, room_id, wait_active, status, cadence_reserved,
 	prepared_at_ms, sending_at_ms, settled_at_ms, wait_released_at_ms, response_submitted_at_ms,
 	expires_at_ms, retention_days, retention_expires_at_ms, withdrawn_at_ms, withdrawal_reason, ` + routeColumns
 
@@ -83,7 +83,7 @@ func readAttempt(row scanner) (*core.RequestAttempt, error) {
 	var withdrawnAt *uint64
 	var reason *string
 	targets := []any{&a.AttemptID, &a.RequestID, &a.Kind, &a.Origin,
-		&a.Originator.Kind, &a.Originator.IdentityID, &a.Recipient, &a.WaitActive, &a.Status, &a.CadenceReserved,
+		&a.Originator.Kind, &a.Originator.IdentityID, &a.Recipient, &a.RoomID, &a.WaitActive, &a.Status, &a.CadenceReserved,
 		&a.PreparedAtMs, &a.SendingAtMs, &a.SettledAtMs, &a.WaitReleasedAtMs, &a.ResponseSubmittedAtMs,
 		&a.ExpiresAtMs, &a.RetentionDays, &a.RetentionExpiresAtMs, &withdrawnAt, &reason}
 	if err := row.Scan(append(targets, route.targets()...)...); err != nil {
@@ -147,14 +147,14 @@ func (r requestRows) Insert(a core.RequestAttempt, prompt string) error {
 	if a.Origin != core.RequestOriginUnknown && a.Origin != "" {
 		origin = a.Origin
 	}
-	metadata := []any{a.AttemptID, a.RequestID, a.Kind, origin, a.Originator.Kind, a.Originator.IdentityID, a.Recipient,
+	metadata := []any{a.AttemptID, a.RequestID, a.Kind, origin, a.Originator.Kind, a.Originator.IdentityID, a.Recipient, a.RoomID,
 		a.WaitActive, a.Status, a.CadenceReserved, a.PreparedAtMs, a.ExpiresAtMs, a.RetentionDays,
 		a.RetentionExpiresAtMs, prompt, len(prompt), promptExpires}
 	_, err = r.exec(`INSERT INTO request_attempts (
-		attempt_id, request_id, request_kind, origin, originator_kind, originator_identity_id, recipient_identity_id,
+		attempt_id, request_id, request_kind, origin, originator_kind, originator_identity_id, recipient_identity_id, room_id,
 		wait_active, status, cadence_reserved, prepared_at_ms, expires_at_ms, retention_days,
 		retention_expires_at_ms, message_text, message_bytes, message_expires_at_ms, inject_preamble, `+routeColumns+`
-	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?)`, append(metadata, values...)...)
+	) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?)`, append(metadata, values...)...)
 	return err
 }
 
