@@ -224,9 +224,9 @@ func (c *codexClient) write(ctx context.Context, request any) error {
 }
 
 func codexDeadline(ctx context.Context, requested time.Time) time.Time {
-	deadline := time.Now().Add(codexStageBudget)
-	if !requested.IsZero() && requested.Before(deadline) {
-		deadline = requested
+	deadline := requested
+	if deadline.IsZero() {
+		deadline = time.Now().Add(codexStageBudget)
 	}
 	if bound, ok := ctx.Deadline(); ok && bound.Before(deadline) {
 		deadline = bound

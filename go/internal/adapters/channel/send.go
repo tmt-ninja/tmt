@@ -199,7 +199,11 @@ func checkSocket(dir *channelDir, bindingID string) error {
 }
 
 func checkChannelPath(dir *channelDir, root home.Root) error {
-	observed, err := os.Lstat(ClaudeDirectory(root))
+	return checkPrivatePath(dir, ClaudeDirectory(root))
+}
+
+func checkPrivatePath(dir *channelDir, path string) error {
+	observed, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}

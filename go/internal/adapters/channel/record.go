@@ -70,22 +70,27 @@ func openChannelDir(root home.Root, create bool) (*channelDir, error) {
 		return nil, err
 	}
 	defer base.Close()
-	if create {
-		if err := base.Mkdir(channelDirectory, 0700); err != nil && !errors.Is(err, fs.ErrExist) {
-			return nil, err
-		}
-	}
-	info, err := base.Lstat(channelDirectory)
+	dir, err := openPrivateChannelChild(base, channelDirectory, create)
 	if !create && errors.Is(err, fs.ErrNotExist) {
 		return nil, errNoChannelDirectory
 	}
+	return dir, err
+}
+
+func openPrivateChannelChild(base *os.Root, name string, create bool) (*channelDir, error) {
+	if create {
+		if err := base.Mkdir(name, 0700); err != nil && !errors.Is(err, fs.ErrExist) {
+			return nil, err
+		}
+	}
+	info, err := base.Lstat(name)
 	if err != nil {
 		return nil, err
 	}
 	if !info.IsDir() || info.Mode().Perm() != 0700 || !sys.FileOwnedByEffectiveUser(info) {
 		return nil, errors.New("channel directory must be an owner-only directory")
 	}
-	dir, err := base.OpenRoot(channelDirectory)
+	dir, err := base.OpenRoot(name)
 	if err != nil {
 		return nil, err
 	}
