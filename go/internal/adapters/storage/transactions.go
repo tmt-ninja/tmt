@@ -78,3 +78,20 @@ func storedTimestamp(ms uint64) (string, error) {
 	}
 	return time.UnixMilli(int64(ms)).UTC().Format("2006-01-02T15:04:05.000Z"), nil
 }
+
+func scanRows[T any](r records, query string, decode func(scanner) (T, error), args ...any) ([]T, error) {
+	rows, err := r.query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]T, 0)
+	for rows.Next() {
+		data, err := decode(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, data)
+	}
+	return result, rows.Err()
+}

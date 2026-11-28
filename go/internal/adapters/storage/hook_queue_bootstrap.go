@@ -173,7 +173,8 @@ func createHookQueueFile(path string) error {
 }
 
 // NOT PORTED (#6938): the public SQLite driver has no SQLITE_OPEN_NOFOLLOW
-// option. Queue opens follow owner and symlink checks in the private directory.
+// option. The owner and symlink preflight leaves a race between Lstat and
+// SQLite open within the private directory.
 func openHookSQLite(path string, wait time.Duration) (*sql.DB, error) {
 	dsn := url.URL{Scheme: "file", Path: path}
 	params := url.Values{"mode": {"rw"}, "_txlock": {"immediate"}}
