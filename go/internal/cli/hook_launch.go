@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/claude"
+	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/core"
@@ -100,8 +101,10 @@ func (c hookLaunchCoordinator) prepare(ctx context.Context, root home.Root, bind
 			return ports.ProcessSpec{}, nil, err
 		}
 		overlay = append(overlay, hookLaunchEnv+"="+string(data))
-	case core.DriverCodex, core.DriverGemini:
-		// Plain launch only. Neither provider makes an initial Idle claim.
+	case core.DriverCodex:
+		command = codex.PrepareManagedLaunch(command, root.Dir, expectation != nil)
+	case core.DriverGemini:
+		// Plain launch only, with no initial Idle claim.
 	default:
 		return ports.ProcessSpec{}, nil, errors.New("unsupported managed launch provider")
 	}

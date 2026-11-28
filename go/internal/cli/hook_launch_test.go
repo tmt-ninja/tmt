@@ -109,6 +109,9 @@ func TestPrepareHookLaunchScopesHooksAndRecordsIntentBeforeSpawn(t *testing.T) {
 			if found != tc.hooks || slices.Contains(command.Args, "--settings") != tc.hooks {
 				t.Fatalf("callback env present = %t, argv = %q", found, command.Args)
 			}
+			if tc.provider == core.DriverCodex && !slices.Equal(command.Args, []string{"--add-dir", root.Dir, "--no-daemon"}) {
+				t.Fatalf("managed Codex launch = %q", command.Args)
+			}
 		})
 	}
 }

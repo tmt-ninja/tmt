@@ -57,8 +57,8 @@ func (d Driver) launchCommand(launch ports.AgentLaunch, embedded bool) (ports.Pr
 	if embedded && embeddedByDefault(launch.Extra) {
 		args = append(args, "--no-daemon")
 	}
-	// NOT PORTED (GO2-07, GO2-08, GO2-09, GO2-10): managed launch scope,
-	// managed skills, callback wiring and qualified channel startup.
+	// NOT PORTED (GO2-08, GO2-09, GO2-10): managed skills, callback wiring
+	// and qualified channel startup.
 	command, err := drivers.Command(d.Name(), d.Executable, launch, append(args, launch.Extra...))
 	if err == nil && d.HookExecutable != "" {
 		// An unsupported provider config layer leaves the original launch intact.
@@ -75,27 +75,16 @@ func embeddedByDefault(extra []string) bool {
 		if arg == "--" {
 			break
 		}
-		flag, _, inline := strings.Cut(arg, "=")
-		switch flag {
-		case "--remote", "--no-daemon":
+		flag, _, inline := splitLaunchOption(arg)
+		switch {
+		case flag == "--remote" || flag == "--no-daemon" || codexSubcommand(arg):
 			return false
-		case "-c", "--config", "--enable", "--disable", "-m", "--model",
-			"-s", "--sandbox", "-a", "--ask-for-approval", "-C", "--cd",
-			"-p", "--profile", "--local-provider", "--remote-auth-token-env",
-			"-i", "--image", "--add-dir":
+		case launchOptionTakesValue(flag):
 			if !inline {
 				i++
 			}
-		case "app-server", "agents", "exec", "e", "review", "login", "logout",
-			"mcp", "plugin", "remote-control", "app", "completion", "update",
-			"doctor", "sandbox", "debug", "apply", "a", "queue", "archive",
-			"delete", "migrate-rollouts", "unarchive", "cloud", "exec-server",
-			"features", "help":
-			return false
-		default:
-			if !strings.HasPrefix(arg, "-") {
-				return true // First positional prompt; further words are not options.
-			}
+		case !strings.HasPrefix(arg, "-"):
+			return true // First positional prompt; further words are not options.
 		}
 	}
 	return true
