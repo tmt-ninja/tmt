@@ -118,6 +118,13 @@ func TestLayerRules(t *testing.T) {
 			}
 
 			switch {
+			case under(f.pkg, "internal/tuicomponents"):
+				if internal && !under(target, f.pkg) && !under(target, "internal/clistyle") && !under(target, "internal/output") && !(f.test && under(target, "test")) {
+					fail("tuicomponents imports only clistyle and output")
+				}
+				if imp == "os" || imp == "os/exec" || strings.HasPrefix(imp, "golang.org/x/term") || imp == "syscall" {
+					fail("tuicomponents does no terminal I/O")
+				}
 			case under(f.pkg, "internal/jobcalendar"), under(f.pkg, "internal/hostgrammar"),
 				under(f.pkg, "internal/driverprotocol"), under(f.pkg, "internal/ptyprotocol"):
 				leafOK := under(target, f.pkg) || (under(f.pkg, "internal/driverprotocol") && under(target, "internal/hostgrammar"))
