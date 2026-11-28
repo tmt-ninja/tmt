@@ -167,8 +167,6 @@ impl App {
             }
             Overlay::Theme => self.theme_picker = None,
             Overlay::CronList => self.cron_list = None,
-            Overlay::WorkTalk => self.work_talk_close(),
-            Overlay::WorkViews => self.work.view_dialog = None,
         }
         Effect::None
     }

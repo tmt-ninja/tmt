@@ -344,7 +344,6 @@ fn final_input(
     };
     if app.modal_open()
         && !app.paste_preview_shown()
-        && app.overlay() != Some(crate::board::app::Overlay::WorkTalk)
         && (app.shell.tab != crate::board::shell::OpsTab::Agents || !projection.focused)
     {
         return;

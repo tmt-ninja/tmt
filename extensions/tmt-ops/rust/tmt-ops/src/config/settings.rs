@@ -48,6 +48,8 @@ impl Config {
         if let Some(notice) = self.obsolete_board_notice() {
             out.notices.push(notice.into());
         }
+        out.notices
+            .extend(self.obsolete_work_notice().map(str::to_owned));
         let (startup_tab, notice) = self.startup_tab();
         out.push(
             "board.startup_tab",
@@ -408,12 +410,11 @@ mod tests {
         for (value, expected) in [
             ("last", StartupTab::Last),
             ("agents", StartupTab::Agents),
-            ("work", StartupTab::Work),
-            ("2", StartupTab::Work),
+            ("work", StartupTab::Agents),
+            ("2", StartupTab::Digest),
             ("digest", StartupTab::Digest),
-            ("3", StartupTab::Digest),
+            ("3", StartupTab::Orchestration),
             ("orchestration", StartupTab::Orchestration),
-            ("4", StartupTab::Orchestration),
         ] {
             let cfg = config(&format!("[board]\nstartup_tab = {value:?} # retained\n"));
             assert_eq!(cfg.startup_tab(), (expected, None));

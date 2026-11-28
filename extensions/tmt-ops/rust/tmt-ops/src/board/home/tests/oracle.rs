@@ -333,9 +333,6 @@ fn capture_frame(
     captured["hits"] = json!(format!("{:?}", app.hits.borrow()));
     captured["actions"] = json!(format!("{:?}", app.workspace_action_hits.borrow()));
     captured["tabs"] = json!(format!("{:?}", app.tab_hits.borrow()));
-    if !app.work.hits.borrow().is_empty() {
-        captured["workHits"] = json!(format!("{:?}", app.work.hits.borrow()));
-    }
     captured["starts"] = json!(*app.row_starts.borrow());
     captured["selected"] = json!(format!("{:?}", app.workspace.selected));
     captured["selectionState"] = json!(format!("{:?}", app.workspace_selection_state()));
@@ -1521,7 +1518,7 @@ fn opening_frames(styles: &mut Styles) -> Vec<Value> {
         };
         for (state, tab) in [
             ("opening-cold", None),
-            ("opening-reload", Some(OpsTab::Work)),
+            ("opening-reload", Some(OpsTab::Digest)),
         ] {
             for (width, height) in [(160, 36), (100, 24), (60, 8)] {
                 let mut terminal = Terminal::new(TestBackend::new(width, height)).unwrap();
@@ -1563,43 +1560,22 @@ fn kept_replies_frames(styles: &mut Styles) -> Vec<Value> {
     frames
 }
 
-fn work_frames(styles: &mut Styles) -> Vec<Value> {
+fn agents_work_frames(styles: &mut Styles) -> Vec<Value> {
     let mut frames = Vec::new();
     for (look_name, look) in looks() {
-        for scene in crate::board::work::tests::SCENES {
-            let widths: &[u16] = if *scene == "agents-work" {
-                &[160, 100, 60]
-            } else {
-                &[160, 100]
-            };
-            for &width in widths {
-                let app = crate::board::work::tests::scene(scene, look);
-                frames.push(capture_frame(&app, scene, look_name, width, 36, styles));
-            }
+        for width in [160, 100, 60] {
+            let app = crate::board::work_references::tests::agents_work(look);
+            frames.push(capture_frame(
+                &app,
+                "agents-work",
+                look_name,
+                width,
+                36,
+                styles,
+            ));
         }
     }
     frames
-}
-
-#[test]
-#[ignore = "exports only the work-* scenes to HOME_ORACLE_OUT without recording"]
-fn dump_work_oracle() {
-    let path = std::env::var("HOME_ORACLE_OUT").expect("task-owned evidence path");
-    let captured = crate::status::with_now_ms(NOW, || {
-        let mut styles = Styles::default();
-        let frames = work_frames(&mut styles);
-        let styles = styles
-            .0
-            .into_iter()
-            .map(|(text, id)| (id, text))
-            .collect::<BTreeMap<_, _>>();
-        json!({"styles": styles, "frames": frames})
-    });
-    std::fs::write(
-        path,
-        serde_json::to_string_pretty(&captured).unwrap() + "\n",
-    )
-    .unwrap();
 }
 
 fn digest_impact_frames(styles: &mut Styles) -> Vec<Value> {
@@ -1973,7 +1949,7 @@ macro_rules! oracle_groups {
         $group!(7, 360, skills_picker_frames($styles));
         $group!(7, 32, visibility_frames($styles));
         $group!(7, 608, orchestration_frames($styles));
-        $group!(7, 116, work_frames($styles));
+        $group!(7, 12, agents_work_frames($styles));
         $group!(7, 12, opening_frames($styles));
         $group!(8, 20, kept_replies_frames($styles));
     };

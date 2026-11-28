@@ -225,7 +225,7 @@ fn picker_cancel_and_destination_keys_never_apply_a_membership() {
         assert!(app.menu.is_none() && app.workspace_form.is_none());
         if exit == KeyCode::Char('1') {
             assert_eq!(app.workspace.selected, Some(OpsTarget::Pool));
-            key(&mut app, KeyCode::Char('3'));
+            key(&mut app, KeyCode::Char('2'));
             assert_eq!(app.workspace.selected, selected);
             key(&mut app, KeyCode::Char('1'));
         } else {

@@ -31,9 +31,9 @@ mod workspace;
 pub use states::{Rank, States};
 pub(crate) use unread::ReadMarkers;
 pub use workspace::{
-    ActivityWindow, BoardLabel, DigestPanel, DigestPanels, LabelEdit, MAX_WORK_VIEWS, OpsKeyScope,
-    OpsLayout, OpsPreferences, OpsSort, OverviewColumn, OverviewDirection, OverviewPanel,
-    OverviewPanels, Panel, PanelSetting, Panels, TokRange, WorkView, WorkspaceLabels,
+    ActivityWindow, BoardLabel, DigestPanel, DigestPanels, LabelEdit, OpsKeyScope, OpsLayout,
+    OpsPreferences, OpsSort, OverviewColumn, OverviewDirection, OverviewPanel, OverviewPanels,
+    Panel, PanelSetting, Panels, TokRange, WorkspaceLabels,
 };
 pub(crate) use workspace::{
     admit_action as admit_workspace_action, defaults as workspace_defaults, valid_label_glyph,
@@ -94,7 +94,6 @@ pub enum StartupTab {
     #[default]
     Last,
     Agents,
-    Work,
     Digest,
     Orchestration,
 }
@@ -104,9 +103,8 @@ impl StartupTab {
             "last" => Some(Self::Last),
             // Overview was merged into Agents: its name and saved value open Agents.
             "overview" | "agents" | "1" => Some(Self::Agents),
-            "work" | "2" => Some(Self::Work),
-            "digest" | "3" => Some(Self::Digest),
-            "orchestration" | "4" => Some(Self::Orchestration),
+            "digest" | "2" => Some(Self::Digest),
+            "orchestration" | "3" => Some(Self::Orchestration),
             _ => None,
         }
     }
@@ -114,14 +112,14 @@ impl StartupTab {
         Self::parse(value)
             .filter(|tab| *tab != Self::Last)
             .ok_or_else(|| {
-                "Tab must be agents, work, digest or orchestration (also 1–4; overview opens agents).".into()
+                "Tab must be agents, digest or orchestration (also 1–3; overview opens agents)."
+                    .into()
             })
     }
     pub fn name(self) -> &'static str {
         match self {
             Self::Last => "last",
             Self::Agents => "agents",
-            Self::Work => "work",
             Self::Digest => "digest",
             Self::Orchestration => "orchestration",
         }
@@ -2048,13 +2046,22 @@ impl Config {
         else {
             return (StartupTab::Last, None);
         };
+        if item.as_str() == Some("work") {
+            return (StartupTab::Agents, None);
+        }
         match item.as_str().and_then(StartupTab::parse) {
             Some(tab) => (tab, None),
             None => (
                 StartupTab::Last,
-                Some("Ignored board.startup_tab: use last, agents, work, digest or orchestration (overview opens agents).".into()),
+                Some("Ignored board.startup_tab: use last, agents, digest or orchestration (overview opens agents).".into()),
             ),
         }
+    }
+
+    /// Retained Work settings are inert and stay in the user's document.
+    pub fn obsolete_work_notice(&self) -> Option<&'static str> {
+        (self.source_item(&["board", "work"]).is_some() || self.source_item(&["work"]).is_some())
+            .then_some("Work tab settings are ignored.")
     }
 
     /// Recognize obsolete board settings without interpreting or rewriting them.

@@ -409,12 +409,11 @@ operation review. Public Config and `ls --tab` projections remain independent of
 interactive navigation; tab/pick/reorder and factory-view bindings report
 migration notices instead of providing a legacy UI.
 
-`board::work` reads Colab's bounded owner list and projects the project order
-without changing status or membership. The selected project uses one direct
-order read when the list explicitly omits it. A confirmed move goes through the
-existing lane with the observed order revision. On conflict or uncertain
-delivery, read the current order without replaying the move. Older lists preserve
-the ordinary Work view.
+`board::work_references` owns one bounded Colab owner-list read for Talk
+numbered references and the Agents ticket chips. The read retains the existing
+worker, deduplication and cancellation. The shared opener validates the chosen
+page or block on the action lane. Retired Work settings remain in user TOML,
+uninterpreted, with one notice.
 
 Cold startup keeps the delayed spinner (`SPINNER_DELAY`, 100 ms) and existing
 worker cancellation fences. Failed refresh retains stale evidence; it cannot

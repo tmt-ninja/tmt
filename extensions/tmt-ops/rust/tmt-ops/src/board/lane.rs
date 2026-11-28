@@ -28,7 +28,6 @@ pub(super) enum Job {
     Standalone(super::standalone::Task),
     Act(Request),
     OpenWorkPage(super::work_references::OpenTarget),
-    WorkOrder(super::work::OrderJob),
     Jump {
         member: String,
     },
@@ -75,7 +74,6 @@ impl Job {
                 | Self::Notes(_)
                 | Self::Skills(_)
                 | Self::Versions
-                | Self::WorkOrder(_)
                 | Self::OfflineResume(_)
                 | Self::Standalone(_)
         ) && !matches!(self, Self::Terminals(task) if task.progress().is_none())
@@ -87,7 +85,6 @@ impl Job {
             Self::Standalone(_) => "Working with the command…",
             Self::OpenWorkPage(target) if target.block.is_some() => "Opening Colab block…",
             Self::OpenWorkPage(_) => "Opening Colab page…",
-            Self::WorkOrder(_) => "Working with the Colab project order…",
             Self::AnswerProviderForm(_) => "Sending form answer…",
             Self::Act(request) | Self::Send { request, .. } => request.progress(),
             Self::Jump { .. } => "Jumping…",
@@ -142,7 +139,6 @@ pub(super) fn run(core: &Core, labels: Option<&Refresh>, job: Job) -> BoardEvent
         Job::OpenWorkPage(target) => {
             BoardEvent::WorkOpened(super::work_references::open(core, &target))
         }
-        Job::WorkOrder(job) => BoardEvent::WorkOrder(super::work::run_order(core, job)),
         Job::LocalUnread(task) => {
             let actor = task.actor().to_owned();
             BoardEvent::LocalUnreadPublished {

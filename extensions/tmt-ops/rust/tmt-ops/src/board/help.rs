@@ -346,38 +346,6 @@ pub(super) fn model(app: &App) -> KeyHelp {
             ],
         ),
     ];
-    if app.shell.tab == super::shell::OpsTab::Work {
-        sections.push(section(
-            "work",
-            "Colab work",
-            &[
-                ("/", "search work items"),
-                ("v", "manage saved work views"),
-                ("↑↓", "select a work item or chapter"),
-                ("Space", "collapse or expand the detail inspector"),
-                ("Tab", "focus or leave the detail inspector"),
-                (
-                    "o / ⏎",
-                    "open the selected page or block, or expand a project section",
-                ),
-                ("t", "jump to the owner's Talk"),
-                ("p", "cycle the project filter"),
-                (
-                    "d",
-                    "cycle the Done period through Today, 7 days and 30 days",
-                ),
-                ("c", "recently done · show or hide completions"),
-                ("r", "refresh the owner list"),
-            ],
-        ));
-        if app.work.has_project_orders() {
-            sections.push(section(
-                "work-order",
-                "Project order",
-                &[("m", "move numbered work in a selected project")],
-            ));
-        }
-    }
     if matches!(
         app.shell.tab,
         super::shell::OpsTab::Agents | super::shell::OpsTab::Digest

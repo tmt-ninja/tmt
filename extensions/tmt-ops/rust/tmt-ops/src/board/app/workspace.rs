@@ -560,7 +560,7 @@ impl App {
                 .overview_panels()
                 .shown(crate::config::OverviewPanel::Monitor),
             OpsTab::Digest => self.digest_panels().shown(crate::config::DigestPanel::List),
-            OpsTab::Work | OpsTab::Orchestration => false,
+            OpsTab::Orchestration => false,
         };
         target_shown && self.workspace_selection_state() == SelectionState::Visible
     }
@@ -648,9 +648,6 @@ impl App {
     }
 
     pub(in crate::board) fn workspace_scope(&self) -> OpsKeyScope {
-        if self.shell.tab == OpsTab::Work {
-            return OpsKeyScope::Work;
-        }
         if self.shell.tab == super::super::shell::OpsTab::Orchestration {
             return OpsKeyScope::Orchestration;
         }
@@ -1050,11 +1047,7 @@ impl App {
     /// Shows the conversation of the selected member `target` in the Agents tab, with the
     /// reader focused: what Enter on a member row does.
     pub(in crate::board) fn is_searching(&self) -> bool {
-        if self.shell.tab == super::super::shell::OpsTab::Work {
-            self.work.searching
-        } else {
-            self.searching
-        }
+        self.searching
     }
     pub(in crate::board) fn show_conversation_of(&mut self, target: &OpsTarget) {
         self.conversation_return.get_or_insert(self.shell.tab);
@@ -1200,12 +1193,11 @@ impl App {
                 self.open_help(false);
                 return Effect::None;
             }
-            Agents | Work | DigestDashboard | Orchestration => {
+            Agents | DigestDashboard | Orchestration => {
                 let digit = match action {
                     Agents => '1',
-                    Work => '2',
-                    DigestDashboard => '3',
-                    _ => '4',
+                    DigestDashboard => '2',
+                    _ => '3',
                 };
                 let owner = self.workspace_input_owner();
                 if !self
@@ -1428,10 +1420,10 @@ impl App {
             Manage | CreateSquad | RemoveMembership | MoveMembership | OrderMember => {
                 return self.workspace_management(action);
             }
-            ResizePane | Agents | Work | DigestDashboard | Orchestration | QuotaDetails
-            | SavingsUnit | UsageControls | CycleTokRange | CycleActivityWindow
-            | DigestPreviousWindow | Unread | Help | Quit | ScrollUp | ScrollDown
-            | ScrollPageUp | ScrollPageDown | ScrollTop | ScrollBottom => {
+            ResizePane | Agents | DigestDashboard | Orchestration | QuotaDetails | SavingsUnit
+            | UsageControls | CycleTokRange | CycleActivityWindow | DigestPreviousWindow
+            | Unread | Help | Quit | ScrollUp | ScrollDown | ScrollPageUp | ScrollPageDown
+            | ScrollTop | ScrollBottom => {
                 unreachable!("shell actions handled first")
             }
         }
@@ -1444,7 +1436,6 @@ impl App {
         let editing = match overlay {
             Some(Overlay::ProviderAnswer) => self.provider_answer.owns_typing(),
             Some(Overlay::NewMember | Overlay::SwitchTool | Overlay::IdleAlert) => true,
-            Some(Overlay::WorkTalk) => self.input.is_some(),
             Some(Overlay::Standalone) => self.standalone.editing(),
             Some(Overlay::Workspace) => self.input.is_some(),
             Some(Overlay::Settings) => self
