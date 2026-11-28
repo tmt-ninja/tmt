@@ -904,3 +904,52 @@ fn a_long_pair_inside_one_rollup_bucket_covers_it_and_one_across_a_boundary_does
         }
     }
 }
+
+/// A member retired since a window's start is found by its retained rollup rows (#4283):
+/// only retired identities, only rows that end after the start and are not expired,
+/// ascending and bounded.
+#[test]
+fn retired_identities_with_rollup_after_a_start_are_listed_in_bounds() {
+    let directory = crate::test_support::TestDirectory::new();
+    let mut storage = Storage::open(directory.path.join("retired.sqlite")).unwrap();
+    let now = 40 * 24 * 60 * 60 * 1_000;
+    let start = now - 10 * 24 * 60 * 60 * 1_000;
+    {
+        let connection = storage.connection().unwrap();
+        // (id, retired, the rollup slot it wrote)
+        for (n, retired, slot) in [
+            (1, true, Some(start)),                        // inside
+            (2, true, Some(start - ROLLUP_BUCKET_MS)),     // ends exactly at the start
+            (4, false, Some(start)),                       // current member: on the roster
+            (5, true, None),                               // no evidence
+            (6, true, Some(start + ROLLUP_BUCKET_MS * 3)), // inside
+        ] {
+            let id = format!("00000000-0000-4000-8000-{n:012}");
+            connection.execute("INSERT INTO identities(id,name,canonical_name,created_at,updated_at,lifetime,retired_at_ms) VALUES(?,?,?,'t','t','saved',?)",params![id,format!("m{n}"),format!("m{n}"),retired.then_some(1_i64)]).unwrap();
+            if let Some(slot) = slot {
+                connection.execute("INSERT INTO consumption_tier5m(identity_id,from_ms,input_tokens,output_tokens,cached_input_tokens,covered_ms,complete,gap,discontinuous) VALUES(?,?,1,0,0,300000,1,0,0)",params![id,slot as i64]).unwrap();
+            }
+        }
+    }
+    let ids = |n: &[u64]| -> Vec<String> {
+        n.iter()
+            .map(|n| format!("00000000-0000-4000-8000-{n:012}"))
+            .collect()
+    };
+    assert_eq!(
+        storage.retired_with_rollup(start, now, 256).unwrap(),
+        (ids(&[1, 6]), false)
+    );
+    assert_eq!(
+        storage.retired_with_rollup(start, now, 1).unwrap(),
+        (ids(&[1]), true)
+    );
+    // A start older than retention still counts only retained rows.
+    assert_eq!(
+        storage
+            .retired_with_rollup(0, start + ROLLUP_MS + ROLLUP_BUCKET_MS, 256)
+            .unwrap(),
+        (ids(&[6]), false)
+    );
+    assert!(storage.retired_with_rollup(now + 1, now, 256).is_err());
+}

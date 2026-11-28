@@ -8,17 +8,19 @@ const SEAT: &str = "10000000-0000-4000-8000-000000000001";
 const HOUR: u64 = 3_600_000;
 
 /// Tokens at an instant: `(at, model or None for unattributed, input, cached, write, output)`.
-type Event = (u64, Option<&'static str>, u64, u64, Option<u64>, u64);
+pub(crate) type Event = (u64, Option<&'static str>, u64, u64, Option<u64>, u64);
 
 #[derive(Clone)]
-struct Seat {
+pub(crate) struct Seat {
+    pub(crate) id: &'static str,
     events: Vec<Event>,
     complete: bool,
     available_from: Option<u64>,
 }
 
-fn seat(events: Vec<Event>) -> Seat {
+pub(crate) fn seat(events: Vec<Event>) -> Seat {
     Seat {
+        id: SEAT,
         events,
         complete: true,
         available_from: Some(0),
@@ -65,7 +67,7 @@ fn bucket(seat: &Seat, from: u64, to: u64) -> Value {
 }
 
 /// Core's answer to one request: each window ends at the cut, with `max` buckets.
-fn answer(plan: &Plan, seats: &[Seat], windows: &[u64], max: u64) -> Value {
+pub(crate) fn answer(plan: &Plan, seats: &[Seat], windows: &[u64], max: u64) -> Value {
     let identities: Vec<Value> = seats
         .iter()
         .map(|seat| {
@@ -84,21 +86,30 @@ fn answer(plan: &Plan, seats: &[Seat], windows: &[u64], max: u64) -> Value {
                         "buckets": buckets})
                 })
                 .collect();
-            json!({"id": SEAT, "found": true, "windows": windows})
+            json!({"id": seat.id, "found": true, "windows": windows})
         })
         .collect();
     json!({"identities": identities})
 }
 
 fn report(plan: &Plan, seats: &[Seat], unreadable: bool) -> Value {
-    let ids = vec![SEAT.to_owned(); seats.len()];
+    let ids: Vec<String> = seats.iter().map(|seat| seat.id.to_owned()).collect();
     let answers: Vec<Value> = plan
         .requests()
         .iter()
         .map(|(windows, max)| answer(plan, seats, windows, *max))
         .collect();
     let evidence = read(plan, &answers, &ids).unwrap();
-    section(plan, &evidence, unreadable, built_in())
+    section(
+        plan,
+        &evidence,
+        if unreadable {
+            &["usage_unreadable"]
+        } else {
+            &[]
+        },
+        built_in(),
+    )
 }
 
 fn provider<'a>(section: &'a Value, name: &str) -> &'a Value {
@@ -335,7 +346,7 @@ fn a_later_window_holding_more_than_an_earlier_one_is_a_dropped_split() {
     let section = section(
         &plan,
         &read(&plan, &answers, &ids).unwrap(),
-        false,
+        &[],
         built_in(),
     );
     let openai = provider(&section, "openai");

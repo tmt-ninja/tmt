@@ -773,8 +773,15 @@ case \"$1\" in
       *consumption.limits*)
         # An older Core does not know the operation unless the case supplies an answer.
         if [ -f limits.json ]; then cat limits.json; else cat limits.unknown; exit 1; fi ;;
+      *consumption.retired*)
+        # An older Core does not know the operation unless the case supplies an answer.
+        if [ -f retired.json ]; then cat retired.json; else cat limits.unknown; exit 1; fi ;;
       *consumption.history*)
         if [ -f history.fail ]; then cat history.fail; exit 1; fi
+        # A case may answer one exact request: history-<windowsMs>-<maxBuckets>.json.
+        w=$(printf '%s' \"$input\" | sed -n 's/.*\"windowsMs\":\\[\\([0-9,]*\\)\\].*/\\1/p')
+        m=$(printf '%s' \"$input\" | sed -n 's/.*\"maxBuckets\":\\([0-9]*\\).*/\\1/p')
+        if [ -f \"history-$w-$m.json\" ]; then cat \"history-$w-$m.json\"; exit 0; fi
         case \"$input\" in *'\"maxBuckets\":1,'*) cat totals.json ;; *) cat series.json ;; esac ;;
       *) exit 9 ;;
     esac ;;
@@ -1459,8 +1466,13 @@ fn a_from_report_pins_every_read_and_has_no_exchange() {
     let spend = &document["spend"];
     assert_eq!(spend["requestedFromMs"], json!(start));
     assert_eq!(spend["toMs"], json!(through - through % 300_000));
+    // This Core does not know `consumption.retired`, so members retired since the start
+    // may be missing: every value says so too.
     for row in spend["providers"].as_array().unwrap() {
-        assert_eq!(row["total"]["reasons"], json!(["usage_unreadable"]));
+        assert_eq!(
+            row["total"]["reasons"],
+            json!(["retired_unread", "usage_unreadable"])
+        );
     }
 }
 
@@ -1481,7 +1493,91 @@ fn the_frozen_spend_vector_reads_its_windows_and_prices_them_by_hand() {
     let seats =
         model::spend::read(&plan, case["answers"].as_array().unwrap(), &ids(&case)).unwrap();
     assert_eq!(
-        model::spend::section(&plan, &seats, false, crate::pricing::built_in()),
+        model::spend::section(&plan, &seats, &[], crate::pricing::built_in()),
         case["expected"]
     );
+}
+
+#[test]
+fn a_from_report_reads_the_members_retired_since_its_start() {
+    use model::spend::tests::{answer, seat};
+    let through = AS_OF - AS_OF % 5_000;
+    let to = through - through % 300_000;
+    let start = AS_OF - 3 * DAY;
+    let plan = model::spend::Plan::new(start, to, crate::pricing::built_in());
+    // amy is on the roster and spent nothing; gone was retired after spending $2 on
+    // gpt-6.2-sol inside the window, and only Core's retired list names it.
+    let mut amy = seat(vec![]);
+    amy.id = A;
+    let mut gone = seat(vec![(
+        to - 2 * DAY,
+        Some("gpt-6.2-sol"),
+        1_000_000,
+        0,
+        Some(0),
+        0,
+    )]);
+    gone.id = F;
+    let seats = [amy, gone];
+    let legacy = to - plan.from_ms;
+    let mut files = vec![
+        (
+            "roster.json".to_owned(),
+            json!({"identities": [{"id": A, "name": "amy"}]}),
+        ),
+        (
+            "resolve.json".to_owned(),
+            json!({"identities": [{"id": F, "found": true, "name": "gone", "lifetime": "saved", "retired": true}]}),
+        ),
+        (
+            "retired.json".to_owned(),
+            json!({"fromMs": plan.earliest_ms(), "identityIds": [F], "truncated": false}),
+        ),
+    ];
+    for (windows, max) in plan
+        .requests()
+        .into_iter()
+        .chain([(vec![legacy], 1), (vec![legacy], legacy.div_ceil(DAY))])
+    {
+        let key = windows
+            .iter()
+            .map(u64::to_string)
+            .collect::<Vec<_>>()
+            .join(",");
+        files.push((
+            format!("history-{key}-{max}.json"),
+            answer(&plan, &seats, &windows, max),
+        ));
+    }
+    let files: Vec<(&str, Value)> = files
+        .iter()
+        .map(|(name, value)| (name.as_str(), value.clone()))
+        .collect();
+    let fake = FakeCore::new(&files);
+    let document = execute(&fake.core(), Span::From(start), AS_OF).unwrap();
+    let retired: Vec<Value> = fake
+        .calls()
+        .into_iter()
+        .filter(|call| call["operation"] == "consumption.retired")
+        .collect();
+    assert_eq!(retired.len(), 1);
+    assert_eq!(retired[0]["input"]["fromMs"], json!(plan.earliest_ms()));
+    let seat_names: Vec<&Value> = document["usage"]["seats"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|seat| &seat["name"])
+        .collect();
+    assert!(seat_names.contains(&&json!("gone")), "{seat_names:?}");
+    let openai = document["spend"]["providers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["provider"] == "openai")
+        .unwrap();
+    assert_eq!(
+        openai["total"],
+        json!({"usdMicros": 2_000_000, "complete": true, "lowerBound": false, "reasons": []})
+    );
+    assert_eq!(openai["models"], json!(["gpt-6.2-sol"]));
 }

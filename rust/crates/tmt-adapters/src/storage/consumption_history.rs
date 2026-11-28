@@ -642,6 +642,37 @@ impl Storage {
         }))
     }
 
+    /// The retired identities with a retained rollup bucket that ends after `from_ms`
+    /// (#4283), ascending by id, at most `limit`, and whether more exist. A reader of a
+    /// window from `from_ms` finds a member retired since then here, because the roster
+    /// lists only the current ones. Expired buckets never count; nothing is renewed.
+    pub fn retired_with_rollup(
+        &mut self,
+        from_ms: u64,
+        now: u64,
+        limit: usize,
+    ) -> Result<(Vec<String>, bool), StorageError> {
+        if from_ms > now || now > MAX_JS_SAFE_INTEGER {
+            return Err(invalid());
+        }
+        let retained_from = (now / ROLLUP_BUCKET_MS * ROLLUP_BUCKET_MS).saturating_sub(ROLLUP_MS);
+        let ends_after = from_ms.saturating_sub(ROLLUP_BUCKET_MS);
+        let connection = self.connection()?;
+        let mut statement = connection
+            .prepare("SELECT id FROM identities i WHERE retired_at_ms IS NOT NULL AND EXISTS (SELECT 1 FROM consumption_tier5m r WHERE r.identity_id=i.id AND r.from_ms>? AND r.from_ms>=?) ORDER BY id LIMIT ?")
+            .map_err(|e| classify(e, "Read retired consumption identities"))?;
+        let mut ids: Vec<String> = statement
+            .query_map(
+                rusqlite::params![ends_after as i64, retained_from as i64, (limit + 1) as i64],
+                |row| row.get(0),
+            )
+            .and_then(Iterator::collect)
+            .map_err(|e| classify(e, "Read retired consumption identities"))?;
+        let truncated = ids.len() > limit;
+        ids.truncate(limit);
+        Ok((ids, truncated))
+    }
+
     /// One deferred read snapshot; no source access or history renewal/pruning.
     /// Windows up to an hour read the 5-second buckets, longer ones the 5-minute
     /// rollup. A retired identity is answered only when `include_retired` is set.

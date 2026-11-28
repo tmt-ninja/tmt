@@ -62,6 +62,11 @@ impl Plan {
         }
     }
 
+    /// The earliest start: every value lies after it.
+    pub fn earliest_ms(&self) -> u64 {
+        self.starts[0]
+    }
+
     /// Starts read as their own window, ascending.
     fn direct(&self) -> Vec<u64> {
         self.starts
@@ -300,17 +305,14 @@ fn values(
     plan: &Plan,
     start: u64,
     seats: &[SeatEvidence],
-    unreadable: bool,
+    shared: &[&'static str],
     table: &Table,
 ) -> BTreeMap<&'static str, Spent> {
     let mut values: BTreeMap<&'static str, Spent> = pricing::PROVIDERS
         .iter()
         .map(|(provider, _)| (*provider, Spent::new()))
         .collect();
-    let mut everyone = BTreeSet::new();
-    if unreadable {
-        everyone.insert("usage_unreadable");
-    }
+    let mut everyone: BTreeSet<&'static str> = shared.iter().copied().collect();
     let segments: Vec<(u64, Option<u64>)> = plan
         .starts
         .iter()
@@ -402,14 +404,20 @@ fn values(
     values
 }
 
-/// The report's `spend` section.
-pub fn section(plan: &Plan, seats: &[SeatEvidence], unreadable: bool, table: &Table) -> Value {
-    let total = values(plan, plan.from_ms, seats, unreadable, table);
+/// The report's `spend` section. `shared` are reasons that reach every value, such as a
+/// failed batch (`usage_unreadable`) or retired seats that could not be listed.
+pub fn section(
+    plan: &Plan,
+    seats: &[SeatEvidence],
+    shared: &[&'static str],
+    table: &Table,
+) -> Value {
+    let total = values(plan, plan.from_ms, seats, shared, table);
     let paces: Vec<(u64, BTreeMap<&'static str, Spent>)> = PACE_MS
         .iter()
         .map(|window| {
             let start = plan.to_ms.saturating_sub(*window);
-            (*window, values(plan, start, seats, unreadable, table))
+            (*window, values(plan, start, seats, shared, table))
         })
         .collect();
     let providers: Vec<Value> = total
@@ -444,4 +452,4 @@ pub fn section(plan: &Plan, seats: &[SeatEvidence], unreadable: bool, table: &Ta
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

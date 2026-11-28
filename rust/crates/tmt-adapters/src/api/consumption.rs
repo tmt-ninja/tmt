@@ -203,6 +203,40 @@ fn limits_in(
         .map_err(|_| Fault::unavailable())
 }
 
+/// The most retired identities one `consumption.retired` answer names.
+pub(super) const RETIRED_LIMIT: usize = 256;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct RetiredInput {
+    from_ms: u64,
+}
+
+pub(super) fn decode_retired(input: &[u8]) -> Result<Request, Fault> {
+    let input: RetiredInput = serde_json::from_slice(input).map_err(|_| invalid())?;
+    if input.from_ms > tmt_core::limits::MAX_JS_SAFE_INTEGER {
+        return Err(invalid());
+    }
+    Ok(Request::ConsumptionRetired {
+        from_ms: input.from_ms,
+    })
+}
+
+/// The retired identities with rollup evidence after `fromMs` (#4283).
+pub(super) fn retired(storage: &mut Storage, from_ms: u64) -> Result<Vec<u8>, Fault> {
+    let now = crate::request_runtime::wall_time_ms();
+    if from_ms > now {
+        return Err(invalid());
+    }
+    let (ids, truncated) = storage
+        .retired_with_rollup(from_ms, now, RETIRED_LIMIT)
+        .map_err(|_| Fault::unavailable())?;
+    serde_json::to_vec(&serde_json::json!({
+        "fromMs": from_ms, "identityIds": ids, "truncated": truncated,
+    }))
+    .map_err(|_| Fault::unavailable())
+}
+
 pub(super) fn history(
     storage: &mut Storage,
     identities: Vec<String>,
@@ -412,6 +446,24 @@ mod tests {
             (0, true),
         ] {
             assert_eq!(pin_refused(cut, now), refused, "cut {cut} at {now}");
+        }
+    }
+
+    #[test]
+    fn a_retired_read_takes_only_a_start() {
+        assert!(matches!(
+            decode_retired(br#"{"fromMs":300000}"#),
+            Ok(Request::ConsumptionRetired { from_ms: 300_000 })
+        ));
+        for input in [
+            r#"{}"#,
+            r#"{"fromMs":-1}"#,
+            r#"{"fromMs":1.5}"#,
+            r#"{"fromMs":"0"}"#,
+            r#"{"fromMs":9007199254740992}"#,
+            r#"{"fromMs":0,"extra":true}"#,
+        ] {
+            assert!(decode_retired(input.as_bytes()).is_err(), "{input}");
         }
     }
 

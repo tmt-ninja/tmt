@@ -279,6 +279,65 @@ fn collect(core: &Core, span: Span, now: u64) -> Result<Report, Error> {
         }
     });
 
+    let pricing = || {
+        core.data_root()
+            .ok()
+            .map_or_else(crate::pricing::Resolved::built_in, |root| {
+                crate::pricing::Resolved::read_only(&root)
+            })
+    };
+    // Price rows decide a spend plan, so a `--from` report resolves the table before its
+    // reads; a `--since` one keeps its documented order and resolves it last.
+    let early = matches!(span, Span::From(_)).then(pricing);
+    let plan = match (span, reads.through_ms, &early) {
+        (Span::From(start), Some(through), Some(early)) => Some(model::spend::Plan::new(
+            start,
+            through - through % SLOT_MS,
+            early.table(),
+        )),
+        _ => None,
+    };
+    // A `--from` window has no flow to find members retired since its start, so Core
+    // lists the retired identities with rollup evidence in it; a failed or truncated
+    // list is a reason on every spend value, never a silent undercount.
+    let mut shared = Vec::new();
+    if let Some(plan) = &plan {
+        match retired(core, plan.earliest_ms()) {
+            Ok((found, truncated)) => {
+                if truncated {
+                    shared.push("retired_unread");
+                    warnings.push(json!({"section": "retired", "code": "RETIRED_TRUNCATED",
+                        "message": "Core listed only the first 256 retired identities"}));
+                }
+                let new: Vec<String> = found
+                    .into_iter()
+                    .filter(|id| !labels.contains_key(id))
+                    .collect();
+                for id in &new {
+                    labels.insert(
+                        id.clone(),
+                        Label {
+                            id: id.clone(),
+                            name: None,
+                            retired: true,
+                        },
+                    );
+                }
+                for batch in new.chunks(RESOLVE_BATCH) {
+                    match resolve(core, batch) {
+                        Ok(found) => labels
+                            .extend(found.into_iter().filter(|(_, label)| label.name.is_some())),
+                        Err(error) => warnings.push(warning("labels", &error)),
+                    }
+                }
+            }
+            Err(error) => {
+                shared.push("retired_unread");
+                warnings.push(warning("retired", &error));
+            }
+        }
+    }
+
     // Retired participants keep their retained rollup, so they are read too.
     let mut seats: Vec<&Label> = labels
         .values()
@@ -306,16 +365,17 @@ fn collect(core: &Core, span: Span, now: u64) -> Result<Report, Error> {
             None
         }
     };
-    let pricing = core
-        .data_root()
-        .ok()
-        .map_or_else(crate::pricing::Resolved::built_in, |root| {
-            crate::pricing::Resolved::read_only(&root)
-        });
-    let spend = match (span, reads.through_ms) {
-        (Span::From(start), Some(through)) => {
-            Some(spend(core, start, through, &ids, &pricing, &mut warnings))
-        }
+    let pricing = early.unwrap_or_else(pricing);
+    let spend = match (&plan, reads.through_ms) {
+        (Some(plan), Some(through)) => Some(spend(
+            core,
+            plan,
+            through,
+            &ids,
+            &pricing,
+            shared,
+            &mut warnings,
+        )),
         _ => None,
     };
     Ok(Report {
@@ -390,15 +450,14 @@ fn read(
 /// A failed batch is a reason on every value, never a zero.
 fn spend(
     core: &Core,
-    start: u64,
+    plan: &model::spend::Plan,
     through: u64,
     ids: &[String],
     pricing: &crate::pricing::Resolved,
+    mut shared: Vec<&'static str>,
     warnings: &mut Vec<Value>,
 ) -> Value {
-    let plan = model::spend::Plan::new(start, through - through % SLOT_MS, pricing.table());
     let mut seats = Vec::new();
-    let mut unreadable = false;
     for batch in ids.chunks(BATCH) {
         let answers: Result<Vec<Value>, Error> = plan
             .requests()
@@ -416,13 +475,37 @@ fn spend(
                 )
             })
             .collect();
-        match answers.and_then(|answers| model::spend::read(&plan, &answers, batch)) {
+        match answers.and_then(|answers| model::spend::read(plan, &answers, batch)) {
             Ok(found) => seats.extend(found),
             Err(error) => {
                 warnings.push(warning("spend", &error));
-                unreadable = true;
+                shared.push("usage_unreadable");
             }
         }
     }
-    model::spend::section(&plan, &seats, unreadable, pricing.table())
+    shared.sort_unstable();
+    shared.dedup();
+    model::spend::section(plan, &seats, &shared, pricing.table())
+}
+
+/// Core's retired identities with rollup evidence after `from_ms`, and whether the list
+/// was cut short. An older Core does not know the operation: that is an error too.
+fn retired(core: &Core, from_ms: u64) -> Result<(Vec<String>, bool), Error> {
+    let document = core.api("consumption.retired", json!({"fromMs": from_ms}))?;
+    let invalid = || {
+        Error::new(
+            "CORE_RESPONSE_INVALID",
+            "Core returned an invalid retired identity list",
+        )
+    };
+    let ids = document["identityIds"]
+        .as_array()
+        .filter(|_| document["fromMs"] == from_ms)
+        .ok_or_else(invalid)?
+        .iter()
+        .map(|id| id.as_str().map(str::to_owned))
+        .collect::<Option<Vec<String>>>()
+        .ok_or_else(invalid)?;
+    let truncated = document["truncated"].as_bool().ok_or_else(invalid)?;
+    Ok((ids, truncated))
 }

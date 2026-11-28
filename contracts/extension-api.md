@@ -181,6 +181,7 @@ remain independent of storage access.
 | `references.resolve`     | optional `identityIds`, `roomIds` (canonical UUIDs, at most 256 in total)                                                                                                     | `identities` (`id`, `found`, `name`, `lifetime`, `retired`) and `rooms` (`id`, `found`, `retired`)                                                                                                                                                                                     |
 | `consumption.history`    | `identityIds` (1–32 UUIDs), `windowsMs` (1–3), optional `maxBuckets`, `includeRetired`, `throughMs`                                                                           | Closed timestamped deltas, coverage and included cumulative seed watermark; windows above an hour read the 32-day rollup (see below)                                                                                                                                                   |
 | `consumption.changes`    | `since` (a `usage` cursor), optional `windowsMs` (0–3) and `maxBuckets`                                                                                                       | `usage`, `reset`, `identities`: the identities whose usage changed since `since` (see [below](#consumption-changes))                                                                                                                                                                   |
+| `consumption.retired`    | `fromMs`                                                                                                                                                                      | `fromMs`, `identityIds` (at most 256) and `truncated`: retired identities with rollup evidence after `fromMs` (see [below](#retired-consumption))                                                                                                                                      |
 | `consumption.limits`     | `{}`                                                                                                                                                                          | `observedAtMs` and `accounts`: one entry per provider account Core can read without an agent, with the account's newest current limits or `null` and a reason (see [account limits](#account-limits))                                                                                  |
 | `drivers.models`         | `{}`                                                                                                                                                                          | `drivers`: one entry per AI tool TMT launches, with `source`, `models` and `efforts`, all best effort (see [launch choices](#launch-choices))                                                                                                                                          |
 | `identity.meta.apply`    | `identityId` (active canonical UUID), `changes`                                                                                                                               | `identityId`, `changed`; atomic conditional metadata update (see below)                                                                                                                                                                                                                |
@@ -1396,6 +1397,17 @@ The read costs the changed identities, not the roster, and sampling is unchanged
 cursor is never carried across data roots: one from another root that falls inside this
 root's range cannot be told apart, so it is unsupported, as for `changes.cursor`. A core
 without the operation returns `API_INPUT_INVALID`; keep the timed full read.
+
+### Retired consumption
+
+`consumption.retired` answers which retired identities hold rollup evidence after a
+start, so a reader of a window from `fromMs` can read the members retired since then
+with `includeRetired` (#4283): the roster lists only current identities. Its input is
+`{fromMs}`, a non-negative integer no later than the read time. The answer is
+`{fromMs, identityIds, truncated}`: the retired identities with a retained
+[rollup](#five-minute-rollup) bucket that ends after `fromMs`, ascending by UUID, at
+most 256; `truncated` is true when more exist. Expired buckets never count, and the
+read renews nothing. A core without the operation returns `API_INPUT_INVALID`.
 
 ## Account limits
 

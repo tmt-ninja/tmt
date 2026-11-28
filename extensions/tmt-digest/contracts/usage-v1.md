@@ -192,13 +192,20 @@ or unparseable start fails with `DIGEST_INPUT_INVALID` before any read. It confl
 - Every `consumption.history` read passes one `throughMs`: Digest's clock rounded down to
   five seconds ([pinned cut](../../../contracts/extension-api.md#consumption-history)), so
   every window ends at the same instant. The cut expires after 60 seconds, as Core's pin
-  does; a batch read after that fails like any other.
+  does; a batch read after that fails like any other. `storage.root` is read first,
+  because the price rows decide which windows are read.
 - `since` is null. `window` and the sections above cover the window from the start rounded
   up to five minutes to the cut's last closed five-minute boundary (at least one slot, so
   a start inside the newest five minutes still has a window; `window` reports the bounds
   Core read). The series is daily.
 - `exchange` is null with a `DIGEST_WINDOW_UNSUPPORTED` warning: Core's flow takes only its
   own windows.
+- With no flow to find members retired since the start, Digest reads Core's
+  [`consumption.retired`](../../../contracts/extension-api.md#retired-consumption) once,
+  from the earliest spend start, and reads those identities with the roster (names from
+  `references.resolve`; an unresolved one keeps a null name). A failed read, an older
+  Core without the operation, or a truncated list adds a `retired` warning and the
+  `retired_unread` reason to every spend value.
 - `spend`, below. No read touches authentication, key or account state, so spend is never
   split by billing scope; it is a token-based list-price estimate, not a bill.
 
@@ -239,7 +246,8 @@ true when there are some and `usdMicros` is a number:
 - The rest reach every vendor, because the missing tokens could be anyone's:
   `coverage_partial` (a seat's window is not fully covered, or has no evidence),
   `before_retention` (Core keeps nothing for a seat before a later instant), `unattributed`
-  (tokens no model row covers), `unmapped_model` (a model id no vendor prefix names) and
+  (tokens no model row covers), `unmapped_model` (a model id no vendor prefix names),
+  `retired_unread` (Core could not list every member retired since the start) and
   `usage_unreadable` (a batch read failed; its warning is under `spend`).
 
 A consumer does its own budget arithmetic over these values and adds no price matcher. An
