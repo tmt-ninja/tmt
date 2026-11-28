@@ -14,7 +14,9 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
+	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
+	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
 )
@@ -22,7 +24,9 @@ import (
 func TestFakeProviderSubmitsCorrelatedReply(t *testing.T) {
 	server := tmuxtest.Start(t)
 	root := t.TempDir()
-	fake := filepath.Join(root, "fakeprovider")
+	// The executable name is visible in the process table. A shell-only
+	// wrapper or an argv alias would not prove a Codex process.
+	fake := filepath.Join(root, "codex")
 	buildCtx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	build := exec.CommandContext(buildCtx, "go", "build", "-o", fake, "./fakeprovider")
@@ -61,6 +65,40 @@ func TestFakeProviderSubmitsCorrelatedReply(t *testing.T) {
 		}
 		return driver.Classify(screen) == ports.DriverIdle
 	})
+	if _, err := host.EnsureServerID(t.Context(), pane.Server); err != nil {
+		t.Fatal(err)
+	}
+	probe, err := host.ProbeBinding(t.Context(), pane)
+	if err != nil || len(probe.Panes) != 1 || probe.Panes[0].Incarnation == nil {
+		t.Fatalf("fake pane evidence = %+v, %v", probe, err)
+	}
+	identity := core.Identity{ID: "fixture", Name: "fixture", CanonicalName: "fixture"}
+	observed := probe.Panes[0]
+	binding := core.Binding{ID: "fixture-binding", IdentityID: identity.ID, Server: probe.Server,
+		PaneID: pane.PaneID, PanePID: observed.PID, PaneIncarnation: observed.Incarnation,
+		Session: core.BindingSessionState{RuntimeState: "running", Runtime: &core.ProcessIncarnation{
+			PID: observed.PID, StartIdentity: *observed.Incarnation,
+		}},
+	}
+	if published, err := host.PublishBinding(t.Context(), binding, identity); err != nil || !published {
+		t.Fatalf("publish fake binding = %t, %v", published, err)
+	}
+	probe, err = host.ProbeBinding(t.Context(), pane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	observer := runtime.Observer{Process: process.Runner{}}
+	main, err := observer.ProveBoundMain(t.Context(), identity, binding, probe)
+	if err != nil || main.Name != "codex" || uint64(main.Incarnation.PID) != observed.PID ||
+		main.Incarnation.Start != *observed.Incarnation {
+		t.Fatalf("fake foreground = %+v, %v", main, err)
+	}
+	stale := binding
+	stale.Session.Runtime = &core.ProcessIncarnation{PID: observed.PID, StartIdentity: "ps-v1:Sat Jan 1 00:00:00 2000"}
+	if got, err := observer.ProveBoundMain(t.Context(), identity, stale, probe); err != nil || got.Name != "" {
+		t.Fatalf("stale fake foreground = %+v, %v", got, err)
+	}
+
 	const req = "req_3fa85f64-5717-4562-b3fc-2c963f66afa6"
 	const receipt = "v2_test_receipt"
 	prompt := "check!\n\n<tmt-reply from=\"fixture\">\ntmt-go reply " + req + " --receipt " + receipt +

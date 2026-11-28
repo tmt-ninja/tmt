@@ -36,29 +36,55 @@ func (o Observer) MainInPane(ctx context.Context, caller, pane int, provider str
 }
 
 type processRow struct {
-	parent  int
-	command string
+	parent     int
+	command    string
+	group      int
+	foreground int
 }
 
 func mainPID(snapshot []byte, caller, pane int, provider string) int {
+	return findMain(parseProcessRows(snapshot, false), caller, pane, provider)
+}
+
+func parseProcessRows(snapshot []byte, withGroups bool) map[int]processRow {
 	if !utf8.Valid(snapshot) {
-		return 0
+		return nil
 	}
 	rows := make(map[int]processRow)
 	for line := range strings.SplitSeq(strings.TrimSpace(string(snapshot)), "\n") {
 		pidText, rest := splitPSField(line)
 		pid, err := strconv.Atoi(pidText)
 		if err != nil || !validPID(pid) {
-			return 0
+			return nil
 		}
-		parentText, command := splitPSField(rest)
+		parentText, tail := splitPSField(rest)
 		parent, err := strconv.Atoi(parentText)
-		if _, duplicate := rows[pid]; duplicate || err != nil || parent < 0 || command == "" {
+		if _, duplicate := rows[pid]; duplicate || err != nil || parent < 0 {
 			rows[pid] = processRow{}
 			continue
 		}
-		rows[pid] = processRow{parent: parent, command: filepath.Base(command)}
+		row := processRow{parent: parent}
+		if withGroups {
+			groupText, rest := splitPSField(tail)
+			foregroundText, command := splitPSField(rest)
+			group, groupErr := strconv.Atoi(groupText)
+			foreground, foregroundErr := strconv.Atoi(foregroundText)
+			if groupErr != nil || foregroundErr != nil {
+				rows[pid] = processRow{}
+				continue
+			}
+			row.group, row.foreground = group, foreground
+			tail = command
+		}
+		if tail != "" {
+			row.command = filepath.Base(tail)
+		}
+		rows[pid] = row
 	}
+	return rows
+}
+
+func findMain(rows map[int]processRow, caller, pane int, provider string) int {
 	// Refuse a cyclic or excessively deep path, and require every observed
 	// ancestor up to the exact pane to be present, even above the provider.
 	const maxDepth = 128
@@ -93,7 +119,7 @@ func splitPSField(input string) (string, string) {
 
 func runtimeName(command string) bool {
 	switch command {
-	case "claude", "codex", "agy", "pi":
+	case "claude", "codex", "gemini", "agy", "pi":
 		return true
 	default:
 		return false
