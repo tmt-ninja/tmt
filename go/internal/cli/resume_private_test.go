@@ -155,8 +155,9 @@ IFS= read -r ignored`, "fixture", binary, string(identity), statusPath, diagnost
 	})
 	if replay {
 		args, err := os.ReadFile(wrapperRecord)
-		if err != nil || string(args) != "resume\n-m\nfixture-model\n"+session+"\n--no-daemon\n" {
-			t.Fatalf("saved wrapper did not receive the replay command: %q, %v", args, err)
+		want := "resume\n--add-dir\n" + filepath.Join(world, "state") + "\n-m\nfixture-model\n" + session + "\n--no-daemon\n"
+		if err != nil || string(args) != want {
+			t.Fatalf("saved wrapper argv = %q, %v; want %q", args, err, want)
 		}
 	}
 	waitForPrivateFake(t, ctx, func() (bool, error) {
