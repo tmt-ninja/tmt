@@ -11,6 +11,7 @@ import (
 )
 
 var _ ports.RequestService = (*RequestService)(nil)
+var _ ports.IncomingXObserver = (*RequestService)(nil)
 
 type attentionScope struct {
 	owner, revision, acknowledged, counters string
@@ -44,15 +45,19 @@ type attentionKey struct {
 	response     bool
 }
 
-func (a attentionScope) selectSQL() string {
+func (a attentionScope) selectSQL(index string) string {
 	query := fmt.Sprintf(`SELECT a.request_id, a.%[1]s, MAX(a.%[2]s, c.acknowledged_through) >= a.%[1]s
-		FROM request_attempts a JOIN %[3]s c ON c.identity_id = a.%[4]s
+		FROM request_attempts a %[5]s JOIN %[3]s c ON c.identity_id = a.%[4]s
 		WHERE a.%[4]s = ?1 AND a.%[1]s > 0 AND a.retention_expires_at_ms > ?2`,
-		a.revision, a.acknowledged, a.counters, a.owner)
+		a.revision, a.acknowledged, a.counters, a.owner, index)
 	if a == incomingAttention {
 		query += " AND a.route_kind = 'inbox' AND a.status = 'queued'"
 	}
 	return query
+}
+
+func validIncomingRoom(room *core.RoomID) bool {
+	return room == nil || core.ValidUUID(string(*room)) && *room != "00000000-0000-0000-0000-000000000000"
 }
 
 func (s *RequestService) ListX(ctx context.Context, q core.XQuery) (core.XPage, error) {
@@ -64,6 +69,9 @@ func (s *RequestService) ListX(ctx context.Context, q core.XQuery) (core.XPage, 
 	if !ok || q.Identity == "" || limit > maxExchangeLimit || !core.ValidJSSafeInteger(q.After) {
 		return core.XPage{}, requestFailure("X_INPUT_INVALID", "Invalid exchange list limit or cursor.", 1)
 	}
+	if q.RoomID != nil && (q.Direction != core.XIncoming || !validIncomingRoom(q.RoomID)) {
+		return core.XPage{}, requestFailure("X_INPUT_INVALID", "Invalid room UUID.", 1)
+	}
 	calendar, err := s.store.loadDigestCalendar(ctx)
 	if err != nil {
 		return core.XPage{}, err
@@ -71,12 +79,12 @@ func (s *RequestService) ListX(ctx context.Context, q core.XQuery) (core.XPage, 
 	page := core.XPage{Items: []core.XItem{}}
 	err = s.transact(ctx, true, func(r records, now uint64) error {
 		delivery := deliveryProjector{r: r, now: now, calendar: calendar}
-		keys, err := listAttention(r, scope, q, limit+1, now, false)
+		keys, err := listAttention(r, scope, q, limit+1, now, false, false)
 		if err != nil {
 			return err
 		}
 		if q.Direction == core.XIncoming {
-			replies, err := listAttention(r, outgoingAttention, q, limit+1, now, true)
+			replies, err := listAttention(r, outgoingAttention, q, limit+1, now, true, false)
 			if err != nil {
 				return err
 			}
@@ -108,14 +116,63 @@ func (s *RequestService) ListX(ctx context.Context, q core.XQuery) (core.XPage, 
 	return page, nil
 }
 
-func listAttention(r records, scope attentionScope, q core.XQuery, limit, now uint64, responses bool) ([]attentionKey, error) {
-	query := scope.selectSQL() + fmt.Sprintf(` AND a.%[1]s > ?3
+func (s *RequestService) IncomingXWatermark(ctx context.Context, id core.IdentityID, room *core.RoomID) (uint64, error) {
+	if id == "" {
+		return 0, requestFailure("X_INPUT_INVALID", "Identifiers must be non-empty.", 1)
+	}
+	if !validIncomingRoom(room) {
+		return 0, requestFailure("X_INPUT_INVALID", "Invalid room UUID.", 1)
+	}
+	query := core.XQuery{Identity: id, Direction: core.XIncoming, RoomID: room}
+	var watermark uint64
+	err := s.transact(ctx, true, func(r records, now uint64) error {
+		requests, err := listAttention(r, incomingAttention, query, 1, now, false, true)
+		if err != nil {
+			return err
+		}
+		replies, err := listAttention(r, outgoingAttention, query, 1, now, true, true)
+		if err != nil {
+			return err
+		}
+		if len(requests) > 0 {
+			watermark = requests[0].revision
+		}
+		if len(replies) > 0 {
+			watermark = max(watermark, replies[0].revision)
+		}
+		return nil
+	})
+	return watermark, err
+}
+
+func listAttention(r records, scope attentionScope, q core.XQuery, limit, now uint64, responses, newest bool) ([]attentionKey, error) {
+	index := ""
+	switch {
+	case q.RoomID != nil && responses:
+		index = "INDEXED BY request_attempts_room_response_attention"
+	case q.RoomID != nil:
+		index = "INDEXED BY request_attempts_room_recipient_attention"
+	case responses:
+		index = "INDEXED BY request_attempts_response_attention"
+	case scope == incomingAttention:
+		index = "INDEXED BY request_attempts_recipient_attention"
+	}
+	query := scope.selectSQL(index) + fmt.Sprintf(` AND a.%[1]s > ?3
 		AND a.%[2]s < a.%[1]s AND c.acknowledged_through < a.%[1]s`, scope.revision, scope.acknowledged)
 	if responses {
 		query += " AND a.response_submitted_at_ms IS NOT NULL"
 	}
-	query += " ORDER BY a." + scope.revision + ", a.request_id LIMIT ?4"
-	rows, err := r.query(query, q.Identity, now, q.After, limit)
+	args := []any{q.Identity, now, q.After, limit}
+	if q.RoomID != nil {
+		query += " AND a.room_id = ?5"
+		args = append(args, q.RoomID)
+	}
+	order := ""
+	if newest {
+		order = " DESC"
+	}
+	query += " ORDER BY a." + scope.revision + order + ", a.request_id" + order + " LIMIT ?4"
+	rows, err := r.query(query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +190,7 @@ func listAttention(r records, scope attentionScope, q core.XQuery, limit, now ui
 
 func getAttention(r records, scope attentionScope, identity core.IdentityID, id core.RequestID, now uint64) (attentionKey, error) {
 	var key attentionKey
-	err := r.one(scope.selectSQL()+" AND a.request_id = ?3", identity, now, id).
+	err := r.one(scope.selectSQL("")+" AND a.request_id = ?3", identity, now, id).
 		Scan(&key.id, &key.revision, &key.acknowledged)
 	if isNoRows(err) {
 		err = requestFailure("X_NOT_FOUND", "Exchange was not found for this identity or is no longer retained.", 3)

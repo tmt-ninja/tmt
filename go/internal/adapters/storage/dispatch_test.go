@@ -269,3 +269,86 @@ func TestRoomDispatchUsesNativeRouteGrantsAndTalkLimit(t *testing.T) {
 		t.Fatalf("coalesced route refusal journal = %+v, %v", block, err)
 	}
 }
+
+func TestIncomingRoomAttentionWatermarkUsesExactRetainedScope(t *testing.T) {
+	parallelStorageFixture(t)
+	store, _, input := roomDispatchFixture(t)
+	clock := &requestClock{ms: 10_000}
+	service := NewRequestService(store, clock)
+	ctx := t.Context()
+	room, otherRoom := input.RoomID, secondRoomID
+	input.RecipientIDs = []core.IdentityID{bindingOtherID}
+	query := core.XQuery{Identity: bindingOtherID, Direction: core.XIncoming, RoomID: &room}
+	read := func(query core.XQuery, want core.RequestID) uint64 {
+		t.Helper()
+		before := roomFixtureCursor(t, store)
+		watermark, err := service.IncomingXWatermark(ctx, query.Identity, query.RoomID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		page, err := service.ListX(ctx, query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want == "" {
+			if watermark != 0 || len(page.Items) != 0 {
+				t.Fatalf("empty scope = %+v, watermark=%d", page, watermark)
+			}
+		} else if len(page.Items) != 1 || page.Items[0].RequestID != want ||
+			page.Items[0].Revision != watermark || page.Items[0].RoomID == nil || *page.Items[0].RoomID != *query.RoomID {
+			t.Fatalf("scoped page = %+v, watermark=%d, want %s", page, watermark, want)
+		}
+		if roomFixtureCursor(t, store) != before {
+			t.Fatal("observing incoming attention changed the cursor")
+		}
+		return watermark
+	}
+	read(query, "")
+	first, err := service.DispatchRoom(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := first.Items[0].RequestID
+	baseline := read(query, request)
+	other := putRoomFixture(t, store, otherRoom, core.RoomWrite{Name: "Unrelated", MemberIDs: input.RecipientIDs})
+	input.RoomID, input.Revision, input.OperationID = other.ID, other.Revision, otherDispatchOperation
+	otherReceipt, err := service.DispatchRoom(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	otherQuery := query
+	otherQuery.RoomID = &otherRoom
+	if latest := read(otherQuery, otherReceipt.Items[0].RequestID); latest <= baseline {
+		t.Fatalf("unrelated revision %d did not exceed baseline %d", latest, baseline)
+	}
+	if scoped := read(query, request); scoped != baseline {
+		t.Fatalf("other room advanced scoped watermark: %d to %d", baseline, scoped)
+	}
+	if unscoped, err := service.IncomingXWatermark(ctx, bindingOtherID, nil); err != nil || unscoped <= baseline {
+		t.Fatalf("unscoped watermark = %d, %v", unscoped, err)
+	}
+	_, err = writeRoomFixture(t, store, func(repo ports.RoomRepo) (core.MeetingRoom, error) {
+		return repo.Retire(room, 1)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	read(query, request)
+	detail, err := service.ShowX(ctx, bindingOtherID, core.XIncoming, request)
+	if err != nil || detail.Receipt == nil {
+		t.Fatalf("retained request = %+v, %v", detail, err)
+	}
+	if _, err := service.SubmitResponse(ctx, core.SubmitResponse{RequestID: request, Receipt: *detail.Receipt, Body: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	replyQuery := core.XQuery{Identity: bindingOwnerID, Direction: core.XIncoming, RoomID: &room}
+	read(replyQuery, request)
+	if ack, err := service.AckX(ctx, bindingOtherID, core.XIncoming, request, baseline); err != nil || !ack.Changed {
+		t.Fatalf("recipient acknowledgement = %+v, %v", ack, err)
+	}
+	read(query, "")
+	read(replyQuery, request)
+	editResumeFixture(t, store, "UPDATE request_attempts SET retention_expires_at_ms=20000 WHERE request_id=?", request)
+	clock.ms = 20_000
+	read(replyQuery, "")
+}

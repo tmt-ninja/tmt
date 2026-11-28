@@ -6,6 +6,11 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/core"
 )
 
+// IncomingXObserver reads the highest eligible incoming revision without acknowledging it.
+type IncomingXObserver interface {
+	IncomingXWatermark(ctx context.Context, identity core.IdentityID, roomID *core.RoomID) (uint64, error)
+}
+
 // RequestService is the durable request boundary for CLI. Each mutation owns
 // its transaction; host delivery and observer waits happen between calls.
 type RequestService interface {

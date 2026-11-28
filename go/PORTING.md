@@ -188,6 +188,13 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     `migrations/writer_wait_tests.rs::a_writer_that_adds_no_version_still_ends_the_wait_in_busy_after_the_stall_bound`
     maps to `TestOpenStalledMigrationReturnsTypedBusy` at the production bound.
 
+- [x] GO1-31: Observe incoming X within one room.
+  - Native `storage/requests.rs::incoming_watermark_sql` and the scoped activity
+    assertion in `typescript/test/native/room.test.ts` map to
+    `TestIncomingRoomAttentionWatermarkUsesExactRetainedScope`. It checks the
+    exact room for requests and replies, acknowledgement and expiry, retained
+    history after retirement, and an unchanged cursor during observation.
+
 ## go-2 (sys, process, tmux, host, drivers, channel)
 
 - [x] GO2-01: Native selected-process start reads on Darwin and Linux before the bounded ps fallback. Rust `process/process_info.rs::stopped_and_exited_owned_children_keep_batch_parity` → `TestNativeProcessStartsForLiveStoppedAndGone` and `TestNativeStartTokenMatchesTheBoundedPSFallback`; Linux stat parsing → `TestNativeLinuxStatKeepsTheStartFieldAfterComplexCommand`. Under concurrent test suites, repeated batched ps reads exhausted the swap budget, including the fresh post-swap check. Native reads preserve the persisted token and remove those subprocesses. Each focus ancestry proof also checks both required links from one snapshot (`TestProcessTreeProvesBothSegmentsFromOneSnapshot`), with fresh rechecks and deadlines intact.

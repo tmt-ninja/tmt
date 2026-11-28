@@ -38,6 +38,7 @@ const (
 )
 
 type XQuery struct {
+	RoomID    *RoomID // nonnil scopes incoming attention to that room
 	Identity  IdentityID
 	Direction XDirection
 	After     uint64
