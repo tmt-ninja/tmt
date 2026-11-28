@@ -255,6 +255,10 @@ func commandConstraints(parsed invocation) (required []string, conflicts, requir
 
 func validateOperands(parsed invocation) string {
 	switch parsed.path[0] {
+	case "identity":
+		if parsed.has("expect-name") && (len(parsed.operands) != 1 || !core.IsCanonicalIdentityID(parsed.operands[0])) {
+			return "--expect-name needs the identity's UUID."
+		}
 	case "ls":
 		if len(parsed.operands) != 0 {
 			for _, name := range []string{"room", "saved", "temp", "here", "all", "detected"} {

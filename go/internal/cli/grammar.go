@@ -109,6 +109,8 @@ var options = []optionSpec{
 	{name: "receipt", value: true, help: "Receipt supplied by talk"},
 	{name: "from", value: true, help: "Only requests from this identity"},
 	{name: "request", value: true, help: "Answer this open request ID"},
+	{name: "where", value: true},
+	{name: "has", value: true},
 	{name: "global"},
 	{name: "activity-only", hidden: true},
 }
@@ -121,6 +123,15 @@ var grammar = commandSpec{
 			{name: "show", summary: "Show settings"},
 			{name: "set", summary: "Set a setting", options: []string{"global"}, operands: []operandSpec{required("key"), required("value")}},
 			{name: "rm", aliases: []string{"clear"}, summary: "Reset local setting overrides", operands: []operandSpec{optional("key")}},
+		}},
+		{name: "identity", summary: "Manage identity records, metadata and self-reported status", children: []commandSpec{
+			{name: "create", summary: "Create or save an identity", operands: []operandSpec{required("name")}},
+			{name: "mv", aliases: []string{"rename"}, summary: "Rename an identity", operands: []operandSpec{required("old"), required("new")}},
+			{name: "show", summary: "Show an identity", operands: []operandSpec{optional("name")}, options: []string{"expect-name"}},
+			{name: "ls", aliases: []string{"list"}, summary: "List non-retired identities", options: []string{"where", "has"}},
+		}},
+		{name: "notes", summary: "Access saved identity notes", children: []commandSpec{
+			{name: "path", summary: "Initialize and print the local Markdown path", options: []string{"identity"}},
 		}},
 		{name: "run", summary: "Start a known agent, or bind this pane and run a command", usage: "AGENT [ARGS...] | NAME [COMMAND...]",
 			humanOnly: true, trailing: true, operands: []operandSpec{required("run-argv")},
