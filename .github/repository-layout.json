@@ -30,6 +30,10 @@
     "site/src/i18n/zh-hans": "zh-Hans"
   },
   "temporary": {
-    "go": "Go port experiment on poc/go only (#6938); never merged into main without an owner decision."
+    "go": {
+      "removeIn": [
+        "#6938"
+      ]
+    }
   }
 }
