@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
+	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
@@ -302,4 +304,66 @@ func privateFixtureBuild(ctx context.Context, path, pkg string) *exec.Cmd {
 		args = append(args, "-tags=nativecompat")
 	}
 	return exec.CommandContext(ctx, "go", append(args, "-o", path, pkg)...)
+}
+
+func TestRoomTalkRefusesAnUnidentifiedPaneWithoutPreparing(t *testing.T) {
+	world := t.TempDir()
+	t.Setenv("HOME", filepath.Join(world, "home"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(world, "config"))
+	t.Setenv("TMT_HOME", filepath.Join(world, "native"))
+	t.Setenv(flavor.EnvHome, filepath.Join(world, "state"))
+	t.Chdir(world)
+	server := tmuxtest.Start(t)
+	pane := strings.TrimSpace(server.Run("display-message", "-p", "#{pane_id}"))
+	pid := strings.TrimSpace(server.Run("display-message", "-p", "-t", pane, "#{pid}"))
+	app := systemApplication()
+	app.caller.lookup = func(key string) (string, bool) {
+		switch key {
+		case "TMUX":
+			return server.Socket + "," + pid + ",0", true
+		case "TMUX_PANE":
+			return pane, true
+		default:
+			return os.LookupEnv(key)
+		}
+	}
+	run := func(want int, args ...string) []byte {
+		t.Helper()
+		var out, errOut bytes.Buffer
+		if code := app.run(t.Context(), append(args, "--json"), &out, &errOut); code != want || errOut.Len() != 0 {
+			t.Fatalf("%q exit=%d stdout=%q stderr=%q", args, code, &out, &errOut)
+		}
+		return out.Bytes()
+	}
+	run(0, "identity", "create", "Alice")
+	run(0, "room", "create", "Design")
+	refused := run(1, "talk", pane, "must not be sent", "--room", "Design", "--identity", "Alice", "--detach")
+	var failure struct {
+		Error     struct{ Code string }
+		RequestID core.RequestID
+	}
+	if err := json.Unmarshal(refused, &failure); err != nil || failure.Error.Code != "ROOM_RECIPIENT_NOT_MEMBER" || failure.RequestID == "" {
+		t.Fatalf("unexpected room refusal %q: %v", refused, err)
+	}
+	if marker := server.Run("show-options", "-s", "-q", "-v", tmux.ServerIDOption); strings.TrimSpace(marker) != "" {
+		t.Fatalf("refused room talk initialized a server ID: %q", marker)
+	}
+	root, err := home.Resolve(os.LookupEnv, filepath.Join(world, "home"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := storage.Open(t.Context(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	if err := store.Read(t.Context(), func(tx ports.StoreTx) error {
+		attempt, err := tx.Requests().FindByID(failure.RequestID)
+		if err == nil && attempt != nil {
+			t.Fatal("refused room talk stored a request")
+		}
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
 }

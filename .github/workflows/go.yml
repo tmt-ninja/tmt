@@ -161,6 +161,9 @@ jobs:
           # One list selects the suite cases and defines the expected counts.
           cases = {
               "native": [
+                  ("test/native/room.test.ts", "scopes direct talk to one member and rejects outsiders without fan-out"),
+                  ("test/native/room.test.ts", "listens and replies to historical room context after leave, without consuming another room"),
+                  ("test/native/room.test.ts", "listens and replies to historical room context after retire, without consuming another room"),
                   ("test/native/room.test.ts", "retires without deleting the roster and rejects new routing or reusing the old UUID"),
                   ("test/native/room.test.ts", "queues a frozen audience, safely replays, and distinguishes no-reply broadcasts"),
                   ("test/native/room.test.ts", "persists independent memberships and filters the existing identity listing"),

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ type talkPlan struct {
 	root          home.Root
 	target        string
 	message       string
+	room          *string
 	originator    identitySelection
 	hasSender     bool
 	callerFailure *output.Failure
@@ -44,9 +46,12 @@ func (app application) prepareTalk(ctx context.Context, root home.Root, inv invo
 		target: inv.operands[0], message: inv.operands[1], detach: inv.has("detach"), urgent: inv.has("urgent"),
 		digestKind: core.DigestKind(inv.options["kind"]),
 	}
-	for _, option := range []string{"remote", "room", "passthrough"} {
+	if room, present := inv.options["room"]; present {
+		plan.room = &room
+	}
+	for _, option := range []string{"remote", "passthrough"} {
 		if inv.has(option) {
-			// NOT PORTED (CLI-15, CLI-16, CLI-17, CLI-18): Remote name pinning and delivery, room routes, and passthrough.
+			// NOT PORTED (CLI-15, CLI-17, CLI-18): Remote name pinning and delivery, and passthrough.
 			return plan, &output.Failure{Code: "NOT_PORTED", Message: fmt.Sprintf("Talk option '--%s' is not yet ported.", option), Status: 2}
 		}
 	}
@@ -235,10 +240,17 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 	var recipient *core.Identity
 	var binding *core.Binding
 	var directPane bool
+	var room *core.MeetingRoom
 	originator := core.Originator{Kind: core.OriginatorUnknown}
 	senderName := "unknown"
 	err := app.store.Read(ctx, func(tx ports.StoreTx) error {
 		var err error
+		if plan.room != nil {
+			room, err = resolveRoom(tx.Rooms(), *plan.room, false)
+			if err != nil {
+				return roomFailure(err)
+			}
+		}
 		records := tx.Identities()
 		directPane, err = core.AddressesPane(records, plan.target)
 		if err != nil {
@@ -283,21 +295,37 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 		return nil
 	})
 	if err != nil {
-		if plan.callerFailure != nil && errors.Is(err, plan.callerFailure) {
-			return plan.callerFailure
+		var failure *output.Failure
+		if errors.As(err, &failure) {
+			return failure
 		}
 		return talkFailure(err)
 	}
 	var pane directTalkPane
 	if directPane {
 		var failure *output.Failure
-		pane, failure = app.resolveDirectTalkPane(ctx, plan.target)
+		pane, failure = app.resolveDirectTalkPane(ctx, plan.target, room == nil)
 		if failure != nil {
 			return failure
 		}
 		recipient, binding = pane.recipient, pane.binding
 	} else if recipient == nil {
 		return identityMissing(plan.target)
+	}
+
+	var roomID *core.RoomID
+	if room != nil {
+		if recipient == nil || !slices.Contains(room.MemberIDs, recipient.ID) {
+			failure := bindingFailure("ROOM_RECIPIENT_NOT_MEMBER",
+				"The direct target must be an identified member of the selected room. No message was sent.", 1)
+			failure.Request = &output.RequestFailure{RequestID: "req_" + talkUUID()}
+			failure.Target = &output.TargetFailure{Target: plan.target, Pane: pane.snapshot.Pane.PaneID}
+			if recipient != nil {
+				failure.Target.Identity = &output.TargetIdentity{Name: string(recipient.Name), CanonicalName: recipient.CanonicalName}
+			}
+			return failure
+		}
+		roomID = &room.ID
 	}
 
 	if !waitForTalkTimer(ctx, plan.delay) {
@@ -309,7 +337,7 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 	}
 	req := core.PrepareRequest{
 		RequestID: core.RequestID("req_" + talkUUID()), AttemptID: core.AttemptID(talkUUID()),
-		Kind: core.RequestKindRequest, Origin: core.RequestOriginPerson, Originator: originator,
+		Kind: core.RequestKindRequest, Origin: core.RequestOriginPerson, Originator: originator, RoomID: roomID,
 		Message: plan.message, Wait: !plan.detach, RetentionDays: plan.retention,
 		ExpiresAtMs: uint64(time.Now().Add(plan.timeout + plan.pasteDelay + time.Second).UnixMilli()),
 		DeliveryPolicy: &core.RequestDeliveryPolicy{

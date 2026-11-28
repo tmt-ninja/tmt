@@ -17,7 +17,7 @@ type directTalkPane struct {
 	binding   *core.Binding
 }
 
-func (app application) resolveDirectTalkPane(ctx context.Context, selector string) (directTalkPane, *output.Failure) {
+func (app application) resolveDirectTalkPane(ctx context.Context, selector string, allowUnbound bool) (directTalkPane, *output.Failure) {
 	var result directTalkPane
 	if strings.HasPrefix(core.TargetText(selector), "pty_") {
 		// NOT PORTED (CLI-14): Durable direct-pane requests on the built-in terminal host.
@@ -57,6 +57,10 @@ func (app application) resolveDirectTalkPane(ctx context.Context, selector strin
 	if first.Server.ID == "" {
 		if first.Marker != nil {
 			return result, directTalkEvidenceFailure()
+		}
+		if !allowUnbound {
+			result.snapshot = first
+			return result, nil
 		}
 		id, err := client.EnsureServerID(ctx, socket)
 		if err != nil {

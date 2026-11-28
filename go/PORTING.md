@@ -253,7 +253,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-13` Implement bounded `whoami --context` output.
 - [ ] `CLI-14` Port direct-pane talk on non-tmux hosts. Verified bound tmux panes keep the Inbox route. Unbound tmux panes retain the request against the exact endpoint and require a fresh paste fence. Private Go tests map durable receipt, detach/result, and byte preservation from `durable-talk.e2e.test.ts`, `smoke.e2e.test.ts` and `response-integrity.e2e.test.ts`.
 - [ ] `CLI-15` Implement `talk --remote` through Remote delivery.
-- [ ] `CLI-16` Implement `talk --room` and its membership rules.
+- [x] `CLI-16` Scope `talk --room` to the selected member and recheck membership in the request writer.
 - [ ] `CLI-17` Implement `talk --passthrough` through guarded raw paste.
 - [ ] `CLI-18` Apply the validated `talk --expect-name` UUID/name pin on the Remote route (CLI-15).
 - [ ] `CLI-19` Send best-effort reply notifications after durable acceptance.
@@ -292,6 +292,8 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [x] `CLI-50` Fix intermittent parallel private-tmux deadlines via GO2-01 (8d7b740d72). `TestPrivateDiscoveryAndMarkedPaneWithoutMetadata` expired its 1 s process read in the old pane's exact Discover after re-marking. `TestDiscoverAndMarkedOnPrivateTmux` returned an empty, truncated initial inventory under load. `TestPrivateFocusAndSwapExactInvokingClient` reached the 12 s fixture limit in its last focus action. A separate adapter trace pinned the 4 s swap deadline in a post-swap batched `ps` read with 368 ms left, following reads up to 944 ms. `TestFocusSwapGeometryMatchesNative` reported generic reconciliation in left and right without identifying a stage. Native start observations and one ancestry snapshot per proof replace the repeated subprocess work. All original deadlines and exact pre/post checks remain, and all four fixtures passed uncached with package parallelism in both flavors.
 
 ### Native test mappings from merged main
+
+- `typescript/test/native/room.test.ts` scopes direct Talk to one member and rejects outsiders without fan-out. Its historical leave/retire cases verify scoped listening, reply, result and acknowledgement without consuming another room. All run unchanged in the parity manifest. `TestRoomTalkRefusesAnUnidentifiedPaneWithoutPreparing` checks the private tmux fallback leaves no request or server marker.
 
 - Rust `exchange_command/listen.rs` newer revisions, trailing debounce, acknowledgement and hard deadline → `TestListenTimingMatchesNativeTrailingEdgeAndDeadline`. `TestRoomDispatchRetainsReceiptAndRoomScope` pins dispatch replay, conflict, announcement, room ID and historical room listening without acknowledgements. The manifest runs the unchanged Room retirement and frozen dispatch cases in both runtimes.
 
