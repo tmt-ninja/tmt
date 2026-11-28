@@ -117,14 +117,25 @@ func Guard(root Root, env Env, userHome string) error {
 	return nil
 }
 
+// clean returns p made absolute with symlinks resolved through its deepest
+// existing ancestor, so a root that does not exist yet still compares
+// correctly with one under a symlinked directory (macOS /var -> /private/var).
 func clean(p string) string {
 	if abs, err := filepath.Abs(p); err == nil {
 		p = abs
 	}
-	if real, err := filepath.EvalSymlinks(p); err == nil {
-		p = real
+	p = filepath.Clean(p)
+	rest := ""
+	for dir := p; ; dir = filepath.Dir(dir) {
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(real, rest)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return p
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
 	}
-	return filepath.Clean(p)
 }
 
 func within(child, parent string) bool {

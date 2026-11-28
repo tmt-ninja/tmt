@@ -139,3 +139,18 @@ func TestPinnedTMTHomeNeedsTheMarker(t *testing.T) {
 		t.Fatalf("got %v, want ErrNativeRoot", err)
 	}
 }
+
+func TestGuardResolvesSymlinkedParentOfMissingNativeRoot(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Fatal(err)
+	}
+	// HOME is spelled through the link; the data root through the real path.
+	// The native root (link/.config/tmt) does not exist yet, so only resolving
+	// its existing ancestor reveals that the data root contains it.
+	env := envOf(map[string]string{EnvHome: real})
+	if _, err := Resolve(env, link); !errors.Is(err, ErrNativeRoot) {
+		t.Fatalf("got %v, want ErrNativeRoot", err)
+	}
+}

@@ -106,7 +106,9 @@ func TestCheckPinsCaptureToActiveUUIDBeforeHostAccess(t *testing.T) {
 
 func TestCheckExplicitLinesStillValidatesConfigBeforeStorage(t *testing.T) {
 	world := t.TempDir()
-	t.Setenv("HOME", world)
+	// HOME stays outside the data root: a root containing HOME/.config/tmt
+	// overlaps the native root and is refused.
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv(flavor.EnvHome, world)
 	config := filepath.Join(world, "config.json")
 	before := []byte(`{"defaults":{"captureLines":"12junk"}}`)
