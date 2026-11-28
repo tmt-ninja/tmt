@@ -107,6 +107,7 @@ func (r bindingRows) resumeFence(snapshot *core.ResumeSnapshot) (core.ResumeFenc
 		values[i] = rows
 	}
 	selected := snapshot.Selected
+	snapshot.ResumeModel = resumeStateModel(selected)
 	for _, row := range values[2] {
 		key, keyOK := row[0].(string)
 		doc, docOK := row[1].(string)
@@ -120,12 +121,15 @@ func (r bindingRows) resumeFence(snapshot *core.ResumeSnapshot) (core.ResumeFenc
 		if preset == nil {
 			continue
 		}
+		matching := selected != nil && preset.matches(*selected)
 		if key == "resume.launch" {
-			// NOT PORTED (#6938, GO1-17): use readable driver state to
-			// refresh the displayed model of an associated preset.
 			snapshot.LaunchPreset = preset.projection()
+			if matching && snapshot.ResumeModel != nil {
+				snapshot.LaunchPreset.Model = snapshot.ResumeModel
+			}
 		}
-		if selected != nil && preset.matches(*selected) {
+		if matching && (snapshot.ReplayPreset == nil || key == "resume.launch") {
+			snapshot.ReplayPreset = preset.projection()
 			selected.HasMatchingPreset = true
 		}
 	}

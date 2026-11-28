@@ -218,15 +218,24 @@ func TestResumePresetProjectionAndFence(t *testing.T) {
 	parallelStorageFixture(t)
 	store := bindingFixture(t)
 	seedResumeFixture(t, store)
+	editResumeFixture(t, store, `UPDATE identity_session_preferences
+		SET driver_state_version=5,driver_state='{"model":"sonnet","observed":{"model":"later","observedAtMs":1001}}'
+		WHERE identity_id=?`, bindingOwnerID)
 	old := resumeFixtureSnapshot(t, store, bindingOwnerID)
 	preset := `{"executable":"fixture-provider","model":"opus","effort":null,"env":{"CLAUDE_MINI_PCT":"5"},"binding":"` +
 		string(bindingID1) + `","owner_pid":100,"owner_start":"start","harness":"claude","session":"` + savedResumeSession + `"}`
 	editResumeFixture(t, store, "INSERT INTO identity_metadata(identity_id,key,value) VALUES(?,'resume.launch',?)", bindingOwnerID, preset)
+	retainedPreset := strings.Replace(preset, "fixture-provider", "retained-wrapper", 1)
+	editResumeFixture(t, store, "INSERT INTO identity_metadata(identity_id,key,value) VALUES(?,'resume.driver.claude',?)",
+		bindingOwnerID, retainedPreset)
 	current := resumeFixtureSnapshot(t, store, bindingOwnerID)
 	projected := current.LaunchPreset
-	if projected == nil || projected.Executable != "fixture-provider" || projected.Model == nil || *projected.Model != "opus" ||
+	if projected == nil || projected.Executable != "fixture-provider" || projected.Model == nil || *projected.Model != "sonnet" ||
 		projected.Effort != nil || !projected.Associated || len(projected.Env) != 1 || projected.Env["CLAUDE_MINI_PCT"] != "5" ||
-		!current.Selected.HasMatchingPreset || current.Fence == old.Fence {
+		!current.Selected.HasMatchingPreset || current.Fence == old.Fence ||
+		current.ReplayPreset == nil || current.ReplayPreset.Executable != "fixture-provider" ||
+		current.ReplayPreset.Model == nil || *current.ReplayPreset.Model != "opus" ||
+		current.ResumeModel == nil || *current.ResumeModel != "sonnet" {
 		t.Fatalf("preset projection = %+v, matching = %t", projected, current.Selected.HasMatchingPreset)
 	}
 	err := store.Write(t.Context(), func(tx ports.StoreTx) error {
@@ -237,14 +246,28 @@ func TestResumePresetProjectionAndFence(t *testing.T) {
 	editResumeFixture(t, store, "UPDATE identity_metadata SET value=? WHERE identity_id=? AND key='resume.launch'",
 		strings.Replace(preset, "CLAUDE_MINI_PCT", "UNSUPPORTED_ENV", 1), bindingOwnerID)
 	rejected := resumeFixtureSnapshot(t, store, bindingOwnerID)
-	if rejected.LaunchPreset != nil || rejected.Selected.HasMatchingPreset || rejected.Fence == current.Fence {
+	if rejected.LaunchPreset != nil || !rejected.Selected.HasMatchingPreset || rejected.Fence == current.Fence ||
+		rejected.ReplayPreset == nil || rejected.ReplayPreset.Executable != "retained-wrapper" {
 		t.Fatalf("disallowed env projection = %+v", rejected)
 	}
 
-	editResumeFixture(t, store, "INSERT INTO identity_metadata(identity_id,key,value) VALUES(?,'resume.driver.claude',?)", bindingOwnerID, preset)
-	retained := resumeFixtureSnapshot(t, store, bindingOwnerID)
-	if retained.LaunchPreset != nil || !retained.Selected.HasMatchingPreset || retained.Fence == rejected.Fence {
-		t.Fatalf("matching retained preset = %+v", retained)
+	editResumeFixture(t, store, "UPDATE identity_metadata SET value=? WHERE identity_id=? AND key='resume.driver.claude'",
+		strings.Replace(retainedPreset, savedResumeSession, "unrelated-session", 1), bindingOwnerID)
+	unmatched := resumeFixtureSnapshot(t, store, bindingOwnerID)
+	if unmatched.LaunchPreset != nil || unmatched.ReplayPreset != nil || unmatched.Selected.HasMatchingPreset ||
+		unmatched.Fence == rejected.Fence {
+		t.Fatalf("unrelated retained preset = %+v", unmatched)
+	}
+
+	editResumeFixture(t, store, "UPDATE identity_metadata SET value=? WHERE identity_id=? AND key='resume.launch'",
+		preset, bindingOwnerID)
+	editResumeFixture(t, store, `UPDATE identity_session_preferences
+		SET driver_state='{"model":"sonnet","observed":{"model":"later","observedAtMs":0}}'
+		WHERE identity_id=?`, bindingOwnerID)
+	unreadable := resumeFixtureSnapshot(t, store, bindingOwnerID)
+	if unreadable.ResumeModel != nil || unreadable.LaunchPreset == nil || unreadable.LaunchPreset.Model == nil ||
+		*unreadable.LaunchPreset.Model != "opus" || unreadable.Fence == unmatched.Fence {
+		t.Fatalf("unreadable state changed the saved display model: %+v", unreadable)
 	}
 }
 
@@ -330,5 +353,51 @@ func TestForgetResumeLaunchAndSessionKeepIndependentEvidence(t *testing.T) {
 	if err != nil || !channel || carried || retained != "other-session" || preset != "independent preset" {
 		t.Fatalf("state after session clear: channel %t, stale state %t, retained %q, preset %q, error %v",
 			channel, carried, retained, preset, err)
+	}
+}
+
+func TestResumeStateModelReadsNativeVersions(t *testing.T) {
+	const usage = `"usage":{"tokens":1,"observedAtMs":2}`
+	const activity = `"activity":{"session":"sess","pid":42,"start":"birth","state":"idle","turn":null,"sinceMs":1,"lastActivityMs":2}`
+	const consumption = `"consumption":{"value":{"inputTokens":3,"outputTokens":2,"cachedInputTokens":1,"deltaByModel":[["opus",3,2,1,null]],"epoch":"a0be3c52-44c8-44e5-922b-44a0201a9715","sequence":1,"observedAtMs":2,"complete":true,"gap":false},"family":{"input":1,"output":1,"cached":0}}`
+	for _, tc := range []struct {
+		version  uint16
+		document string
+		want     string
+	}{
+		{1, `{"model":"opus"}`, "opus"},
+		{2, `{"model":"opus",` + usage + `}`, "opus"},
+		{3, `{"model":"opus",` + activity + `}`, "opus"},
+		{4, `{"model":"opus",` + consumption + `}`, "opus"},
+		{5, `{"model":"opus","observed":{"model":"later","observedAtMs":1}}`, "opus"},
+		{5, `{"observed":{"model":"later","observedAtMs":1}}`, ""},
+		{6, `{"model":"opus","noStartupIdle":{"session":"sess","pid":42,"start":"birth"}}`, "opus"},
+		{7, `{"model":"opus"}`, ""},
+		{3, `{"model":"opus"}`, ""},
+		{1, `{"model":"opus","effort":"high"}`, ""},
+		{1, `{"model":7}`, ""},
+		{1, `{"model":"-x"}`, ""},
+		{1, "not json", ""},
+		{1, `{"model":"opus",` + usage + `}`, ""},
+		{2, `{"model":"opus"}`, ""},
+		{2, `{"model":"-x",` + usage + `}`, ""},
+		{2, `{"model":"opus","usage":{"tokens":-1,"observedAtMs":2}}`, ""},
+		{2, `{"model":"opus","usage":{"tokens":1}}`, ""},
+		{2, `{"model":"opus","usage":{"tokens":1,"observedAtMs":2,"cost":3}}`, ""},
+		{2, `{"model":"opus","usage":{"tokens":1,"windowTokens":0,"observedAtMs":2}}`, ""},
+		{2, `{"model":"opus",` + usage + `,"extra":1}`, ""},
+		{3, `{"model":"opus",` + strings.Replace(activity, `"turn":null,`, "", 1) + `}`, ""},
+		{4, `{"model":"opus",` + strings.Replace(consumption, `"input":1`, `"input":4`, 1) + `}`, ""},
+		{5, `{"model":"opus","observed":{"model":"later","observedAtMs":0}}`, ""},
+		{5, `{"model":"opus","observed":{"model":"later","observedAtMs":1,"event":"Stop"}}`, ""},
+		{5, `{"model":"opus","observed":null}`, ""},
+		{5, `{"model":"opus"}`, ""},
+		{6, `{"model":"opus","noStartupIdle":{"session":"sess","pid":0,"start":"birth"}}`, ""},
+	} {
+		session := &core.ResumeSession{Driver: core.DriverClaude, State: &core.ResumeDriverState{Version: tc.version, JSON: tc.document}}
+		got := resumeStateModel(session)
+		if tc.want == "" && got != nil || tc.want != "" && (got == nil || *got != tc.want) {
+			t.Errorf("version %d, %s: model = %v, want %q", tc.version, tc.document, got, tc.want)
+		}
 	}
 }

@@ -57,7 +57,13 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     `TestVerifyResumeRefusesSavedEvidenceBeforeMutation` covers the
     `RESUME_UNSUPPORTED` branch in `run_command/resume.rs`.
     Unregistered-session cleanup and CLI parity remain open.
-- [ ] GO1-17: Resume with saved wrapper, model, effort and channel settings, plus the associated preset model refresh in --show.
+- [ ] GO1-17: Resume with saved wrapper, model, effort and channel settings.
+  - Go `TestResumePresetProjectionAndFence` maps the exact-session preset
+    selection in native `runtime/launch_preset.rs` and the associated model
+    refresh in `resume_command.rs` `--show`. Wrapper replay and channel
+    support remain open.
+  - Go `TestResumeStateModelReadsNativeVersions` maps the launch-model
+    and unreadable-document assertions in `runtime/driver_state.rs`.
 - [x] GO1-18: Exact send-now release, guarded claim and settlement.
 - [ ] GO1-19: Reply and timeout notice production.
 - [x] GO1-20: Selected Digest checklist snapshot and summary-only counts after settlement.

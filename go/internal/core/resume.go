@@ -40,6 +40,8 @@ type ResumeSnapshot struct {
 	PreferredDriver *DriverName
 	Selected        *ResumeSession
 	LaunchPreset    *ResumeLaunchPreset
+	ReplayPreset    *ResumeLaunchPreset
+	ResumeModel     *string
 	Fence           ResumeFence
 }
 
