@@ -1954,25 +1954,28 @@ fn talk_completes_a_member_item_and_checklist_r_quotes_it() {
 }
 
 fn work_references(app: &mut App) {
-    app.work.list = Some(
-        crate::board::work::List::decode(&serde_json::json!({
-            "spaceId": "work-space",
-            "pages": [{
-                "pageId": "12345678-aaaa-4aaa-8aaa-123456789abc",
-                "workNumber": "TUI-12",
-                "title": "Terminal resize",
-                "summary": {
-                    "status": "working",
-                    "todos": [{
-                        "id": "12345678-bbbb-4bbb-8bbb-123456789abc",
-                        "number": "TUI-13",
-                        "text": "Check narrow pane",
-                        "checked": false
-                    }]
-                }
-            }]
-        }))
-        .unwrap(),
+    app.work.apply(
+        std::time::Instant::now(),
+        Ok(
+            crate::board::work_references::Snapshot::decode(&serde_json::json!({
+                "spaceId": "work-space",
+                "pages": [{
+                    "pageId": "12345678-aaaa-4aaa-8aaa-123456789abc",
+                    "workNumber": "TUI-12",
+                    "title": "Terminal resize",
+                    "summary": {
+                        "status": "working",
+                        "todos": [{
+                            "id": "12345678-bbbb-4bbb-8bbb-123456789abc",
+                            "number": "TUI-13",
+                            "text": "Check narrow pane",
+                            "checked": false
+                        }]
+                    }
+                }]
+            }))
+            .unwrap(),
+        ),
     );
 }
 
@@ -2030,7 +2033,7 @@ fn received_work_reference_opens_its_block_or_copies_only_the_number() {
     );
     assert_eq!(
         press(&mut app, KeyCode::Enter),
-        Effect::OpenWorkPage(crate::board::work::OpenTarget {
+        Effect::OpenWorkPage(crate::board::work_references::OpenTarget {
             page: "12345678-aaaa-4aaa-8aaa-123456789abc".into(),
             block: Some("12345678-bbbb-4bbb-8bbb-123456789abc".into()),
         })

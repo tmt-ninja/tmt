@@ -144,7 +144,6 @@ impl Resume {
 pub(super) fn shell_json(tab: super::shell::OpsTab) -> &'static str {
     match tab {
         super::shell::OpsTab::Agents => "agents",
-        super::shell::OpsTab::Work => "work",
         super::shell::OpsTab::Digest => "digest",
         super::shell::OpsTab::Orchestration => "orchestration",
     }
@@ -155,7 +154,7 @@ pub(super) fn shell_from(value: &Value) -> Option<super::shell::OpsTab> {
         // A saved Overview tab opens the merged Agents tab.
         "overview" | "agents" => super::shell::OpsTab::Agents,
         "digest" => super::shell::OpsTab::Digest,
-        "work" => super::shell::OpsTab::Work,
+        "work" => super::shell::OpsTab::Agents,
         "orchestration" => super::shell::OpsTab::Orchestration,
         _ => return None,
     })

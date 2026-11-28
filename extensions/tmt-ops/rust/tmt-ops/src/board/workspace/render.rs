@@ -49,9 +49,8 @@ pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
     use crate::action::OpsUiAction;
     let keys = [
         (OpsUiAction::Agents, "1"),
-        (OpsUiAction::Work, "2"),
-        (OpsUiAction::DigestDashboard, "3"),
-        (OpsUiAction::Orchestration, "4"),
+        (OpsUiAction::DigestDashboard, "2"),
+        (OpsUiAction::Orchestration, "3"),
     ]
     .map(|(action, preferred)| crate::board::keycap::key(app, action, preferred));
     let labels = tabs.map(OpsTab::label);
@@ -61,7 +60,7 @@ pub(in crate::board) fn tabs(app: &App, area: Rect) -> Line<'static> {
     let (line, hits) = paint(false);
     let scope = app.workspace.visibility.scope.len();
     // Reserve the shortest complete scope chip before offering any truncated
-    // tab. A compact strip keeps all four full labels and their hit areas.
+    // tab. A compact strip keeps all full labels and their hit areas.
     let shortest_chip =
         unicode_width::UnicodeWidthStr::width(format!(" Scope {scope} × ").as_str());
     let (line, hits) = if scope != 0
@@ -491,12 +490,7 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
         inside.height.saturating_sub(rule_height + header_height),
     );
     let rows = app.workspace_rows();
-    let work_bindings = app
-        .work
-        .list
-        .as_ref()
-        .filter(|_| !app.work.stale)
-        .map(|list| list.bindings(&snapshot.roster));
+    let work_bindings = app.work.bindings(&snapshot.roster);
     // Only a lifted membership (`m`) adds a line; otherwise every row is its own line.
     let placement = super::moving::placement(app, &rows);
     let line = |index: usize| {
@@ -1056,11 +1050,11 @@ fn tree(frame: &mut Frame, app: &App, area: Rect, now: std::time::Instant, now_m
                         let OpsTarget::Member { identity_id, .. } = &row.target else {
                             return None;
                         };
-                        let (item, count) = work_bindings.as_ref()?.get(identity_id.as_str())?;
-                        Some(Line::styled(
-                            crate::board::work::row_chip(item, *count),
-                            look.role(Role::Muted),
-                        ))
+                        work_bindings
+                            .get(identity_id.as_str())
+                            .map(|(binding, count)| {
+                                Line::styled(binding.chip(*count), look.role(Role::Muted))
+                            })
                     })(),
                     query: &app.workspace.query,
                 },

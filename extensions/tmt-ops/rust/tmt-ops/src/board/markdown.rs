@@ -613,7 +613,7 @@ pub(super) fn render_conversation(
     width: usize,
     look: crate::look::Look,
     inventory: Option<&super::inventory::Inventory>,
-    work: Option<&super::work::References>,
+    work: Option<&super::work_references::References>,
 ) -> Mapped {
     // Display normalization must never silently rewrite a command that can be submitted.
     let clean = super::notes::sanitize(text);
@@ -695,10 +695,13 @@ fn checklist_references(text: &str) -> Vec<SourceReference> {
 
 struct WorkMatch<'a> {
     range: std::ops::Range<usize>,
-    reference: &'a super::work::Reference,
+    reference: &'a super::work_references::Reference,
 }
 
-fn work_references<'a>(text: &str, work: &'a super::work::References) -> Vec<WorkMatch<'a>> {
+fn work_references<'a>(
+    text: &str,
+    work: &'a super::work_references::References,
+) -> Vec<WorkMatch<'a>> {
     let mut covered = 0;
     text.match_indices('#')
         .filter_map(|(start, _)| {
@@ -734,7 +737,7 @@ fn work_references<'a>(text: &str, work: &'a super::work::References) -> Vec<Wor
 /// Attach titles to Talk references, without rewriting quoted or literal source.
 pub(super) fn expand_work_references(
     text: String,
-    work: &super::work::References,
+    work: &super::work_references::References,
     limit: usize,
 ) -> Option<String> {
     if text.len() > limit {
@@ -814,7 +817,7 @@ fn project<'a>(
     inventory: Option<&'a super::inventory::Inventory>,
     format: Format,
     commands_unchanged: bool,
-    work: Option<&super::work::References>,
+    work: Option<&super::work_references::References>,
 ) -> Mapped {
     let options = MESSAGE_OPTIONS;
     let mut references = Vec::new();

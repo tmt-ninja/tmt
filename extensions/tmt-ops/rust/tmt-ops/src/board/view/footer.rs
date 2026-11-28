@@ -771,33 +771,6 @@ fn help_only(verb: crate::action::Verb) -> bool {
 }
 
 fn workspace_pairs(app: &App, width: usize) -> Vec<Hint> {
-    if app.shell.tab == crate::board::shell::OpsTab::Work {
-        return fit_hints(
-            [
-                ("/", "search"),
-                ("v", "views"),
-                ("↑↓", "move"),
-                ("Space", "detail"),
-                ("Tab", "focus"),
-                ("⏎", "open"),
-                ("t", "talk"),
-                ("m", "move"),
-                ("p", "project"),
-                ("d", "period"),
-                ("c", "done"),
-                ("r", "refresh"),
-                ("?", "help"),
-                ("q", "quit"),
-            ]
-            .into_iter()
-            .filter(|(key, _)| *key != "⏎" || app.work.open_hit_visible())
-            .filter(|(key, _)| *key != "m" || app.work.move_hit_visible())
-            .map(|(key, label)| (key.into(), label.into()))
-            .collect(),
-            vec![],
-            width,
-        );
-    }
     if app.shell.tab == crate::board::shell::OpsTab::Digest && !app.searching {
         return digest_pairs(app, width);
     }
@@ -1058,7 +1031,6 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
                 | crate::board::app::Compose::Status
                 | crate::board::app::Compose::Workspace
         ) && app.input_band.get().is_none()
-            && app.overlay() != Some(crate::board::app::Overlay::WorkTalk)
     }) {
         let footer = hint_area;
         let hint = input
@@ -1106,7 +1078,6 @@ pub(super) fn render(frame: &mut Frame, app: &App, footer: Rect, look: crate::lo
     let mut footer_line = if let Some(input) = app.input.as_ref().filter(|input| {
         !matches!(input.compose, crate::board::app::Compose::AskLead { .. })
             && app.input_band.get().is_none()
-            && app.overlay() != Some(crate::board::app::Overlay::WorkTalk)
     }) {
         let mut spans = vec![Span::raw(format!("{} › {}▏", input.prompt, input.text))];
         if let Some(hint) = input

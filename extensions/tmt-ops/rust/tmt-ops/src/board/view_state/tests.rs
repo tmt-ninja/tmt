@@ -807,7 +807,6 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
     use crate::config::StartupTab;
     let fixed = [
         (StartupTab::Agents, OpsTab::Agents),
-        (StartupTab::Work, OpsTab::Work),
         (StartupTab::Digest, OpsTab::Digest),
         (StartupTab::Orchestration, OpsTab::Orchestration),
     ];
@@ -824,11 +823,14 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
     }
     let scratch = Scratch::missing("view-state");
     let retained = ViewState {
-        shell: OpsTab::Work,
+        shell: OpsTab::Agents,
         selected: None,
         ..saved()
     };
     write(&view_file(&scratch), &retained);
+    let path = view_file(&scratch);
+    let saved = fs::read_to_string(&path).unwrap();
+    fs::write(&path, saved.replace("\"agents\"", "\"work\"")).unwrap();
     for (_, tab) in fixed {
         let mut app = cold();
         app.workspace_startup = Some(crate::board::app::WorkspaceStartup {
@@ -858,8 +860,8 @@ fn startup_tab_precedence_is_flag_then_preference_then_retained_view() {
     session.prepare(&mut app).unwrap();
     assert_eq!(
         app.shell.tab,
-        OpsTab::Work,
-        "last retains the existing layer destination"
+        OpsTab::Agents,
+        "last restores an old Work destination as Agents"
     );
 }
 

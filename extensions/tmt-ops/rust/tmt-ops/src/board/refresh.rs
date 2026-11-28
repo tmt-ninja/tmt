@@ -350,9 +350,9 @@ impl Worker {
                     let reader = background.cancellable(cancellation.clone());
                     if let Deferred::ReadColab = job {
                         let result = if cancellation.cancelled() {
-                            Err("Colab Work was superseded.".into())
+                            Err(super::work_references::ReadFailure::Unavailable)
                         } else {
-                            super::work::read(&reader)
+                            super::work_references::read(&reader)
                         };
                         return events
                             .send(super::BoardEvent::WorkRead {

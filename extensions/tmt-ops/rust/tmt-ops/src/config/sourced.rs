@@ -136,6 +136,7 @@ impl Config {
                             | "home_replies"
                             | "checklist_enter"
                             | "startup_tab"
+                            | "work"
                     )
                 }) {
                     return Err(invalid(format!("`board.{key}` is not a board setting.")));

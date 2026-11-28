@@ -98,7 +98,7 @@ fn cell(grid: &[Vec<String>], heading: &str, agent: &str) -> Option<String> {
 }
 
 fn digest(app: &mut App) -> Vec<Vec<String>> {
-    press(app, '3');
+    press(app, '2');
     grid(app, 160, 36)
 }
 

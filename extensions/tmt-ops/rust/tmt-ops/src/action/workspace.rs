@@ -4,7 +4,6 @@
 pub enum OpsUiAction {
     ResizePane,
     Agents,
-    Work,
     DigestDashboard,
     Orchestration,
     QuotaDetails,
@@ -279,7 +278,6 @@ const SPECS: &[OpsUiSpec] = &[
         23
     ),
     spec!(Agents, "agents", "Agents", "show the squad workspace", 20),
-    spec!(Work, "work", "Work", "show the Work tab", 20),
     spec!(
         DigestDashboard,
         "digest-dashboard",

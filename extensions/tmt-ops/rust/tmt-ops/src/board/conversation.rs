@@ -176,7 +176,7 @@ struct Rendered {
     width: usize,
     look: Look,
     identities: Option<Arc<()>>,
-    work: Option<Arc<super::work::References>>,
+    work: Option<Arc<super::work_references::References>>,
     mapped: Mapped,
     anchor_text: super::notes::IndexedText,
     anchor_sources: Vec<usize>,
@@ -463,7 +463,7 @@ impl Session {
         width: usize,
         look: Look,
         inventory: &super::inventory::Inventory,
-        work: Option<&Arc<super::work::References>>,
+        work: Option<&Arc<super::work_references::References>>,
     ) -> bool {
         let identities = Some(std::sync::Arc::clone(&inventory.generation));
         let changed = self.stale
@@ -553,11 +553,6 @@ impl App {
     }
 
     pub(super) fn conversation_target(&self) -> Option<RowTarget> {
-        if let Some(dialog) = &self.work.talk_dialog {
-            let target = RowTarget::Workspace(dialog.target.clone());
-            self.target_row(&target)?["id"].as_str()?;
-            return Some(target);
-        }
         let target = self.row_target(self.selected)?;
         self.target_row(&target)?["id"].as_str()?;
         Some(target)

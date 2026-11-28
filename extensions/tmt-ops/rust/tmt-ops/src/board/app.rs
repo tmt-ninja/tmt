@@ -238,11 +238,6 @@ pub enum Request {
         next: crate::config::OpsPreferences,
         saved: Option<String>,
     },
-    WorkViews {
-        expected: Vec<crate::config::WorkView>,
-        next: Vec<crate::config::WorkView>,
-        saved: String,
-    },
     MemberLabel {
         expected: std::sync::Arc<crate::config::WorkspaceLabels>,
         member: String,
@@ -291,7 +286,6 @@ impl Request {
             Self::KeptRemove { .. } => "Removing kept reply…",
             Self::Status(_) => "Updating status…",
             Self::WorkspacePreferences { .. } => "Saving workspace preferences…",
-            Self::WorkViews { .. } => "Saving work views…",
             Self::MemberLabel { .. } => "Saving label…",
             Self::LabelEdit { .. } => "Saving labels…",
             Self::WorkspaceOperation(_) => "Applying workspace operation…",
@@ -345,8 +339,7 @@ pub enum Effect {
     PickTheme,
     SaveTheme,
     Act(Request),
-    OpenWorkPage(super::work::OpenTarget),
-    WorkOrder(super::work::OrderMove),
+    OpenWorkPage(super::work_references::OpenTarget),
     AnswerProviderForm(super::provider_answer::Send),
     Checklist(super::checklist::load::Task),
     Recovery(super::recovery::load::Task),
@@ -366,7 +359,6 @@ pub enum Effect {
 /// What a menu entry does: run a binding, or reply to one open request.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Choice {
-    WorkOrder(super::work::OrderMove),
     LabelTarget(super::workspace::OpsTarget),
     MemberLabel {
         expected: std::sync::Arc<crate::config::WorkspaceLabels>,
@@ -425,7 +417,7 @@ pub enum Choice {
     MemberNotes,
     OpenWorkReference {
         number: String,
-        target: super::work::OpenTarget,
+        target: super::work_references::OpenTarget,
     },
     OpenChecklistItem {
         key: super::conversation_checklist::Key,
@@ -749,8 +741,6 @@ pub(super) enum Overlay {
     EstimateBasis,
     OrchestrationWhy,
     Unread,
-    WorkTalk,
-    WorkViews,
     Discovery,
     MemberSession,
     Notes,
@@ -766,7 +756,7 @@ pub(super) enum Overlay {
 }
 impl Overlay {
     #[cfg(test)]
-    pub(super) const ALL: [Self; 28] = [
+    pub(super) const ALL: [Self; 27] = [
         Self::Workspace,
         Self::Recovery,
         Self::Help,
@@ -782,7 +772,6 @@ impl Overlay {
         Self::EstimateBasis,
         Self::OrchestrationWhy,
         Self::Unread,
-        Self::WorkTalk,
         Self::Discovery,
         Self::MemberSession,
         Self::Notes,
@@ -826,8 +815,6 @@ impl Overlay {
                 Self::PastePreview => "paste-preview",
                 Self::OfflineResume => "offline-resume",
                 Self::Standalone => "run-command",
-                Self::WorkTalk => "work-talk",
-                Self::WorkViews => "work-views",
             }
             .into(),
         ]
@@ -913,7 +900,7 @@ pub struct App {
     /// Terminal-owner observation for hints only; never persisted or inferred.
     pub(in crate::board) keyboard_enhanced: bool,
     pub(super) shell: super::shell::OpsShell,
-    pub(in crate::board) work: super::work::State,
+    pub(in crate::board) work: super::work_references::State,
     pub(in crate::board) orchestration: super::orchestration::State,
     pub(super) workspace: super::workspace::OpsWorkspace,
     frame_workspace_rows: RefCell<Option<std::rc::Rc<[super::workspace::OpsTreeRow]>>>,
@@ -2479,7 +2466,7 @@ impl App {
                     collapsed.insert(Pane::Replies);
                 }
             }
-            super::shell::OpsTab::Work | super::shell::OpsTab::Orchestration => {
+            super::shell::OpsTab::Orchestration => {
                 collapsed.extend([Pane::Rows, Pane::Replies]);
             }
             super::shell::OpsTab::Digest => {
@@ -3465,7 +3452,6 @@ impl App {
 
     pub(super) fn choose(&mut self, choice: Choice) -> Effect {
         match choice {
-            Choice::WorkOrder(task) => self.confirm_work_order(task),
             Choice::LabelTarget(target) => {
                 if !matches!(target, super::workspace::OpsTarget::Member { .. })
                     || self
@@ -3551,11 +3537,7 @@ impl App {
             Choice::SavingsUnit => self.cycle_savings_unit(),
             Choice::TokMoney | Choice::TokUnit => self.toggle_tok_money(),
             Choice::ClearSearch => {
-                if self.shell.tab == super::shell::OpsTab::Work {
-                    super::search_field::clear(&mut self.work.search, &mut self.work.searching);
-                } else {
-                    super::search_field::clear(&mut self.search, &mut self.searching);
-                }
+                super::search_field::clear(&mut self.search, &mut self.searching);
                 self.clamp();
                 self.invalidate_frame_geometry();
                 Effect::None
@@ -3699,12 +3681,7 @@ impl App {
                 .unwrap_or(Effect::None);
         }
         if self.is_searching() && self.input.is_none() && !self.modal_open() {
-            let search = if self.shell.tab == super::shell::OpsTab::Work {
-                &mut self.work.search
-            } else {
-                &mut self.search
-            };
-            if !super::search_field::paste(search, text) {
+            if !super::search_field::paste(&mut self.search, text) {
                 return self.say("Search exceeds 4,096 bytes; query unchanged.");
             }
             self.clamp();
@@ -4308,10 +4285,6 @@ impl App {
             Some(Overlay::OrchestrationWhy)
         } else if self.unread_overlay.is_some() {
             Some(Overlay::Unread)
-        } else if self.work.talk_dialog.is_some() {
-            Some(Overlay::WorkTalk)
-        } else if self.work.view_dialog.is_some() {
-            Some(Overlay::WorkViews)
         } else if self.switch_tool_shown() {
             Some(Overlay::SwitchTool)
         } else if self.idle_alert_shown() {
@@ -4472,20 +4445,6 @@ impl App {
             Overlay::CronReview => self.cron_review_event(event),
             Overlay::Confirm => self.confirm_event(event),
             Overlay::MonitorDetails => self.monitor_details_event(event),
-            Overlay::WorkTalk => match event {
-                ratatui::crossterm::event::Event::Key(key) => Some(self.work_talk_key(*key)),
-                ratatui::crossterm::event::Event::Mouse(mouse) => self.work_talk_mouse(*mouse),
-                _ => None,
-            },
-            Overlay::WorkViews => match event {
-                ratatui::crossterm::event::Event::Key(key) => {
-                    Some(self.work_view_dialog_key(*key).unwrap_or(Effect::None))
-                }
-                ratatui::crossterm::event::Event::Mouse(mouse) => {
-                    Some(self.work_view_dialog_mouse(*mouse).unwrap_or(Effect::None))
-                }
-                _ => None,
-            },
         }
     }
 
@@ -4656,7 +4615,6 @@ impl App {
                 action.verb,
                 Verb::Ui(
                     crate::action::OpsUiAction::Agents
-                        | crate::action::OpsUiAction::Work
                         | crate::action::OpsUiAction::DigestDashboard
                         | crate::action::OpsUiAction::Orchestration
                 )
@@ -4696,11 +4654,7 @@ impl App {
                     return effect;
                 }
             }
-            if self.shell.tab == super::shell::OpsTab::Work {
-                self.work.searching = false;
-            } else {
-                self.searching = false;
-            }
+            self.searching = false;
             let effect = self.perform(&action);
             return if effect == Effect::None {
                 cleanup
@@ -4821,21 +4775,10 @@ impl App {
         {
             return self.open_standalone();
         }
-        if let Some(effect) = self.work_view_dialog_key(key) {
-            return effect;
-        }
         if !typing && let Some(effect) = self.saved_row_key(key) {
             return effect;
         }
-        if !typing && let Some(effect) = self.work_key(key) {
-            return effect;
-        }
-        let (search, searching) = if self.shell.tab == super::shell::OpsTab::Work {
-            (&mut self.work.search, &mut self.work.searching)
-        } else {
-            (&mut self.search, &mut self.searching)
-        };
-        if let Some(input) = super::search_field::key(search, searching, key) {
+        if let Some(input) = super::search_field::key(&mut self.search, &mut self.searching, key) {
             self.clamp();
             match input {
                 super::search_field::Input::Previous => {
@@ -4888,7 +4831,6 @@ impl App {
         self.standalone.invalidate();
         self.provider_answer.invalidate();
         self.orchestration.invalidate();
-        self.work.hits.borrow_mut().clear();
         self.pane_resize.invalidate();
         self.buttons.invalidate();
         if let Some(picker) = &self.panels_picker {
@@ -5212,9 +5154,6 @@ impl App {
             return Effect::None;
         }
         if let Some(effect) = self.frame_mouse(event) {
-            return effect;
-        }
-        if let Some(effect) = self.work_view_dialog_mouse(event) {
             return effect;
         }
         self.conversation_source_outside_press(event);
@@ -5562,11 +5501,6 @@ impl App {
         {
             return self.cycle_token_window();
         }
-        if !self.modal_open()
-            && let Some(effect) = self.work_mouse(event)
-        {
-            return effect;
-        }
         if self.shell.tab == super::shell::OpsTab::Orchestration
             && !self.modal_open()
             && let Some(effect) = self.orchestration_mouse(event)
@@ -5584,9 +5518,8 @@ impl App {
         if let (MouseEventKind::Down(MouseButton::Left), Some(hit)) = (event.kind, tab) {
             let action = match hit.tab {
                 0 => crate::action::OpsUiAction::Agents,
-                1 => crate::action::OpsUiAction::Work,
-                2 => crate::action::OpsUiAction::DigestDashboard,
-                3 => crate::action::OpsUiAction::Orchestration,
+                1 => crate::action::OpsUiAction::DigestDashboard,
+                2 => crate::action::OpsUiAction::Orchestration,
                 _ => return Effect::None,
             };
             self.focus = 0;
@@ -5652,9 +5585,6 @@ impl App {
     }
 
     pub(super) fn selected_read(&self) -> Option<super::refresh::SelectedRead> {
-        if self.shell.tab == super::shell::OpsTab::Work && self.unread_overlay.is_none() {
-            return None;
-        }
         if self.shell.tab == super::shell::OpsTab::Orchestration && self.unread_overlay.is_none() {
             return Some(super::refresh::SelectedRead::Orchestration(
                 self.orchestration.read(),
@@ -7787,7 +7717,6 @@ mod standalone_command_tests {
         let press = |app: &mut App, code| app.key(KeyEvent::new(code, KeyModifiers::NONE));
         for (tab, focus, owner) in [
             (OpsTab::Agents, 0, OpsInputOwner::List),
-            (OpsTab::Work, 0, OpsInputOwner::List),
             (OpsTab::Agents, 1, OpsInputOwner::Reader),
         ] {
             let mut app = super::workspace::tests::board();

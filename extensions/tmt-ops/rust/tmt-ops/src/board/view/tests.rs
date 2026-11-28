@@ -94,7 +94,7 @@ fn the_first_admitted_frame_shows_board_chrome_without_live_data() {
     for width in [60, 100, 160] {
         let mut terminal = Terminal::new(TestBackend::new(width, 20)).unwrap();
         terminal
-            .draw(|frame| opening(frame, crate::look::Look::default(), Some(OpsTab::Work)))
+            .draw(|frame| opening(frame, crate::look::Look::default(), Some(OpsTab::Digest)))
             .unwrap();
         let buffer = terminal.backend().buffer();
         let lines = buffer_text(buffer);
@@ -103,7 +103,7 @@ fn the_first_admitted_frame_shows_board_chrome_without_live_data() {
             "missing board header at {width} columns: {lines:?}"
         );
         let tabs = &lines[1];
-        for label in ["Agents", "Work", "Digest", "Orchestration"] {
+        for label in ["Agents", "Digest", "Orchestration"] {
             assert!(
                 tabs.contains(label),
                 "missing tab at {width} columns: {tabs}"
@@ -112,7 +112,7 @@ fn the_first_admitted_frame_shows_board_chrome_without_live_data() {
         assert_eq!(
             lines
                 .iter()
-                .filter(|line| line.contains("◌ Loading work…"))
+                .filter(|line| line.contains("◌ Loading squads…"))
                 .count(),
             1,
             "one marked loading row"
@@ -969,7 +969,7 @@ fn startup_spinner_is_delayed_and_animated_without_squad_switch_state() {
     );
     let screen = draw(&app, 80, 8);
     let tab_y = usize::from(app.tab_hits.borrow()[0].y);
-    assert!(screen[tab_y].contains("1  Agents") && screen[tab_y].contains("3  Digest"));
+    assert!(screen[tab_y].contains("1  Agents") && screen[tab_y].contains("2  Digest"));
     assert!(screen.iter().any(|line| line.contains("Opening")));
     let settled = workspace_board();
     assert!(!settled.loading());
@@ -1229,7 +1229,7 @@ fn policy_chips_keep_actual_workspace_row_height_hits_and_selection_at_each_widt
                             .collect::<String>();
                         let label = match tab {
                             OpsTab::Digest => "—",
-                            OpsTab::Agents | OpsTab::Work | OpsTab::Orchestration => "—",
+                            OpsTab::Agents | OpsTab::Orchestration => "—",
                         };
                         assert!(line.contains(label), "{tab:?}/{width}/{depth:?}: {line}");
                         if tab == OpsTab::Agents {

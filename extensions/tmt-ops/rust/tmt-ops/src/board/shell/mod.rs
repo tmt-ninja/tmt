@@ -5,18 +5,16 @@
 pub enum OpsTab {
     #[default]
     Agents,
-    Work,
     Digest,
     Orchestration,
 }
 
 impl OpsTab {
-    pub(super) const ALL: [Self; 4] = [Self::Agents, Self::Work, Self::Digest, Self::Orchestration];
+    pub(super) const ALL: [Self; 3] = [Self::Agents, Self::Digest, Self::Orchestration];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::Agents => "Agents",
-            Self::Work => "Work",
             Self::Digest => "Digest",
             Self::Orchestration => "Orchestration",
         }
@@ -59,14 +57,14 @@ impl OpsShell {
         let previous = match self.tab {
             OpsTab::Agents => Some(0),
             OpsTab::Digest => Some(1),
-            OpsTab::Work | OpsTab::Orchestration => None,
+            OpsTab::Orchestration => None,
         };
         let destination = match tab {
             OpsTab::Agents => self.anchors[0].take(),
             OpsTab::Digest => self.anchors[1]
                 .take()
                 .or(Some(super::workspace::OpsTarget::DigestAll)),
-            OpsTab::Work | OpsTab::Orchestration => None,
+            OpsTab::Orchestration => None,
         };
         if let Some(index) = previous {
             self.anchors[index] = selected.take();
@@ -92,9 +90,8 @@ impl OpsShell {
         }
         let tab = match digit {
             '1' => OpsTab::Agents,
-            '2' => OpsTab::Work,
-            '3' => OpsTab::Digest,
-            '4' => OpsTab::Orchestration,
+            '2' => OpsTab::Digest,
+            '3' => OpsTab::Orchestration,
             _ => return false,
         };
         self.select(tab, selected);

@@ -813,7 +813,7 @@ pub(in crate::board) fn capture_case(state: &str, look: crate::look::Look) -> Ap
         *style = look;
     }
     app.shell.tab = OpsTab::Agents;
-    key(&mut app, KeyCode::Char('3'));
+    key(&mut app, KeyCode::Char('2'));
     match state {
         "digest-first-open" => {}
         "digest-retained-pick" => {
@@ -821,7 +821,7 @@ pub(in crate::board) fn capture_case(state: &str, look: crate::look::Look) -> Ap
             app.select(last);
             let selected = app.workspace.selected.clone();
             key(&mut app, KeyCode::Char('1'));
-            key(&mut app, KeyCode::Char('3'));
+            key(&mut app, KeyCode::Char('2'));
             assert_eq!(app.workspace.selected, selected);
         }
         "digest-busy-late" | "digest-empty-flow" | "digest-unavailable-flow" => {

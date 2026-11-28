@@ -109,7 +109,7 @@ mod usage_report;
 mod view;
 mod view_state;
 pub(crate) use view_state::Layer as ViewLayer;
-mod work;
+mod work_references;
 mod workspace;
 
 pub use tabs::{ALL, LEADS};
@@ -158,11 +158,10 @@ pub(in crate::board) enum BoardEvent {
     ProviderAnswer(provider_answer::Completed),
     Standalone(standalone::Completed),
     WorkRead {
-        result: Result<work::List, work::ReadFailure>,
+        result: Result<work_references::Snapshot, work_references::ReadFailure>,
         cancellation: crate::runner::Cancellation,
     },
     WorkOpened(Result<String, String>),
-    WorkOrder(work::OrderReply),
     OrchestrationRead {
         read: orchestration::Read,
         observation: orchestration::Observation,
@@ -340,7 +339,6 @@ impl BoardEvent {
             Self::IdleAlert(_) => "IdleAlert",
             Self::WorkRead { .. } => "WorkRead",
             Self::WorkOpened(_) => "WorkOpened",
-            Self::WorkOrder(_) => "WorkOrder",
             Self::OrchestrationRead { .. } => "OrchestrationRead",
             Self::Orchestration(_) => "Orchestration",
             Self::InputClosed => "InputClosed",
@@ -757,23 +755,6 @@ fn execute(core: &Core, request: Request) -> Result<ActionOutcome, String> {
                 saved.unwrap_or_else(|| "Workspace preferences saved.".to_owned()),
             ))));
         }
-        Request::WorkViews {
-            expected,
-            next,
-            saved,
-        } => {
-            let mut config = Config::load(core).map_err(|error| error.message)?;
-            config
-                .save_work_views(&expected, &next)
-                .map_err(|error| error.message)?;
-            let preferences = config
-                .workspace_preferences()
-                .map_err(|error| error.message)?;
-            return Ok(ActionOutcome::WorkspacePreferences(Box::new((
-                preferences,
-                saved,
-            ))));
-        }
         Request::MemberLabel {
             expected,
             member,
@@ -1097,18 +1078,12 @@ fn session(
         if !activity_changed {
             activity_window = next_activity_window;
         }
-        if (app.shell.tab == shell::OpsTab::Work
-            || app.shell.tab == shell::OpsTab::Agents && app.workspace_snapshot().is_some())
+        if app.shell.tab == shell::OpsTab::Agents
+            && app.workspace_snapshot().is_some()
             && !app.framed()
             && app.work.request(now)
         {
             work_read();
-        }
-        if app.shell.tab == shell::OpsTab::Work
-            && !app.framed()
-            && let Some(job) = app.work.request_order_show()
-        {
-            submit(app, lane::Job::WorkOrder(job));
         }
         if dirty {
             observe_navigation(
@@ -1266,7 +1241,6 @@ fn session(
                                 app.selected_request = refresh::SelectedRequest::Ready(None);
                             }
                             app.apply(*snapshot);
-                            app.apply_default_work_view();
                             app.standalone.refresh_due = true;
                             dirty = true;
                             app.prune_member_placement()
@@ -1293,7 +1267,6 @@ fn session(
                         } else {
                             let previous = app.work.references().cloned();
                             app.work.apply(Instant::now(), result);
-                            app.apply_default_work_view();
                             if app.mentions.work
                                 && app.mentions.completion.open()
                                 && previous
@@ -1310,12 +1283,6 @@ fn session(
                     Ok(BoardEvent::WorkOpened(result)) => {
                         app.in_flight = app.in_flight.saturating_sub(1);
                         app.finished(result);
-                        dirty = true;
-                        Effect::None
-                    }
-                    Ok(BoardEvent::WorkOrder(reply)) => {
-                        app.in_flight = app.in_flight.saturating_sub(1);
-                        app.work.apply_order(reply);
                         dirty = true;
                         Effect::None
                     }
@@ -1856,9 +1823,6 @@ fn session(
                         io(lane::Job::IdleAlert(task));
                     }
                     Effect::OpenWorkPage(page) => submit(app, lane::Job::OpenWorkPage(page)),
-                    Effect::WorkOrder(task) => {
-                        submit(app, lane::Job::WorkOrder(work::OrderJob::Move(task)))
-                    }
                     Effect::Orchestration(task) => {
                         app.in_flight += 1;
                         io(lane::Job::Orchestration(task));
@@ -2266,6 +2230,7 @@ pub fn run(
         crate::migration::paths(&core, None)?
             .notice
             .filter(|_| app.migration_notice.is_none())
+            .or_else(|| config.obsolete_work_notice().map(str::to_owned))
             .or_else(|| config.obsolete_board_notice().map(str::to_owned))
             .or(startup_notice)
             .or(placement_notice)
@@ -3595,7 +3560,7 @@ print(json.dumps(out))
                                 KeyCode::Down,
                                 KeyCode::Down,
                                 KeyCode::Up,
-                                KeyCode::Char('3'),
+                                KeyCode::Char('2'),
                                 KeyCode::Char('q'),
                             ] {
                                 events.send(key(code)).unwrap();
