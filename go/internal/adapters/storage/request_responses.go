@@ -270,17 +270,18 @@ func resultPrefixRange(input string) (string, string, error) {
 }
 
 type storedPolicy struct {
-	urgent bool
-	kind   string
-	mode   string
+	urgent    bool
+	automatic bool
+	kind      string
+	mode      string
 }
 
 func deliveryPolicy(r records, id core.RequestID) (storedPolicy, error) {
 	var p storedPolicy
-	err := r.one("SELECT urgent, kind, mode FROM request_delivery_policies WHERE request_id = ?", id).
-		Scan(&p.urgent, &p.kind, &p.mode)
+	err := r.one("SELECT urgent, automatic, kind, mode FROM request_delivery_policies WHERE request_id = ?", id).
+		Scan(&p.urgent, &p.automatic, &p.kind, &p.mode)
 	if isNoRows(err) {
-		return storedPolicy{kind: "fyi", mode: "request"}, nil
+		return storedPolicy{automatic: true, kind: "fyi", mode: "request"}, nil
 	}
 	return p, err
 }

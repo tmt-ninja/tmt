@@ -35,11 +35,12 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO1-15: Resume forget, move, new, retry, driver switching and stale/pending settlement.
 - [ ] GO1-16: Gemini exact resume.
 - [ ] GO1-17: Resume with saved wrapper, model, effort and channel settings, plus the associated preset model refresh in --show.
-- [ ] GO1-18: Exact send-now release, guarded claim and settlement.
+- [x] GO1-18: Exact send-now release, guarded claim and settlement.
 - [ ] GO1-19: Reply and timeout notice production.
 - [x] GO1-20: Selected Digest checklist snapshot and summary-only counts after settlement.
 - [x] GO1-21: Observe future schema versions through an existing API session.
 - [ ] GO1-22: Decode authoritative Digest idle activity for Agy and Pi.
+- [ ] GO1-23: Preserve the retained thread-root frame when a request is sent now.
 
 ## go-2 (sys, process, tmux, host, drivers, channel)
 

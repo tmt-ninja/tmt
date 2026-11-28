@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"sync"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -14,6 +15,9 @@ import (
 type RequestService struct {
 	store *Storage
 	clock ports.Clock
+
+	wakeLock sync.Mutex
+	wakes    map[core.WakeClaimGeneration]core.ReleasedWakeQuery
 }
 
 func NewRequestService(store *Storage, clock ports.Clock) *RequestService {

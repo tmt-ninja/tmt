@@ -15,6 +15,13 @@ type RequestService interface {
 	Settle(context.Context, core.AttemptID, core.Settlement) error
 	ReleaseWait(context.Context, core.AttemptID) error
 
+	// Send-now delivery uses one invocation-local generation and keeps host I/O
+	// between the final claim read and the terminal settlement.
+	ReleaseSendNow(context.Context, core.RequestRef, core.IdentityID) (core.SendNowRelease, error)
+	ClaimReleasedWake(context.Context, core.ReleasedWakeQuery) (core.ReleasedWakeClaim, error)
+	ReadClaimedWake(context.Context, core.ReleasedWakeProof) (*core.ReleasedWakePayload, error)
+	SettleReleasedWake(context.Context, core.ReleasedWakeSettlement) error
+
 	SubmitResponse(context.Context, core.SubmitResponse) (core.FinalResponse, error)
 	Answer(context.Context, core.AnswerRequest) (core.AnswerResult, error)
 	Result(context.Context, core.RequestID) (core.ResponseLookup, error)
