@@ -2,11 +2,15 @@ package cli
 
 import (
 	"context"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
+	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -17,6 +21,20 @@ import (
 type callerSelector struct {
 	lookup func(string) (string, bool)
 	probe  func(context.Context, ports.PaneRef) (core.EndpointProbe, error)
+}
+
+func systemCaller() callerSelector {
+	return callerSelector{
+		lookup: os.LookupEnv,
+		probe: func(ctx context.Context, pane ports.PaneRef) (core.EndpointProbe, error) {
+			path, err := exec.LookPath("tmux")
+			if err != nil {
+				return core.EndpointProbe{}, err
+			}
+			client := tmux.Client{Path: path, Process: process.Runner{}}
+			return client.ProbeBinding(ctx, pane)
+		},
+	}
 }
 
 type callerClaim struct {

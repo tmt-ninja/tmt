@@ -20,7 +20,7 @@ var Version = "0.0.0-go-dev"
 
 // Main runs one invocation and returns the process exit status.
 func Main(args []string, stdout, stderr io.Writer) int {
-	return application{stdin: os.Stdin}.run(context.Background(), args, stdout, stderr)
+	return application{stdin: os.Stdin, caller: systemCaller()}.run(context.Background(), args, stdout, stderr)
 }
 
 type application struct {

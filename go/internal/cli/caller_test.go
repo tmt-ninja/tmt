@@ -2,16 +2,11 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
 
-	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
-	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
-	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -50,97 +45,39 @@ func TestCallerSelectionWithPrivateTmuxEvidence(t *testing.T) {
 	server := tmuxtest.Start(t)
 	t.Setenv("TMT_GO_HOME", t.TempDir())
 	ctx := context.Background()
-	path, err := exec.LookPath("tmux")
-	if err != nil {
-		t.Fatal(err)
-	}
-	runner := process.Runner{}
-	client := tmux.Client{Process: runner, Path: path}
-	observer := runtime.Observer{Process: runner}
-	incarnation := func(pid int) string {
-		t.Helper()
-		observation, err := observer.Observe(ctx, pid)
-		if err != nil || observation.State != runtime.Alive || !observation.Incarnation.Valid() {
-			t.Fatalf("process %d observation = %+v, error = %v", pid, observation, err)
-		}
-		return observation.Incarnation.Start
+	caller := systemCaller()
+	pane := ports.PaneRef{Server: server.Socket, PaneID: strings.TrimSpace(server.Run("display-message", "-p", "#{pane_id}"))}
+	const serverID = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+	server.Run("set-option", "-s", "@tmt.server-id", serverID)
+	observed, err := caller.probe(ctx, pane)
+	if err != nil || observed.State != core.EndpointProbeLive || len(observed.Panes) != 1 || observed.Panes[0].Incarnation == nil {
+		t.Fatalf("private binding probe = %+v, error = %v", observed, err)
 	}
 
-	rawPID := strings.TrimSpace(server.Run("display-message", "-p", "#{pid}"))
-	pid, err := strconv.Atoi(rawPID)
-	if err != nil || pid <= 0 {
-		t.Fatalf("server PID %q: %v", rawPID, err)
-	}
-	const serverID = "fixture-server"
-	server.Run("set-option", "-s", "@tmt.server-id", serverID)
-	panes, err := client.Panes(ctx, server.Socket)
-	if err != nil || len(panes) != 1 {
-		t.Fatalf("expected exactly one fixture pane, got %+v: %v", panes, err)
-	}
-	pane := panes[0]
 	records, identity, other := requestIdentitiesFixture()
 	delete(records.records.byID, other.ID)
-	paneStart := incarnation(pane.PID)
+	paneEvidence := observed.Panes[0]
 	binding := core.Binding{
-		ID: "fixture-binding", IdentityID: identity.ID, PaneID: pane.Pane.PaneID, PanePID: uint64(pane.PID),
-		PaneIncarnation: &paneStart,
-		Server: core.ServerEvidence{
-			Host: "tmux", ID: serverID, Socket: server.Socket, PID: uint64(pid), StartTime: incarnation(pid),
-		},
+		ID: "fixture-binding", IdentityID: identity.ID, PaneID: pane.PaneID,
+		PanePID: paneEvidence.PID, PaneIncarnation: paneEvidence.Incarnation, Server: observed.Server,
 	}
-
-	setMarker := func(marker core.BindingMarker) {
+	setMarker := func(bindingID core.BindingID) {
 		t.Helper()
-		data, err := json.Marshal(marker)
-		if err != nil {
-			t.Fatal(err)
-		}
-		server.Run("set-option", "-p", "-t", pane.Pane.PaneID, "@tmt.agent", string(data))
+		marker := fmt.Sprintf(`{"version":1,"globalIdentity":{"name":%q,"canonicalName":%q,"identityId":%q,"bindingId":%q,"serverId":%q,"panePid":%d}}`,
+			identity.Name, identity.CanonicalName, identity.ID, bindingID, serverID, binding.PanePID)
+		server.Run("set-option", "-p", "-t", pane.PaneID, "@tmt.agent", marker)
 	}
-	setMarker(binding.Marker(*identity))
-	env := map[string]string{"TMUX": server.Socket + "," + rawPID + ",0", "TMUX_PANE": pane.Pane.PaneID}
-	probe := func(_ context.Context, ref ports.PaneRef) (core.EndpointProbe, error) {
-		if ref.Server != server.Socket {
-			t.Fatalf("probe escaped fixture socket: %+v", ref)
-		}
-		observed, err := client.Panes(ctx, ref.Server)
-		if err != nil {
-			return core.EndpointProbe{}, err
-		}
-		currentPID, err := strconv.Atoi(strings.TrimSpace(server.Run("display-message", "-p", "#{pid}")))
-		if err != nil {
-			return core.EndpointProbe{}, err
-		}
-		currentID := strings.TrimSpace(server.Run("show-options", "-sv", "@tmt.server-id"))
-		for _, candidate := range observed {
-			if candidate.Pane != ref {
-				continue
-			}
-			rawMarker := server.Run("show-options", "-p", "-qv", "-t", ref.PaneID, "@tmt.agent")
-			var marker core.BindingMarker
-			if err := json.Unmarshal([]byte(rawMarker), &marker); err != nil {
-				return core.EndpointProbe{}, err
-			}
-			start := incarnation(candidate.PID)
-			return core.EndpointProbe{
-				State: core.EndpointProbeLive,
-				Server: core.ServerEvidence{
-					Host: "tmux", ID: currentID, Socket: candidate.Pane.Server,
-					PID: uint64(currentPID), StartTime: incarnation(currentPID),
-				},
-				Panes: []core.PaneObservation{{ID: ref.PaneID, PID: uint64(candidate.PID), Incarnation: &start, Marker: &marker}},
-			}, nil
-		}
-		return core.EndpointProbe{}, fmt.Errorf("fixture pane disappeared")
+	setMarker(binding.ID)
+
+	env := map[string]string{
+		"TMUX": server.Socket + "," + strconv.FormatUint(observed.Server.PID, 10) + ",0", "TMUX_PANE": pane.PaneID,
 	}
+	caller.lookup = func(key string) (string, bool) { value, ok := env[key]; return value, ok }
 	app := application{
 		store: callerTestStore{tx: callerTestTx{
 			identityTxFake: identityTxFake{records: records.records}, bindings: callerBindingRepo{row: binding},
 		}},
-		caller: callerSelector{
-			lookup: func(key string) (string, bool) { value, ok := env[key]; return value, ok },
-			probe:  probe,
-		},
+		caller: caller,
 	}
 	implicit := invocation{}
 	verify := func(inv invocation, want *core.Identity, code string) {
@@ -163,12 +100,10 @@ func TestCallerSelectionWithPrivateTmuxEvidence(t *testing.T) {
 		"more":     false,
 	})
 
-	marker := binding.Marker(*identity)
-	marker.BindingID = "unrelated-binding"
-	setMarker(marker)
+	setMarker("unrelated-binding")
 	verify(implicit, nil, "IDENTITY_REQUIRED")
 
-	env["TMUX"] = server.Socket + "," + strconv.Itoa(pid+1) + ",0"
+	env["TMUX"] = server.Socket + "," + strconv.FormatUint(observed.Server.PID+1, 10) + ",0"
 	verify(implicit, nil, "PANE_NOT_FOUND")
 	delete(env, "TMUX")
 	delete(env, "TMUX_PANE")
