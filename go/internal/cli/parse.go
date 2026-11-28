@@ -264,6 +264,12 @@ func validateOperands(parsed invocation) string {
 		if len(parsed.operands) == 2 && parsed.has("identity") {
 			return "Option '--identity' cannot be used with a name."
 		}
+	case "check":
+		if parsed.has("expect-name") && (!parsed.has("capture-only") || !core.IsCanonicalIdentityID(parsed.operands[0])) {
+			return "--expect-name needs --capture-only and the identity's canonical UUIDv4."
+		}
+		_, failure := checkLines(parsed)
+		return failure
 	case "run":
 		return validateRunOperands(parsed)
 	case "talk":
@@ -338,10 +344,13 @@ func optionalDecimal(inv invocation, name string, minimum, maximum uint64) (uint
 	if !inv.has(name) {
 		return 0, ""
 	}
-	value := inv.options[name]
+	return parseDecimal(inv.options[name], "--"+name, minimum, maximum)
+}
+
+func parseDecimal(value, label string, minimum, maximum uint64) (uint64, string) {
 	number, err := strconv.ParseUint(value, 10, 64)
 	if err != nil || number < minimum || number > maximum {
-		return 0, fmt.Sprintf("--%s must be a decimal integer between %d and %d.", name, minimum, maximum)
+		return 0, fmt.Sprintf("%s must be a decimal integer between %d and %d.", label, minimum, maximum)
 	}
 	return number, ""
 }

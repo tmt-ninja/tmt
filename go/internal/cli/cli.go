@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -29,6 +30,7 @@ func systemApplication() application {
 	return application{
 		stdin:  os.Stdin,
 		caller: systemCaller(client),
+		tmux:   client,
 		live:   systemLiveTalkHost(client),
 	}
 }
@@ -39,6 +41,7 @@ type application struct {
 	store    ports.Store
 	caller   callerSelector
 	live     liveTalkHost
+	tmux     func() (tmux.Client, error)
 }
 
 func (app application) run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -76,6 +79,8 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 	switch invocation.path[0] {
 	case "reply", "result", "inbox", "answer", "x", "talk":
 		return output.Publish(stdout, stderr, app.runRequest(ctx, root, invocation), invocation.json)
+	case "check":
+		return output.Publish(stdout, stderr, app.check(ctx, root, invocation), invocation.json)
 	}
 	// NOT PORTED (#6938): compose the remaining commands over storage and host ports.
 	failure := &output.Failure{
