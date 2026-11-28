@@ -197,11 +197,7 @@ IFS= read -r release < ${word(gate)}
           if (pane && panePid && !gone([panePid])) {
             fixture.tmux(['kill-pane', '-t', pane[1]!]);
           }
-          await fixture.waitFor(
-            () => gone(collect()),
-            TEARDOWN_MS,
-            'saved-member pane shell exit'
-          );
+          await fixture.waitFor(() => gone(collect()), TEARDOWN_MS, 'saved-member pane shell exit');
         } catch (error) {
           const before = table(collect());
           // The first failure remains primary even if signalling or the cleanup wait fails.
