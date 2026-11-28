@@ -655,26 +655,39 @@ export function mountShell(
     const width = pillWidth();
     const show = wideRail() && Number.isFinite(width);
     root.toggleAttribute('data-rail-pill', show);
+    const currentLane = root.style.getPropertyValue(laneProperty);
     if (show) {
-      // Measure the natural gutter before the shell takes any space. This also lets a
-      // centered column recover its full main width as soon as the window permits.
-      root.style.removeProperty(laneProperty);
       let gutter = 0;
       if (main && column?.getClientRects().length) {
+        // Measure at the natural width without changing the reserved lane or its position.
+        const targetProperty = '--tmt-ui-rail-target';
+        if (currentLane) main.style.setProperty(targetProperty, '0px');
         gutter = column.getBoundingClientRect().left - main.getBoundingClientRect().left;
         if (column.dataset.shellContentColumn === 'padded')
           gutter += Number.parseFloat(win.getComputedStyle(column).paddingLeft);
+        if (currentLane) main.style.removeProperty(targetProperty);
       }
       const need = width + 32;
-      if (gutter < need) root.style.setProperty(laneProperty, `${need}px`);
-    } else if (!root.hasAttribute('data-rail-from-pill')) {
+      const nextLane = gutter < need ? `${need}px` : '';
+      if (nextLane !== currentLane) {
+        if (nextLane) root.style.setProperty(laneProperty, nextLane);
+        else root.style.removeProperty(laneProperty);
+      }
+    } else if (currentLane && !root.hasAttribute('data-rail-from-pill')) {
       root.style.removeProperty(laneProperty);
     }
     if (show !== wasPill && (focused === open || rail.contains(focused))) {
       activeToggle().focus({ preventScroll: true });
     }
   };
-  const geometry = new ResizeObserver(syncPill);
+  let geometryFrame: number | undefined;
+  const geometry = new ResizeObserver(() => {
+    // The lane changes the observed main and column. Write it outside resize delivery.
+    geometryFrame ??= win.requestAnimationFrame(() => {
+      geometryFrame = undefined;
+      syncPill();
+    });
+  });
   geometry.observe(root);
   const findColumn = () => {
     const shown = shellContent.querySelector<HTMLElement>(':scope > .tmt-ui-shell-main');
@@ -1455,6 +1468,7 @@ export function mountShell(
       edge.remove();
       content.disconnect();
       geometry.disconnect();
+      if (geometryFrame !== undefined) win.cancelAnimationFrame(geometryFrame);
       stopMotion();
       root.removeAttribute('data-rail-pill');
       root.style.removeProperty(laneProperty);
