@@ -13,7 +13,7 @@ import (
 
 func TestRoomRetainsRetiredUUIDWithoutResolvingItsName(t *testing.T) {
 	world := t.TempDir()
-	t.Setenv("HOME", world)
+	t.Setenv("HOME", t.TempDir()) // outside the data root (native-root guard)
 	t.Setenv(flavor.EnvHome, world)
 	app := application{caller: callerSelector{lookup: func(string) (string, bool) {
 		t.Fatal("explicit room selector attempted caller or host discovery")
