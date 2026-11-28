@@ -36,3 +36,48 @@ func TestTryLockExclusiveContentionAndClose(t *testing.T) {
 		t.Fatalf("acquisition after close = %t, %v", ok, err)
 	}
 }
+
+func TestTryLockSharedAllowsReadersAndExcludesWriter(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "clock.lock")
+	writer, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+
+	var readers []*os.File
+	for index := 1; index <= 2; index++ {
+		reader, err := os.Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer reader.Close()
+		readers = append(readers, reader)
+		if ok, err := TryLockShared(reader); !ok || err != nil {
+			t.Fatalf("reader %d acquisition = %t, %v", index, ok, err)
+		}
+		if ok, err := TryLockExclusive(writer); ok || err != nil {
+			t.Fatalf("writer while %d readers hold the lock = %t, %v", index, ok, err)
+		}
+	}
+	if err := readers[1].Close(); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := TryLockExclusive(writer); ok || err != nil {
+		t.Fatalf("writer after a reader closes = %t, %v", ok, err)
+	}
+	if err := readers[0].Close(); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := TryLockExclusive(writer); !ok || err != nil {
+		t.Fatalf("writer after both readers close = %t, %v", ok, err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if ok, err := TryLockShared(reader); ok || err != nil {
+		t.Fatalf("reader while writer holds the lock = %t, %v", ok, err)
+	}
+}
