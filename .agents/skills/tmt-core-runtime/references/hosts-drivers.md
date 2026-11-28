@@ -557,6 +557,13 @@ contract owns the shape and sources.
   setup, detection, skill targets, launch, runtime registration and caller recognition.
   The optional `DriverDefinition.identify_caller` callback is independent of the
   launch/lifecycle `Runtime` bundle; the registry remains its only dispatch owner.
+  Caller observers share one ancestry snapshot and deadline. Exactly one recognized
+  driver can supply evidence for host verification. Multiple claimants, including
+  a dedicated caller alongside a shared one, fence implicit identity in either
+  registration order. All-unsupported leaves generic host verification available.
+  Session discovery and explicit binding accept one valid driver marker only when
+  every other driver reports absence. A malformed marker names the refusing driver
+  even alongside valid coordinates; multiple valid sessions also refuse admission.
   Failed caller process observations retain `AncestryError`/`CommandError` through
   the registry and CLI. Their public context names only the failed observation;
   argv, process output, environment and private paths stay out of the message.

@@ -10,9 +10,7 @@ pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     env: &[],
     locate,
     runtime: None,
-    identify_caller: Some(|| {
-        caller::identify_caller(&crate::process::UnixCommandRunner, std::process::id())
-    }),
+    identify_caller: Some(caller::identify_caller),
 };
 
 fn locate(environment: &crate::skill_installation::ProviderEnvironment) -> super::Locations {

@@ -251,7 +251,7 @@ pub const MODE_EMBEDDED: &str = "embedded";
 
 pub static DRIVER: super::DriverDefinition = super::DriverDefinition {
     descriptor: &tmt_core::driver::descriptor::CODEX,
-    identify_caller: Some(identify_caller),
+    identify_caller: Some(caller::identify),
     env: &["CODEX_HOME", "CODEX_SQLITE_HOME"],
     locate,
     runtime: Some(super::Runtime {
@@ -297,18 +297,6 @@ fn locate(environment: &crate::skill_installation::ProviderEnvironment) -> super
         legacy_skills,
         hook_settings: Some(codex_home.join("hooks.json")),
     }
-}
-
-fn identify_caller() -> tmt_core::driver::ActionResult<
-    tmt_core::driver::caller::RuntimeCaller,
-    crate::process::ancestry::AncestryError,
-> {
-    use tmt_core::driver::Driver;
-    caller::CodexCaller::new(
-        &crate::process::UnixCommandRunner,
-        caller::CallerEnvironment::current(),
-    )
-    .identify_caller()
 }
 
 struct CodexRuntime;
@@ -662,8 +650,12 @@ impl crate::runtime::lifecycle::RuntimeLifecycle for CodexLifecycle {
         true
     }
 
-    fn caller_session(&self) -> Option<crate::runtime::lifecycle::CallerSession> {
-        caller_session::coordinates(std::env::var_os("CODEX_THREAD_ID").as_deref())
+    fn caller_session(&self) -> crate::runtime::lifecycle::CallerSessionMarker {
+        let session = std::env::var_os("CODEX_THREAD_ID");
+        crate::runtime::lifecycle::CallerSessionMarker::classify(
+            session.is_some(),
+            caller_session::coordinates(session.as_deref()),
+        )
     }
     fn caller_session_observation(
         &self,

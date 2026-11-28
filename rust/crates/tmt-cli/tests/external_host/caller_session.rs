@@ -81,6 +81,38 @@ fn a_caller_in_an_external_pane_records_its_session_after_a_command() {
     });
 }
 
+#[test]
+fn invalid_driver_coordinates_refuse_discovery_before_host_or_storage_changes() {
+    register();
+    let fixture = Fixture::new("invalid-marker");
+    let record = fixture.approve();
+    bind(&fixture, record);
+    let baseline = stored_rows(&fixture);
+    let calls = fixture.calls();
+    for (key, value, driver) in [
+        ("ANTIGRAVITY_CONVERSATION_ID", "broken", "agy"),
+        ("CLAUDE_PID", "0", "claude"),
+        ("CODEX_THREAD_ID", "", "codex"),
+        ("PI_SESSION_ID", "../bad", "pi"),
+    ] {
+        let mut command = fixture.command_in(Some("fake-1"), &["config", "show", "--json"]);
+        command.env(key, value).env("TMT_CALLER_SESSION_DEBUG", "1");
+        // A valid marker from another driver must not hide the malformed one.
+        if driver != "codex" {
+            command.env("CODEX_THREAD_ID", SESSION);
+        }
+        let result = command.output().unwrap();
+        assert!(result.status.success(), "{result:?}");
+        let diagnostic = String::from_utf8(result.stderr).unwrap();
+        assert!(
+            diagnostic.contains(&format!("environment (invalid {driver} marker)")),
+            "{diagnostic}"
+        );
+        assert_eq!(stored_rows(&fixture), baseline);
+        assert_eq!(fixture.calls(), calls);
+    }
+}
+
 /// Every row that `pane`'s identity or binding owns, in every table, so a
 /// scenario can show that it changed nothing of that agent's state.
 fn owned_rows(fixture: &Fixture, pane: &str) -> Vec<String> {

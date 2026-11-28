@@ -17,7 +17,7 @@ use tmt_adapters::{
     runtime::{
         RuntimeRegistry,
         caller_refusals::{Key, Refusals},
-        lifecycle::{CallerSession, HostEvidence},
+        lifecycle::{CallerSession, CallerSessionMarker, HostEvidence},
     },
     skill_installation::ProviderEnvironment,
     storage::{Storage, StorageError},
@@ -60,43 +60,55 @@ struct Discovery<'a> {
 
 pub fn observe() {
     if let Err(layer) = observe_with(&UnixCommandRunner) {
-        debug_refusal(layer);
+        debug_refusal(&layer);
     }
 }
 
-fn observe_with(runner: &impl CommandRunner) -> Result<(), &'static str> {
+fn select_markers(
+    markers: impl Iterator<Item = (HarnessId, CallerSessionMarker)>,
+) -> Result<Option<(HarnessId, CallerSession)>, String> {
+    let mut selected = None;
+    let mut conflict = false;
+    for (driver, marker) in markers {
+        match marker {
+            CallerSessionMarker::Absent => {}
+            CallerSessionMarker::Invalid => {
+                return Err(format!("environment (invalid {} marker)", driver.as_str()));
+            }
+            CallerSessionMarker::Valid(session) => {
+                conflict |= selected.replace((driver, session)).is_some();
+            }
+        }
+    }
+    if conflict {
+        Err("environment (conflicting caller sessions)".into())
+    } else {
+        Ok(selected)
+    }
+}
+
+fn caller_coordinates(
+    registry: &RuntimeRegistry,
+) -> Result<Option<(HarnessId, CallerSession)>, String> {
+    select_markers(registry.harnesses().filter_map(|name| {
+        let harness = HarnessId::new(name).ok()?;
+        let marker = registry.lifecycle(&harness)?.caller_session();
+        Some((harness, marker))
+    }))
+}
+
+fn observe_with(runner: &impl CommandRunner) -> Result<(), String> {
     let registry = RuntimeRegistry::first_party();
-    let candidates: Vec<_> = registry
-        .harnesses()
-        .filter_map(|name| {
-            let harness = HarnessId::new(name).ok()?;
-            let coordinates = registry.lifecycle(&harness)?.caller_session()?;
-            Some((harness, coordinates))
-        })
-        .collect();
-    let [(harness, coordinates)] = candidates.as_slice() else {
-        return if candidates.is_empty()
-            && ![
-                "CLAUDE_CODE_SESSION_ID",
-                "CLAUDE_PID",
-                "CODEX_THREAD_ID",
-                "PI_SESSION_ID",
-            ]
-            .iter()
-            .any(|name| std::env::var_os(name).is_some())
-        {
-            Ok(())
-        } else {
-            Err("environment")
-        };
+    let Some((harness, coordinates)) = caller_coordinates(&registry)? else {
+        return Ok(());
     };
     let deadline = Instant::now() + BUDGET;
     let paths = ConfigPaths::discover().map_err(|_| "storage")?;
     let executable = std::env::current_exe().map_err(|_| "worker")?;
     observe_candidate(
         runner,
-        harness,
-        coordinates,
+        &harness,
+        &coordinates,
         Discovery {
             database: &paths.database,
             global_dir: &paths.global_dir,
@@ -106,36 +118,26 @@ fn observe_with(runner: &impl CommandRunner) -> Result<(), &'static str> {
         },
         current_caller,
     )
+    .map_err(str::to_owned)
 }
 
 /// Explicit binding asks for a verifiable session now, without the optional cache.
 /// An invoker in another pane never supplies the target's provider coordinates.
-pub(super) fn complete_binding(binding: &tmt_core::binding::Binding) -> Result<(), &'static str> {
+pub(super) fn complete_binding(binding: &tmt_core::binding::Binding) -> Result<(), String> {
     let registry = RuntimeRegistry::first_party();
-    let candidates: Vec<_> = registry
-        .harnesses()
-        .filter(|name| {
-            HarnessId::new(name)
-                .ok()
-                .and_then(|id| registry.lifecycle(&id)?.caller_session())
-                .is_some()
-        })
-        .collect();
-    let [provider] = candidates.as_slice() else {
-        return Err("environment");
-    };
+    let (harness, coordinates) = caller_coordinates(&registry)?.ok_or("environment")?;
     // An explicit bind is synchronous lifecycle admission, not the optional
     // post-output discovery attempt. Keep that optional 500 ms budget separate.
     let allowance = Duration::from_millis(crate::invocation::MAXIMUM_HOOK_WORK_BUDGET_MS);
     let deadline = Instant::now() + allowance;
     let result = at_deadline(
-        verified_observation(provider, deadline, Some(binding)),
+        verified_observation(&registry, &harness, coordinates, deadline, Some(binding)),
         deadline,
     );
     if let Err(layer) = result {
         debug_refusal(layer);
     }
-    result
+    result.map_err(str::to_owned)
 }
 
 /// The caller's environment and the approvals it was read with, once, and
@@ -321,8 +323,18 @@ fn external_host_bindings(
 
 pub fn worker(provider: &str, budget_ms: Option<u64>) -> u8 {
     let deadline = Instant::now() + Duration::from_millis(budget_ms.unwrap_or(0)).min(BUDGET);
-    let result = at_deadline(verified_observation(provider, deadline, None), deadline);
-    if let Err(layer) = result {
+    let registry = RuntimeRegistry::first_party();
+    let result = caller_coordinates(&registry).and_then(|candidate| {
+        let (harness, coordinates) = candidate
+            .filter(|(id, _)| id.as_str() == provider)
+            .ok_or("environment")?;
+        at_deadline(
+            verified_observation(&registry, &harness, coordinates, deadline, None),
+            deadline,
+        )
+        .map_err(str::to_owned)
+    });
+    if let Err(ref layer) = result {
         // Private supervisor evidence is always captured, never forwarded as
         // default diagnostics. Cache hits retain the original refusing layer.
         let mut stderr = tmt_cli_style::stream::stderr();
@@ -333,14 +345,14 @@ pub fn worker(provider: &str, budget_ms: Option<u64>) -> u8 {
 }
 
 fn verified_observation(
-    provider: &str,
+    registry: &RuntimeRegistry,
+    harness: &HarnessId,
+    coordinates: CallerSession,
     deadline: Instant,
     expected_binding: Option<&tmt_core::binding::Binding>,
 ) -> Result<(), &'static str> {
-    let registry = RuntimeRegistry::first_party();
-    let harness = HarnessId::new(provider).map_err(|_| "environment")?;
-    let lifecycle = registry.lifecycle(&harness).ok_or("environment")?;
-    let coordinates: CallerSession = lifecycle.caller_session().ok_or("environment")?;
+    let provider = harness.as_str();
+    let lifecycle = registry.lifecycle(harness).ok_or("environment")?;
     let host = HostEvidence::Independent {
         runtime_pid: coordinates.runtime_pid,
     };
@@ -403,7 +415,7 @@ fn verified_observation(
             superseding: false,
         },
         lifecycle,
-        &harness,
+        harness,
         event.as_ref(),
         deadline,
     ) {
@@ -431,7 +443,7 @@ fn verified_observation(
             stored: &bound.stored,
             next: &next,
             event: event.as_ref(),
-            harness: &harness,
+            harness,
             mode: &mode,
             launch: None,
             fence_preferences: true,

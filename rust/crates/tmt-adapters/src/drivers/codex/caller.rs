@@ -3,7 +3,10 @@
 #[cfg(test)]
 mod tests;
 
-use crate::process::{CommandRunner, ancestry::AncestryError, ps::query_ps};
+use crate::process::{
+    CommandRunner,
+    ancestry::{AncestryError, CallerSnapshot},
+};
 use std::{
     ffi::OsString,
     path::Path,
@@ -63,56 +66,47 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
         deadline: Instant,
         direct: bool,
     ) -> Result<Option<(HostAttribution, u32)>, AncestryError> {
-        let chain = crate::process::ancestry::command_chain(
-            self.runner,
-            self.environment.process_id,
-            deadline,
-        )?;
-        let mut observed = None;
-        for (pid, executable) in &chain {
-            if Path::new(executable)
-                .file_name()
-                .is_some_and(|name| name == super::NAME)
-            {
-                let args = query_ps(
-                    self.runner,
-                    &[
-                        "-o".into(),
-                        "args=".into(),
-                        "-p".into(),
-                        pid.to_string().into(),
-                    ],
-                    deadline,
-                    16384,
-                )
-                .map_err(AncestryError::Command)?;
-                let args = std::str::from_utf8(&args.stdout)
-                    .map_err(|_| AncestryError::Unavailable)?
-                    .trim();
-                let tail = args
-                    .strip_prefix(executable)
-                    .filter(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
-                    .or_else(|| {
-                        args.strip_prefix(super::NAME)
-                            .filter(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
-                    })
-                    .or_else(|| {
-                        // Linux comm is normally a basename while argv[0] may
-                        // be absolute. Darwin commonly supplies the full path.
-                        let split = args.find(char::is_whitespace).unwrap_or(args.len());
-                        (Path::new(&args[..split]).file_name()? == super::NAME)
-                            .then_some(&args[split..])
-                    })
-                    .ok_or(AncestryError::Unavailable)?;
-                // ps does not preserve argv boundaries. Conservatively fence a
-                // possible app-server even when global options precede it. A literal
-                // app-server word inside an exec prompt can conservatively match too.
-                if tail.split_whitespace().any(|word| word == "app-server") {
-                    return Ok(Some((HostAttribution::Ambiguous, *pid)));
-                }
-                if direct
-                    && tail.split_whitespace().any(|word| {
-                        matches!(word, "--config" | "--profile")
+        let snapshot = CallerSnapshot::capture(self.runner, self.environment.process_id, deadline)?;
+        observe_snapshot(&snapshot, direct)
+    }
+}
+
+fn observe_snapshot(
+    snapshot: &CallerSnapshot<'_>,
+    direct: bool,
+) -> Result<Option<(HostAttribution, u32)>, AncestryError> {
+    let mut observed = None;
+    for (pid, executable) in &snapshot.chain {
+        if Path::new(executable)
+            .file_name()
+            .is_some_and(|name| name == super::NAME)
+        {
+            let args = snapshot.arguments(*pid)?;
+            let args = args.trim();
+            let tail = args
+                .strip_prefix(executable)
+                .filter(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
+                .or_else(|| {
+                    args.strip_prefix(super::NAME)
+                        .filter(|tail| tail.is_empty() || tail.starts_with(char::is_whitespace))
+                })
+                .or_else(|| {
+                    // Linux comm is normally a basename while argv[0] may
+                    // be absolute. Darwin commonly supplies the full path.
+                    let split = args.find(char::is_whitespace).unwrap_or(args.len());
+                    (Path::new(&args[..split]).file_name()? == super::NAME)
+                        .then_some(&args[split..])
+                })
+                .ok_or(AncestryError::Unavailable)?;
+            // ps does not preserve argv boundaries. Conservatively fence a
+            // possible app-server even when global options precede it. A literal
+            // app-server word inside an exec prompt can conservatively match too.
+            if tail.split_whitespace().any(|word| word == "app-server") {
+                return Ok(Some((HostAttribution::Ambiguous, *pid)));
+            }
+            if direct
+                && tail.split_whitespace().any(|word| {
+                    matches!(word, "--config" | "--profile")
                             || word.starts_with("--config=")
                             || word.starts_with("--profile=")
                             // Short options also accept attached values. ps
@@ -120,15 +114,14 @@ impl<'a, R: CommandRunner> CodexCaller<'a, R> {
                             // infer which configuration the runtime selected.
                             || word.starts_with("-c")
                             || word.starts_with("-p")
-                    })
-                {
-                    return Err(AncestryError::Unavailable);
-                }
-                observed.get_or_insert((HostAttribution::Independent, *pid));
+                })
+            {
+                return Err(AncestryError::Unavailable);
             }
+            observed.get_or_insert((HostAttribution::Independent, *pid));
         }
-        Ok(observed)
     }
+    Ok(observed)
 }
 
 impl<R: CommandRunner> Driver for CodexCaller<'_, R> {
@@ -137,27 +130,42 @@ impl<R: CommandRunner> Driver for CodexCaller<'_, R> {
     type Launch = ();
 
     fn identify_caller(&mut self) -> ActionResult<RuntimeCaller, Self::Error> {
-        let host = match self.observe_host() {
-            Ok(observation) => observation,
-            Err(error) if self.environment.thread_id.is_some() => {
-                return ActionResult::Failed(error);
-            }
-            Err(_) => return ActionResult::Unsupported,
-        };
-        let Some((host, _)) = host else {
-            return ActionResult::Unsupported;
-        };
-        let session = self
-            .environment
-            .thread_id
-            .as_ref()
-            .and_then(|value| value.to_str())
-            .filter(|value| uuid::Uuid::parse_str(value).is_ok())
-            .and_then(|value| ProviderSessionId::new(value).ok());
-        ActionResult::Completed(RuntimeCaller {
-            harness: HarnessId::new(super::NAME).expect("built-in driver ID"),
-            session,
-            host,
-        })
+        classify(&self.environment, self.observe_host())
     }
+}
+
+pub(super) fn identify(
+    snapshot: &CallerSnapshot<'_>,
+) -> ActionResult<RuntimeCaller, AncestryError> {
+    classify(
+        &CallerEnvironment::current(),
+        observe_snapshot(snapshot, false),
+    )
+}
+
+fn classify(
+    environment: &CallerEnvironment,
+    observation: Result<Option<(HostAttribution, u32)>, AncestryError>,
+) -> ActionResult<RuntimeCaller, AncestryError> {
+    let host = match observation {
+        Ok(observation) => observation,
+        Err(error) if environment.thread_id.is_some() => {
+            return ActionResult::Failed(error);
+        }
+        Err(_) => return ActionResult::Unsupported,
+    };
+    let Some((host, _)) = host else {
+        return ActionResult::Unsupported;
+    };
+    let session = environment
+        .thread_id
+        .as_ref()
+        .and_then(|value| value.to_str())
+        .filter(|value| uuid::Uuid::parse_str(value).is_ok())
+        .and_then(|value| ProviderSessionId::new(value).ok());
+    ActionResult::Completed(RuntimeCaller {
+        harness: HarnessId::new(super::NAME).expect("built-in driver ID"),
+        session,
+        host,
+    })
 }
