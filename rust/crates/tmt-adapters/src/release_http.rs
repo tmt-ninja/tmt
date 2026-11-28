@@ -125,6 +125,22 @@ impl Https {
         }
     }
 
+    /// Returns a client handle sharing this instance's connection pool (`Agent`) and token
+    /// while giving each product acquisition its own independent single-retry rate-limit state.
+    pub(crate) fn for_acquisition(&self) -> Self {
+        Self {
+            agent: self.agent.clone(),
+            token: self.token.clone(),
+            waited: AtomicBool::new(false),
+            #[cfg(test)]
+            wait: self.wait,
+            #[cfg(test)]
+            now: self.now,
+            #[cfg(test)]
+            allow_loopback: self.allow_loopback,
+        }
+    }
+
     #[cfg(test)]
     pub(super) fn with_test_agent(agent: Agent) -> Self {
         Self {

@@ -238,31 +238,37 @@ pub fn latest_release_version(product: Product, channel: Channel) -> io::Result<
     .map(|(_, version)| version)
 }
 
-/// Bounded-parallel published-release discovery sharing one HTTP client across at most
-/// [`MAX_PARALLEL_ACQUISITION`] workers. Output order matches `requests` 1:1 and failures are
-/// isolated per product.
+/// Bounded-parallel published-release discovery sharing one HTTP connection pool across at most
+/// [`MAX_PARALLEL_ACQUISITION`] workers. Each product gets its own rate-limit retry state and
+/// per-product 10 s deadline started when its worker begins it. Output order matches `requests`
+/// 1:1 and failures are isolated per product.
 pub fn latest_release_versions(requests: &[(Product, Channel)]) -> Vec<io::Result<Version>> {
     if requests.is_empty() {
         return Vec::new();
     }
     let client = crate::release_http::Https::new();
-    let deadline = Instant::now() + Duration::from_secs(10);
-    latest_release_versions_with(requests, deadline, &|url, accept, limit, deadline| {
-        client.get(url, accept, limit, deadline)
+    latest_release_versions_with(requests, Duration::from_secs(10), &|| {
+        let scoped = client.for_acquisition();
+        move |url, accept, limit, deadline| scoped.get(url, accept, limit, deadline)
     })
 }
 
-pub(crate) fn latest_release_versions_with(
+pub(crate) fn latest_release_versions_with<F>(
     requests: &[(Product, Channel)],
-    deadline: Instant,
-    get: &(impl Fn(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> + Sync),
-) -> Vec<io::Result<Version>> {
+    per_product_budget: Duration,
+    make_get: &(impl Fn() -> F + Sync),
+) -> Vec<io::Result<Version>>
+where
+    F: Fn(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+{
     let discover_one = |(product, channel): (Product, Channel)| -> io::Result<Version> {
         if matches!(channel, Channel::Pr(_)) {
             return Err(io::Error::other(super::pr_resolver::Unavailable(
                 "PR channels require target-aware authenticated acquisition; published-release discovery cannot select a PR candidate.",
             )));
         }
+        let get = make_get();
+        let deadline = Instant::now() + per_product_budget;
         release::discover_latest(product, channel, deadline, &mut |url, accept, limit, dl| {
             get(url, accept, limit, dl)
         })
@@ -301,8 +307,10 @@ pub(crate) fn latest_release_versions_with(
         .collect()
 }
 
-/// Bounded-parallel archive and manifest pre-download sharing one HTTP client across at most
-/// [`MAX_PARALLEL_ACQUISITION`] workers. Verification and activation remain ordered per product.
+/// Bounded-parallel archive and manifest pre-download sharing one HTTP connection pool across at
+/// most [`MAX_PARALLEL_ACQUISITION`] workers. Each product gets its own rate-limit retry state and
+/// per-product 60 s deadline started when its worker begins it. Verification and activation remain
+/// ordered per product.
 pub fn prefetch_releases(
     requests: &[PrefetchRequest],
     checkpoint: &(impl Fn() -> bool + Sync),
@@ -311,21 +319,21 @@ pub fn prefetch_releases(
         return Vec::new();
     }
     let client = crate::release_http::Https::new();
-    let deadline = Instant::now() + Duration::from_secs(60);
-    prefetch_releases_with(
-        requests,
-        deadline,
-        checkpoint,
-        &|url, accept, limit, deadline| client.get(url, accept, limit, deadline),
-    )
+    prefetch_releases_with(requests, Duration::from_secs(60), checkpoint, &|| {
+        let scoped = client.for_acquisition();
+        move |url, accept, limit, deadline| scoped.get(url, accept, limit, deadline)
+    })
 }
 
-pub(crate) fn prefetch_releases_with(
+pub(crate) fn prefetch_releases_with<F>(
     requests: &[PrefetchRequest],
-    deadline: Instant,
+    per_product_budget: Duration,
     checkpoint: &(impl Fn() -> bool + Sync),
-    get: &(impl Fn(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> + Sync),
-) -> Vec<io::Result<PrefetchedRelease>> {
+    make_get: &(impl Fn() -> F + Sync),
+) -> Vec<io::Result<PrefetchedRelease>>
+where
+    F: Fn(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
+{
     let fetch_one = |request: &PrefetchRequest| -> io::Result<PrefetchedRelease> {
         if checkpoint() {
             return Err(io::Error::new(
@@ -342,6 +350,8 @@ pub(crate) fn prefetch_releases_with(
             .version
             .parse::<Version>()
             .map_err(|_| io::Error::other(VersionError::InvalidSelection))?;
+        let get = make_get();
+        let deadline = Instant::now() + per_product_budget;
         let downloaded = release::download_product_observed(
             request.product,
             request.channel,
@@ -1106,10 +1116,8 @@ mod tests {
             .collect();
         let active = AtomicUsize::new(0);
         let peak = AtomicUsize::new(0);
-        let versions = latest_release_versions_with(
-            &requests,
-            Instant::now() + Duration::from_secs(10),
-            &|url, _, _, _| {
+        let versions = latest_release_versions_with(&requests, Duration::from_secs(10), &|| {
+            |url: &str, _: &str, _: usize, _: Instant| {
                 let now = active.fetch_add(1, Ordering::SeqCst) + 1;
                 peak.fetch_max(now, Ordering::SeqCst);
                 std::thread::sleep(Duration::from_millis(20));
@@ -1120,8 +1128,8 @@ mod tests {
                     .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing"));
                 active.fetch_sub(1, Ordering::SeqCst);
                 out
-            },
-        );
+            }
+        });
         assert!(
             peak.load(Ordering::SeqCst) >= 2,
             "discovery ran concurrently"
@@ -1144,30 +1152,28 @@ mod tests {
                 target: target.into(),
             })
             .collect();
-        let fetched = prefetch_releases_with(
-            &fetch_reqs,
-            Instant::now() + Duration::from_secs(10),
-            &|| false,
-            &|url, _, _, _| {
-                fetch_routes
-                    .get(url)
-                    .cloned()
-                    .map(Into::into)
-                    .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing archive"))
-            },
-        );
+        let fetched =
+            prefetch_releases_with(&fetch_reqs, Duration::from_secs(10), &|| false, &|| {
+                |url: &str, _: &str, _: usize, _: Instant| {
+                    fetch_routes
+                        .get(url)
+                        .cloned()
+                        .map(Into::into)
+                        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing archive"))
+                }
+            });
         assert_eq!(fetched[0].as_ref().unwrap().product(), Product::Ops);
         assert_eq!(fetched[1].as_ref().unwrap().product(), Product::Remote);
         assert!(fetched[2].is_err());
         assert_eq!(fetched[3].as_ref().unwrap().product(), Product::Digest);
 
         // Interrupt stops prefetch cleanly without network IO.
-        let interrupted = prefetch_releases_with(
-            &fetch_reqs,
-            Instant::now() + Duration::from_secs(10),
-            &|| true,
-            &|_, _, _, _| panic!("interrupted prefetch must not perform network IO"),
-        );
+        let interrupted =
+            prefetch_releases_with(&fetch_reqs, Duration::from_secs(10), &|| true, &|| {
+                |_: &str, _: &str, _: usize, _: Instant| {
+                    panic!("interrupted prefetch must not perform network IO")
+                }
+            });
         assert!(interrupted.iter().all(|res| {
             res.as_ref()
                 .is_err_and(|e| e.kind() == io::ErrorKind::Interrupted)
@@ -1175,6 +1181,114 @@ mod tests {
     }
 
     #[test]
+    fn late_started_product_receives_full_per_product_deadline_in_discovery_and_prefetch() {
+        let target = "aarch64-apple-darwin";
+        let products = [
+            (Product::Ops, "0.1.0-alpha.2"),
+            (Product::Remote, "0.1.0-alpha.3"),
+            (Product::Colab, "0.1.0-alpha.4"),
+            (Product::Digest, "0.1.0-alpha.5"),
+        ];
+        let mut routes = std::collections::BTreeMap::new();
+        for (idx, (product, version)) in products.into_iter().enumerate() {
+            let (fixture, manifest, archive, _) =
+                release::product_fixture(product, version, target, 300 + idx as u64);
+            routes.extend(release::indexed_routes(&fixture, &manifest, &archive));
+        }
+
+        // 5 requests across MAX_PARALLEL_ACQUISITION (= 4) workers guarantees the 5th starts late.
+        let budget = Duration::from_secs(10);
+        let delay = Duration::from_millis(80);
+        let reqs = vec![
+            (Product::Ops, Channel::Alpha),
+            (Product::Remote, Channel::Alpha),
+            (Product::Colab, Channel::Alpha),
+            (Product::Digest, Channel::Alpha),
+            (Product::Ops, Channel::Alpha),
+        ];
+        let started = AtomicUsize::new(0);
+        let max_deadline: Mutex<Option<Instant>> = Mutex::new(None);
+        let routes_ref = &routes;
+        let max_deadline_ref = &max_deadline;
+        let batch_start = Instant::now();
+        let discovered = latest_release_versions_with(&reqs, budget, &|| {
+            let slot = started.fetch_add(1, Ordering::SeqCst);
+            move |url: &str, _: &str, _: usize, dl: Instant| {
+                if slot < MAX_PARALLEL_ACQUISITION {
+                    std::thread::sleep(delay);
+                } else {
+                    let mut guard = max_deadline_ref.lock().unwrap();
+                    *guard = Some(guard.map_or(dl, |prev| prev.max(dl)));
+                }
+                routes_ref
+                    .get(url)
+                    .cloned()
+                    .map(Into::into)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing"))
+            }
+        });
+        assert!(discovered.iter().all(Result::is_ok));
+        let fifth_discovery_deadline = max_deadline
+            .into_inner()
+            .unwrap()
+            .expect("late discovery product ran");
+        assert!(
+            fifth_discovery_deadline >= batch_start + budget + Duration::from_millis(40),
+            "late-started discovery product must receive a fresh per-product deadline"
+        );
+
+        let fetch_reqs: Vec<PrefetchRequest> = reqs
+            .iter()
+            .map(|(product, channel)| {
+                let version = products
+                    .iter()
+                    .find(|(p, _)| p == product)
+                    .map(|(_, v)| *v)
+                    .unwrap();
+                PrefetchRequest {
+                    product: *product,
+                    channel: *channel,
+                    version: version.into(),
+                    target: target.into(),
+                }
+            })
+            .collect();
+        let fetch_started = AtomicUsize::new(0);
+        let fetch_max_deadline: Mutex<Option<Instant>> = Mutex::new(None);
+        let fetch_max_deadline_ref = &fetch_max_deadline;
+        let fetch_batch_start = Instant::now();
+        let fetched = prefetch_releases_with(&fetch_reqs, budget, &|| false, &|| {
+            let slot = fetch_started.fetch_add(1, Ordering::SeqCst);
+            let slept = std::sync::atomic::AtomicBool::new(false);
+            move |url: &str, _: &str, _: usize, dl: Instant| {
+                if slot < MAX_PARALLEL_ACQUISITION && !slept.swap(true, Ordering::SeqCst) {
+                    std::thread::sleep(delay);
+                } else if slot >= MAX_PARALLEL_ACQUISITION {
+                    let mut guard = fetch_max_deadline_ref.lock().unwrap();
+                    *guard = Some(guard.map_or(dl, |prev| prev.max(dl)));
+                }
+                routes_ref
+                    .get(url)
+                    .cloned()
+                    .map(Into::into)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing"))
+            }
+        });
+        assert!(fetched.iter().all(Result::is_ok));
+        let fifth_fetch_deadline = fetch_max_deadline
+            .into_inner()
+            .unwrap()
+            .expect("late prefetch product ran");
+        assert!(
+            fifth_fetch_deadline >= fetch_batch_start + budget + Duration::from_millis(40),
+            "late-started prefetch product must receive a fresh per-product deadline"
+        );
+    }
+
+    /// Manual benchmark (excluded from normal CI); run with:
+    /// `cargo test -p tmt-adapters native_install::online::tests::loopback_fixture_benchmark_serial_vs_parallel -- --ignored --nocapture`
+    #[test]
+    #[ignore]
     fn loopback_fixture_benchmark_serial_vs_parallel() {
         let target = "aarch64-apple-darwin";
         let products = [
@@ -1234,7 +1348,7 @@ mod tests {
         let t_parallel = Instant::now();
         let reqs: Vec<(Product, Channel)> =
             products.iter().map(|(p, _)| (*p, Channel::Alpha)).collect();
-        let discovered = latest_release_versions_with(&reqs, deadline, &get);
+        let discovered = latest_release_versions_with(&reqs, Duration::from_secs(30), &|| &get);
         assert!(discovered.iter().all(Result::is_ok));
         let fetch_reqs: Vec<PrefetchRequest> = products
             .iter()
@@ -1245,7 +1359,8 @@ mod tests {
                 target: target.into(),
             })
             .collect();
-        let prefetched = prefetch_releases_with(&fetch_reqs, deadline, &|| false, &get);
+        let prefetched =
+            prefetch_releases_with(&fetch_reqs, Duration::from_secs(30), &|| false, &|| &get);
         assert!(prefetched.iter().all(Result::is_ok));
         let parallel_ms = t_parallel.elapsed().as_millis();
 
