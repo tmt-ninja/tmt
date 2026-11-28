@@ -183,7 +183,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO2-08: Codex invocation-only managed skills.
 - [ ] GO2-09: Enable Codex invocation hooks through the verified lifecycle and Digest callbacks.
 - [ ] GO2-10: Compose qualified Codex channel startup and emit the native preflight advisory.
-- [ ] GO2-11: Enforce the native 256 KiB Codex WebSocket inbound frame cap in addition to the 1 MiB message cap.
+- [x] GO2-11: Codex WebSocket receives the native 256 KiB frame and 1 MiB message caps from `drivers/codex/transport.rs`. `TestCodexReplyFrameAndMessageLimits` exercises exact limits, oversized single and continuation frames, and valid fragmentation. `TestCodexOversizedFrameIsRefusedFromTheHeader` verifies refusal before payload reads.
 - [x] GO2-12: Exact invoking tmux client focus and directional pane swap. Ambiguous client claims refuse rather than using activity as an identity proof. Key-job session parity: Rust `tmux/focus.rs::a_key_binding_job_without_a_pane_uses_the_session_in_tmux` → `TestKeyBindingJobUsesTheSessionInTmux`; the pane-less `focus --client` view in `typescript/test/e2e/focus.e2e.test.ts` → the private-client assertion in `TestPrivateFocusAndSwapExactInvokingClient` (CLI scenario owned by go-3). Swap result parity: Rust `swap_uses_exact_ids_and_detaches_without_selecting_or_killing` and `swap_already_beside_and_refusals_have_no_mutating_call`, plus the displaced-pane and already-beside cases in `focus.e2e.test.ts` → the private swap assertions in `TestPrivateFocusAndSwapExactInvokingClient`.
 - [x] GO2-13: Bounded discovery and exact marked-pane snapshots.
 - [x] GO2-14: Built-in terminal attach over an admitted PTY connection.

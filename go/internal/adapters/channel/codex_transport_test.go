@@ -274,16 +274,19 @@ func TestCodexDeliveryStageGetsFreshDeadline(t *testing.T) {
 	awaitCodexFixture(t, connections, done)
 }
 
-func TestCodexReplyLimitAndSingleFrameDivergence(t *testing.T) {
+func TestCodexReplyFrameAndMessageLimits(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
 		size       int
-		fragmented bool
+		firstFrame int
+		nextFrame  int
 		want       codexQueueOutcome
 	}{
-		{"single frame above native frame cap", codexFrameLimit + 1024, false, codexQueueAccepted},
-		{"fragmented at native message cap", codexResponseLimit, true, codexQueueAccepted},
-		{"fragmented above native message cap", codexResponseLimit + 1, true, codexQueueUncertain},
+		{"single frame at native frame cap", codexFrameLimit, 0, 0, codexQueueAccepted},
+		{"single frame above native frame cap", codexFrameLimit + 1, 0, 0, codexQueueUncertain},
+		{"fragment above native frame cap", codexFrameLimit + 1025, 1024, codexFrameLimit + 1, codexQueueUncertain},
+		{"fragmented at native message cap", codexResponseLimit, codexFrameLimit, codexFrameLimit, codexQueueAccepted},
+		{"fragmented above native message cap", codexResponseLimit + 1, codexFrameLimit, codexFrameLimit, codexQueueUncertain},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			endpoint, connections, done := codexFixture(t, "0.160.0", func(ctx context.Context, socket *websocket.Conn, queue testQueue) error {
@@ -294,15 +297,15 @@ func TestCodexReplyLimitAndSingleFrameDivergence(t *testing.T) {
 					return err
 				}
 				body := append([]byte(strings.Repeat(" ", tc.size-len(reply))), reply...)
-				if !tc.fragmented {
+				if tc.firstFrame == 0 {
 					_ = socket.Write(ctx, websocket.MessageText, body)
 				} else {
 					writer, err := socket.Writer(ctx, websocket.MessageText)
 					if err != nil {
 						return err
 					}
-					for len(body) > 0 {
-						size := min(len(body), codexFrameLimit)
+					for frame := tc.firstFrame; len(body) > 0; frame = tc.nextFrame {
+						size := min(len(body), frame)
 						if _, err := writer.Write(body[:size]); err != nil {
 							break
 						}
