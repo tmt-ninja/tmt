@@ -79,28 +79,9 @@ func (o Observer) Observe(ctx context.Context, pid int) (Observation, error) {
 	if !validPID(pid) {
 		return Observation{}, nil
 	}
-	if o.Process == nil {
-		return Observation{}, errors.New("process observer requires a process runner")
-	}
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	spec := ports.ProcessSpec{
-		Path: "/bin/ps", Args: []string{"-p", strconv.Itoa(pid), "-o", "lstart=", "-o", "stat="},
-		Env: []string{"LC_ALL=C", "TZ=UTC"}, Timeout: time.Second, MaxOut: probeLimit,
-	}
-	got, err := o.Process.Run(ctx, spec)
-	if errors.Is(err, os.ErrNotExist) && ctx.Err() == nil {
-		spec.Path = "/usr/bin/ps"
-		got, err = o.Process.Run(ctx, spec)
-	}
+	got, err := o.queryPS(ctx, probeLimit, "-p", strconv.Itoa(pid), "-o", "lstart=", "-o", "stat=")
 	if err != nil {
 		return Observation{}, fmt.Errorf("observe process %d: %w", pid, err)
-	}
-	if err := ctx.Err(); err != nil {
-		return Observation{}, err
-	}
-	if got.Truncated {
-		return Observation{}, fmt.Errorf("process %d observation exceeded its output limit", pid)
 	}
 	if got.ExitCode != 0 {
 		if sys.ProcessGone(pid) {
@@ -109,6 +90,33 @@ func (o Observer) Observe(ctx context.Context, pid int) (Observation, error) {
 		return Observation{}, nil
 	}
 	return parse(pid, got.Stdout), nil
+}
+
+func (o Observer) queryPS(ctx context.Context, limit int, args ...string) (ports.Bounded, error) {
+	if o.Process == nil {
+		return ports.Bounded{}, errors.New("process observer requires a process runner")
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	spec := ports.ProcessSpec{
+		Path: "/bin/ps", Args: args,
+		Env: []string{"LC_ALL=C", "TZ=UTC"}, Timeout: time.Second, MaxOut: limit,
+	}
+	got, err := o.Process.Run(ctx, spec)
+	if errors.Is(err, os.ErrNotExist) && ctx.Err() == nil {
+		spec.Path = "/usr/bin/ps"
+		got, err = o.Process.Run(ctx, spec)
+	}
+	if err != nil {
+		return ports.Bounded{}, err
+	}
+	if err := ctx.Err(); err != nil {
+		return ports.Bounded{}, err
+	}
+	if got.Truncated || len(got.Stdout) > limit {
+		return ports.Bounded{}, errors.New("process observation exceeded its output limit")
+	}
+	return got, nil
 }
 
 func validPID(pid int) bool {
