@@ -2,10 +2,13 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
 	"unicode/utf8"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 )
@@ -53,16 +56,9 @@ func (app application) response(ctx context.Context, inv invocation) output.Repo
 }
 
 func (app application) reply(ctx context.Context, inv invocation) output.Report {
-	if !inv.has("message") {
-		// NOT PORTED (#6938): bounded file and stdin response acquisition.
-		return &output.Failure{Code: "NOT_PORTED", Message: "Reply file and stdin input are not yet ported.", Status: 2}
-	}
-	body := inv.options["message"]
-	if len(body) > maxResponseBytes {
-		return &output.Failure{Code: "RESPONSE_INPUT_TOO_LARGE", Message: "Response body must not exceed 1048576 UTF-8 bytes.", Status: 1}
-	}
-	if !utf8.ValidString(body) {
-		return &output.Failure{Code: "RESPONSE_INPUT_INVALID", Message: "Response input is invalid.", Status: 1}
+	body, failure := responseBody(app.stdin, inv, inv.options["message"])
+	if failure != nil {
+		return failure
 	}
 	final, err := app.requests.SubmitResponse(ctx, core.SubmitResponse{
 		RequestID: core.RequestID(inv.operands[0]),
@@ -70,7 +66,7 @@ func (app application) reply(ctx context.Context, inv invocation) output.Report 
 		Body:      body,
 	})
 	if err != nil {
-		return responseServiceFailure()
+		return responseServiceFailure(err)
 	}
 	return responseReport{
 		Status: "submitted", RequestID: final.RequestID,
@@ -78,10 +74,40 @@ func (app application) reply(ctx context.Context, inv invocation) output.Report 
 	}
 }
 
+func responseBody(stdin *os.File, inv invocation, inline string) (string, *output.Failure) {
+	var data []byte
+	var err error
+	switch {
+	case inv.has("file"):
+		data, err = process.ReadInputFile(inv.options["file"], maxResponseBytes)
+	case inv.has("stdin"):
+		data, err = process.ReadInputStdin(stdin, maxResponseBytes)
+	default:
+		data = []byte(inline)
+	}
+	switch {
+	case errors.Is(err, process.ErrInputTimeout):
+		return "", &output.Failure{Code: "RESPONSE_INPUT_TIMEOUT", Message: "Timed out while reading response input.", Status: 4}
+	case errors.Is(err, process.ErrInputFile):
+		return "", &output.Failure{Code: "RESPONSE_FILE_ERROR", Message: "Could not read response input file.", Status: 1}
+	case err != nil:
+		return "", &output.Failure{Code: "RESPONSE_INPUT_INVALID", Message: "Response input must be complete valid UTF-8 and cannot be a TTY.", Status: 1}
+	case len(data) > maxResponseBytes:
+		return "", &output.Failure{Code: "RESPONSE_INPUT_TOO_LARGE", Message: "Response body must not exceed 1048576 UTF-8 bytes.", Status: 1}
+	case !utf8.Valid(data):
+		message := "Response input is invalid."
+		if inv.has("file") || inv.has("stdin") {
+			message = "Response input must be complete valid UTF-8 and cannot be a TTY."
+		}
+		return "", &output.Failure{Code: "RESPONSE_INPUT_INVALID", Message: message, Status: 1}
+	}
+	return string(data), nil
+}
+
 func (app application) result(ctx context.Context, input string) output.Report {
 	id, result, err := app.requests.ResultByPrefix(ctx, input)
 	if err != nil {
-		return responseServiceFailure()
+		return responseServiceFailure(err)
 	}
 	switch result.Status {
 	case core.ResponseAvailable:
@@ -107,11 +133,13 @@ func (app application) result(ctx context.Context, input string) output.Report {
 			Request: &output.RequestFailure{RequestID: string(id), Status: "unavailable"},
 		}
 	}
-	return responseServiceFailure()
+	return responseServiceFailure(nil)
 }
 
-func responseServiceFailure() *output.Failure {
-	// NOT PORTED (#6938): typed response rejections and request-ID selection
-	// diagnostics until the request service exposes its error types.
+func responseServiceFailure(err error) *output.Failure {
+	var failure *core.RequestFailure
+	if errors.As(err, &failure) && failure != nil {
+		return &output.Failure{Code: failure.Code, Message: failure.Message, Status: failure.Status}
+	}
 	return &output.Failure{Code: "RESPONSE_ERROR", Message: "Could not complete the response operation.", Status: 1}
 }
