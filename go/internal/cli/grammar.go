@@ -156,18 +156,9 @@ var grammar = commandSpec{
 }
 
 func init() {
-	// Reserve native names before any external-command lookup. Empty summaries
-	// reserve the names until their remaining grammar is ported.
-	for _, name := range []string{
-		"api", "mcp", "room", "orch", "tick", "workspace", "init", "resume",
-		"channel", "discover", "marked", "focus", "attach", "unbind",
-		"extension", "driver", "host", "config", "preamble", "identity", "notes",
-		"role", "send-now", "install", "setup", "completion", "uninstall", "storage", "learn",
-	} {
-		grammar.children = append(grammar.children, commandSpec{name: name})
-
-	}
+	// Public help also reserves the names of commands whose execution is pending.
 	grammar.children = append(grammar.children, commandSpec{name: "upgrade", visibleAlias: "update"})
+	registerPublicHelpTopics(&grammar)
 	for _, name := range []string{
 		"team", "__allowance", "__channel-server", "__complete", "__completion-script",
 		"__consumption-sample", "__flush", "__native-compact-database",
