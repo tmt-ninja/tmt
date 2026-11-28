@@ -21,9 +21,8 @@ The plan, ownership and open questions are on #6938.
 | `go.mod`, `cmd/tmt-go`, `internal/ports`, `internal/home`, `internal/archtest`, `test/tmuxtest`, `test/parity`, `.github/workflows/go.yml` | tmt-go-lead |
 | `internal/core`, `internal/adapters/storage` | go-1 |
 | `internal/sys`, `internal/invoke`, `internal/adapters/{process,tmux,host,pty,delivery,runtime,interrupt,verifiedstop,drivers}`, `test/fixtures` | go-2 |
-| `internal/cli`, `internal/output` | go-3 |
+| `internal/cli`, `internal/output`, `internal/clistyle` | go-3 |
 | `internal/adapters/{install,skills,release,config,api,mcp,framedstdio,exthooks,extcmd,channel,tick,digest}` | go-4 |
-| `internal/clistyle` | core-agy |
 
 `internal/archtest` enforces: core imports only the standard library with no I/O;
 ports imports only core; adapters never import cli; only `internal/sys` uses
