@@ -13,6 +13,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -145,10 +146,12 @@ func recordPath(root home.Root, binding string) string {
 	return filepath.Join(ClaudeDirectory(root), binding+".json")
 }
 
-func inspectCommand(binding string) string { return "tmt-go channel inspect --binding " + binding }
+func inspectCommand(binding string) string {
+	return flavor.Binary + " channel inspect --binding " + binding
+}
 
 func recoverCommand(binding, generation string) string {
-	return "tmt-go channel recover --binding " + binding + " --generation " + generation
+	return flavor.Binary + " channel recover --binding " + binding + " --generation " + generation
 }
 
 func invalidRecord(root home.Root, binding string) *EvidenceError {

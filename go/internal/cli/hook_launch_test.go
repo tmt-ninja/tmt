@@ -12,6 +12,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -51,7 +52,7 @@ func (r *fakeHookLaunchRepo) AdmitLaunch(admission ports.LaunchAdmission) (*core
 
 func TestPrepareHookLaunchScopesHooksAndRecordsIntentBeforeSpawn(t *testing.T) {
 	root := home.Root{Dir: t.TempDir()}
-	executable := filepath.Join(t.TempDir(), "tmt-go")
+	executable := filepath.Join(t.TempDir(), flavor.Binary)
 	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +147,7 @@ func TestHookLaunchCoordinatorPersistsExactRuntime(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = store.Close() })
-			exe := filepath.Join(dir, "tmt-go")
+			exe := filepath.Join(dir, flavor.Binary)
 			if err := os.WriteFile(exe, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
 				t.Fatal(err)
 			}
@@ -224,7 +225,7 @@ func TestHookLaunchCoordinatorPersistsExactRuntime(t *testing.T) {
 
 func TestHookLaunchResumePassesFenceAndPreservesTypedFailures(t *testing.T) {
 	root := home.Root{Dir: t.TempDir()}
-	executable := filepath.Join(root.Dir, "tmt-go")
+	executable := filepath.Join(root.Dir, flavor.Binary)
 	if err := os.WriteFile(executable, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
 		t.Fatal(err)
 	}

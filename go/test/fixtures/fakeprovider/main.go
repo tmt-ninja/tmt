@@ -1,4 +1,4 @@
-// fakeprovider answers one framed request in tests via the supplied tmt-go binary.
+// fakeprovider answers one framed request in tests via the supplied CLI binary.
 package main
 
 import (
@@ -13,6 +13,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
 const composer = "› Ask Codex to do anything"
@@ -28,9 +30,9 @@ func main() {
 }
 
 func run(executable string, input io.Reader, stdout, stderr io.Writer) error {
-	if !filepath.IsAbs(executable) || filepath.Base(executable) != "tmt-go" ||
-		!filepath.IsAbs(os.Getenv("TMT_GO_HOME")) {
-		return errors.New("fake provider requires an explicit tmt-go executable and test home")
+	if !filepath.IsAbs(executable) || filepath.Base(executable) != flavor.Binary ||
+		!filepath.IsAbs(os.Getenv(flavor.EnvHome)) {
+		return errors.New("fake provider requires an explicit " + flavor.Binary + " executable and test home")
 	}
 	fmt.Fprintln(stdout, composer)
 	fmt.Fprintln(stdout, "← for agents · ? for shortcuts")

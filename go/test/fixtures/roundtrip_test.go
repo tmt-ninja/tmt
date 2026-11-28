@@ -17,6 +17,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
 )
@@ -29,15 +30,19 @@ func TestFakeProviderSubmitsCorrelatedReply(t *testing.T) {
 	fake := filepath.Join(root, "codex")
 	buildCtx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
-	build := exec.CommandContext(buildCtx, "go", "build", "-o", fake, "./fakeprovider")
+	args := []string{"build"}
+	if flavor.NativeCompatible {
+		args = append(args, "-tags=nativecompat")
+	}
+	build := exec.CommandContext(buildCtx, "go", append(args, "-o", fake, "./fakeprovider")...)
 	if out, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build fake provider: %v\n%s", err, out)
 	}
 	log := filepath.Join(root, "reply-argv")
-	cli := filepath.Join(root, "tmt-go")
+	cli := filepath.Join(root, flavor.Binary)
 	// Verify the provider actually invokes the callback, not merely that its
 	// terminal echoed the request. CLI durable storage has its own tests.
-	recorder := "#!/bin/sh\nprintf '%s\\0' \"$TMT_GO_HOME\" \"$@\" > \"$TMT_FAKE_REPLY_LOG\"\n"
+	recorder := "#!/bin/sh\nprintf '%s\\0' \"${" + flavor.EnvHome + "}\" \"$@\" > \"$TMT_FAKE_REPLY_LOG\"\n"
 	if err := os.WriteFile(cli, []byte(recorder), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +57,7 @@ func TestFakeProviderSubmitsCorrelatedReply(t *testing.T) {
 		Command: ports.ProcessSpec{
 			Path: "/bin/sh",
 			Args: []string{"-c", `/bin/stty -echo && exec "$1"`, "fixture", fake},
-			Env:  []string{"TMT_GO_HOME=" + root, "TMT_EXECUTABLE=" + cli, "TMT_FAKE_REPLY_LOG=" + log},
+			Env:  []string{flavor.EnvHome + "=" + root, "TMT_EXECUTABLE=" + cli, "TMT_FAKE_REPLY_LOG=" + log},
 		},
 	})
 	if err != nil {
@@ -110,7 +115,7 @@ func TestFakeProviderSubmitsCorrelatedReply(t *testing.T) {
 
 	const req = "req_3fa85f64-5717-4562-b3fc-2c963f66afa6"
 	const receipt = "v2_test_receipt"
-	prompt := "check!\n\n<tmt-reply from=\"fixture\">\ntmt-go reply " + req + " --receipt " + receipt +
+	prompt := "check!\n\n<tmt-reply from=\"fixture\">\n" + flavor.Binary + " reply " + req + " --receipt " + receipt +
 		" --message <text>\n</tmt-reply>\nSubmit the response."
 	outcome, err := host.Deliver(t.Context(), pane, ports.DeliveryInput{Text: prompt, Submit: driver.SubmitPlan(prompt)})
 	if err != nil || outcome != ports.DeliveryDelivered {

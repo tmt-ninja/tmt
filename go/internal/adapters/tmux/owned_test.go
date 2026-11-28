@@ -10,6 +10,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
 )
@@ -57,7 +58,10 @@ func TestCloseOwnedPanePrivateServer(t *testing.T) {
 		}
 	}
 
-	const nativeOpened = "@tmt.opened"
+	nativeOpened := "@tmt.opened"
+	if flavor.NativeCompatible {
+		nativeOpened = "@tmt-go.opened"
+	}
 	server.Run("set-option", "-p", "-t", original.PaneID, nativeOpened, "1")
 	check(client, userPane, PaneKept)
 	origin := strings.TrimSuffix(server.Run("show-options", "-p", "-t", owned.PaneID, "-v", openedOption), "\n")

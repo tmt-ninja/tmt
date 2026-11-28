@@ -8,6 +8,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -16,7 +17,7 @@ func TestLifecycleHooksAreInlineAndPreserveCallerSettings(t *testing.T) {
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	launcher := filepath.Join(dir, "tmt-go")
+	launcher := filepath.Join(dir, flavor.Binary)
 	if err := os.WriteFile(launcher, []byte("#!/bin/sh\nprintf '%s\\n' \"$@\"\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,7 @@ func TestLifecycleHooksAreInlineAndPreserveCallerSettings(t *testing.T) {
 }
 
 func TestLifecycleHooksRefuseUnsupportedSettings(t *testing.T) {
-	launcher := filepath.Join(t.TempDir(), "tmt-go")
+	launcher := filepath.Join(t.TempDir(), flavor.Binary)
 	if err := os.WriteFile(launcher, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
 		t.Fatal(err)
 	}

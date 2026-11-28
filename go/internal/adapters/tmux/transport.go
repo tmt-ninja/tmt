@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -47,7 +48,7 @@ func (c Client) Deliver(ctx context.Context, pane ports.PaneRef, in ports.Delive
 	}
 	var nonce [16]byte
 	rand.Read(nonce[:])
-	buffer := "tmt-go-" + hex.EncodeToString(nonce[:])
+	buffer := flavor.Binary + "-" + hex.EncodeToString(nonce[:])
 	cleanup := func() {
 		// The buffer is ours, and removing it cannot deliver any pane input.
 		_, _ = c.run(context.WithoutCancel(ctx), pane.Server, sendMaxBytes, nil, "delete-buffer", "-b", buffer)

@@ -11,6 +11,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
 )
@@ -25,8 +26,11 @@ func TestPublishBindingKeepsNativeMetadataOnPrivateServer(t *testing.T) {
 	}
 	client := Client{Path: path, Process: process.Runner{}}
 	pane := ports.PaneRef{Server: server.Socket, PaneID: strings.TrimSpace(server.Run("display-message", "-p", "#{pane_id}"))}
-	const nativeServer = "@tmt.server-id"
-	const nativePane = "@tmt.agent"
+	otherNamespace := "@tmt."
+	if flavor.NativeCompatible {
+		otherNamespace = "@tmt-go."
+	}
+	nativeServer, nativePane := otherNamespace+"server-id", otherNamespace+"agent"
 	const nativeMarker = `{"version":1,"native":"preset sentinel"}`
 	server.Run("set-option", "-s", nativeServer, testServerID)
 	server.Run("set-option", "-p", "-t", pane.PaneID, nativePane, nativeMarker)

@@ -15,12 +15,13 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
 	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
 const (
-	// OptionNamespace isolates Go's metadata on servers shared with native tmt.
-	OptionNamespace = "@tmt-go."
+	// OptionNamespace is the selected build’s namespace for tmux user options.
+	OptionNamespace = flavor.OptionNamespace
 	ServerIDOption  = OptionNamespace + "server-id"
 	AgentOption     = OptionNamespace + "agent"
 )

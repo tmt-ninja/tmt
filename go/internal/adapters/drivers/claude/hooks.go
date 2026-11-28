@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/invoke"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -61,11 +62,11 @@ func StartsAtPrompt(command ports.ProcessSpec) bool {
 }
 
 // withHooks adds the native lifecycle observations to Claude's invocation-only
-// settings layer. The caller supplies a tmt-go with a wired __hook handler.
+// settings layer. The caller supplies the current build’s executable with a wired __hook handler.
 func withHooks(args []string, executable string) ([]string, error) {
-	if !filepath.IsAbs(executable) || filepath.Base(executable) != "tmt-go" ||
+	if !filepath.IsAbs(executable) || filepath.Base(executable) != flavor.Binary ||
 		strings.IndexFunc(executable, unicode.IsControl) >= 0 || !invoke.IsExecutable(executable) {
-		return nil, errors.New("Claude hooks require an absolute tmt-go callback executable")
+		return nil, errors.New("Claude hooks require an absolute " + flavor.Binary + " callback executable")
 	}
 	boundary := slices.Index(args, "--")
 	if boundary < 0 {

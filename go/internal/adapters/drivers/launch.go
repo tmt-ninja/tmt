@@ -10,6 +10,7 @@ import (
 	"strings"
 	"unicode"
 
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 	"github.com/tmt-ninja/tmt/go/internal/invoke"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -28,7 +29,7 @@ func Command(provider, executable string, launch ports.AgentLaunch, args []strin
 		return ports.ProcessSpec{}, fmt.Errorf("%s executable must be an absolute executable file", provider)
 	}
 	if !absolutePath(launch.HomeDir) || (launch.Dir != "" && !absolutePath(launch.Dir)) {
-		return ports.ProcessSpec{}, errors.New("driver launch requires an absolute tmt-go root and working directory")
+		return ports.ProcessSpec{}, errors.New("driver launch requires an absolute " + flavor.Binary + " root and working directory")
 	}
 	for _, arg := range args {
 		if strings.ContainsRune(arg, 0) {

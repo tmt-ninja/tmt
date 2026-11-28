@@ -9,6 +9,7 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/claude"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/codex"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers/gemini"
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
@@ -16,7 +17,7 @@ const session = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
 
 func TestPlainDriverLaunchArguments(t *testing.T) {
 	root, work := t.TempDir(), t.TempDir()
-	t.Setenv("TMT_GO_HOME", "parent-root")
+	t.Setenv(flavor.EnvHome, "parent-root")
 	t.Setenv("TMT_AGENT", "parent-agent")
 	fake := filepath.Join(t.TempDir(), "fake provider")
 	if err := os.WriteFile(fake, nil, 0700); err != nil {
@@ -54,9 +55,9 @@ func TestPlainDriverLaunchArguments(t *testing.T) {
 			if got.Path != fake || got.Dir != work || !slices.Equal(got.Args, tc.args) {
 				t.Fatalf("launch path %q, cwd %q, argv %q", got.Path, got.Dir, got.Args)
 			}
-			if !slices.Contains(got.Env, "TMT_GO_HOME="+root) || !slices.Contains(got.Env, "TMT_AGENT=1") ||
-				slices.Contains(got.Env, "TMT_GO_HOME=parent-root") || slices.Contains(got.Env, "TMT_AGENT=parent-agent") ||
-				os.Getenv("TMT_GO_HOME") != "parent-root" || os.Getenv("TMT_AGENT") != "parent-agent" {
+			if !slices.Contains(got.Env, flavor.EnvHome+"="+root) || !slices.Contains(got.Env, "TMT_AGENT=1") ||
+				slices.Contains(got.Env, flavor.EnvHome+"=parent-root") || slices.Contains(got.Env, "TMT_AGENT=parent-agent") ||
+				os.Getenv(flavor.EnvHome) != "parent-root" || os.Getenv("TMT_AGENT") != "parent-agent" {
 				t.Fatal("launch changed or failed to isolate the child environment")
 			}
 		})
