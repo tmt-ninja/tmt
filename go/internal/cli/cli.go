@@ -84,6 +84,8 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return output.Publish(stdout, stderr, app.runRequest(ctx, root, invocation), invocation.json)
 	case "check":
 		return output.Publish(stdout, stderr, app.check(ctx, root, invocation), invocation.json)
+	case "stop":
+		return output.Publish(stdout, stderr, app.runStop(ctx, root, invocation), invocation.json)
 	case "add", "name", "rm", "mv", "whoami", "ls":
 		return output.Publish(stdout, stderr, app.runBinding(ctx, root, invocation), invocation.json)
 	case "run":

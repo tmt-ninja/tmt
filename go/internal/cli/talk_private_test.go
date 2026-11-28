@@ -44,12 +44,19 @@ func TestLiveTalkGetsDurableReplyFromPrivateFakeProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	exitFile := filepath.Join(bin, "run-exit")
+	secondExit := filepath.Join(bin, "second-run-exit")
 	pane, err := host.Launch(ctx, ports.LaunchSpec{
 		Server: server.Socket, Session: "t", Window: "fake-provider", Dir: rootDir,
 		Command: ports.ProcessSpec{
 			Path: "/bin/sh",
-			Args: []string{"-c", `/bin/stty -echo && "$1" run --save Worker "$2"; printf '%s\n' "$?" > "$3"`, "fixture", binary, fake, exitFile},
-			Env:  []string{"TMT_GO_HOME=" + rootDir, "PATH=" + os.Getenv("PATH")},
+			Args: []string{"-c", `/bin/stty -echo || exit
+"$1" run --save Worker "$2"
+printf '%s\n' "$?" > "$3"
+IFS= read -r ignored || exit
+"$1" run --save Worker "$2"
+printf '%s\n' "$?" > "$4"
+IFS= read -r ignored`, "fixture", binary, fake, exitFile, secondExit},
+			Env: []string{"TMT_GO_HOME=" + rootDir, "PATH=" + os.Getenv("PATH")},
 		},
 	})
 	if err != nil {
@@ -69,23 +76,27 @@ func TestLiveTalkGetsDurableReplyFromPrivateFakeProvider(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	waitForPrivateFake(t, ctx, func() (bool, error) {
-		ready := false
-		err := store.Read(ctx, func(tx ports.StoreTx) error {
-			identity, err := core.FindIdentityByName(tx.Identities(), "Worker")
-			if err != nil || identity == nil {
+	waitForState := func(state string) core.Binding {
+		t.Helper()
+		var seen core.Binding
+		waitForPrivateFake(t, ctx, func() (bool, error) {
+			err := store.Read(ctx, func(tx ports.StoreTx) error {
+				identity, err := core.FindIdentityByName(tx.Identities(), "Worker")
+				if err != nil || identity == nil {
+					return err
+				}
+				binding, err := tx.Bindings().FindByIdentity(identity.ID)
+				if err == nil && binding != nil {
+					seen = *binding
+				}
 				return err
-			}
-			binding, err := tx.Bindings().FindByIdentity(identity.ID)
-			if err == nil && binding != nil {
-				ready = binding.Session.RuntimeState == "running" && binding.Session.Runtime != nil &&
-					binding.Session.ProviderSessionID == nil && binding.Server.Socket == pane.Server && binding.PaneID == pane.PaneID
-			}
-			return err
+			})
+			return seen.Session.RuntimeState == state && seen.Session.Runtime != nil &&
+				seen.Session.ProviderSessionID == nil && seen.Server.Socket == pane.Server && seen.PaneID == pane.PaneID, err
 		})
-		return ready, err
-	})
-
+		return seen
+	}
+	first := waitForState("running")
 	command := func(args ...string) []byte {
 		t.Helper()
 		cmd := exec.CommandContext(ctx, binary, args...)
@@ -118,16 +129,46 @@ func TestLiveTalkGetsDurableReplyFromPrivateFakeProvider(t *testing.T) {
 		t.Fatalf("fresh result = %q, decode = %v", resultJSON, err)
 	}
 
-	waitForPrivateFake(t, ctx, func() (bool, error) {
-		status, err := os.ReadFile(exitFile)
-		if errors.Is(err, os.ErrNotExist) || err == nil && !strings.HasSuffix(string(status), "\n") {
-			return false, nil
-		}
-		if err == nil && string(status) != "0\n" {
-			t.Fatalf("foreground run exited with %q", status)
-		}
-		return err == nil, err
-	})
+	waitForExit := func(path string, normal bool) {
+		t.Helper()
+		waitForPrivateFake(t, ctx, func() (bool, error) {
+			status, err := os.ReadFile(path)
+			if errors.Is(err, os.ErrNotExist) || err == nil && !strings.HasSuffix(string(status), "\n") {
+				return false, nil
+			}
+			if err == nil && (string(status) == "0\n") != normal {
+				t.Fatalf("foreground run exited with %q", status)
+			}
+			return err == nil, err
+		})
+	}
+	waitForExit(exitFile, true)
+	afterReply := waitForState("ended")
+	if afterReply.ID != first.ID || *afterReply.Session.Runtime != *first.Session.Runtime {
+		t.Fatal("foreground exit did not settle the exact original binding")
+	}
+
+	server.Run("send-keys", "-t", pane.PaneID, "Enter")
+	second := waitForState("running")
+	if second.ID != first.ID || *second.Session.Runtime == *first.Session.Runtime {
+		t.Fatal("second run did not reuse the binding for a fresh runtime")
+	}
+	stoppedJSON := command("stop", "Worker", "--json")
+	var stopped struct {
+		Identity struct{ ID core.IdentityID }
+		Outcome  string
+	}
+	if err := json.Unmarshal(stoppedJSON, &stopped); err != nil || stopped.Outcome != "stopped" || stopped.Identity.ID != first.IdentityID {
+		t.Fatalf("stop output = %q, decode = %v", stoppedJSON, err)
+	}
+	waitForExit(secondExit, false)
+	afterStop := waitForState("ended")
+	if afterStop.ID != second.ID || *afterStop.Session.Runtime != *second.Session.Runtime {
+		t.Fatal("stop did not preserve and settle the second binding")
+	}
+	if output := strings.TrimSpace(server.Run("display-message", "-p", "-t", pane.PaneID, "#{pane_id}")); output != pane.PaneID {
+		t.Fatalf("the verified stop changed its pane: %q", output)
+	}
 }
 
 func waitForPrivateFake(t *testing.T, ctx context.Context, probe func() (bool, error)) {

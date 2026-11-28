@@ -66,7 +66,7 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 	tick := time.NewTicker(25 * time.Millisecond)
 	defer tick.Stop()
 	defer cancel()
-	admitted := false
+	var admitted *core.Binding
 	for startup.Err() == nil {
 		select {
 		case err := <-exited:
@@ -80,8 +80,7 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 				return foregroundExit(err)
 			default:
 			}
-			_, err := app.admitHookLaunch(startup, root, intent, main)
-			admitted = err == nil
+			admitted, _ = app.admitHookLaunch(startup, root, intent, main)
 			break
 		}
 		select {
@@ -93,11 +92,32 @@ func (app application) launchForeground(ctx context.Context, root home.Root, sto
 	}
 	cancel()
 	tick.Stop()
-	if !admitted {
+	if admitted == nil {
 		fmt.Fprintln(stderr, "warning: command started, but runtime ownership could not be recorded; automatic delivery is not established")
 	}
-	// NOT PORTED (#6938): settle the admitted session when this exact foreground child exits.
-	return foregroundExit(<-exited)
+	waited := <-exited
+	if admitted != nil && child.ProcessState != nil {
+		if err := settleForeground(ctx, store, *admitted); err != nil {
+			fmt.Fprintln(stderr, "warning: could not settle the exited runtime; inspect identity status before retrying")
+		}
+	}
+	return foregroundExit(waited)
+}
+
+func settleForeground(ctx context.Context, store ports.Store, binding core.Binding) error {
+	session := binding.Session
+	if session.LaunchOwner == nil || session.Runtime == nil {
+		return errors.New("admitted foreground lacks recorded incarnations")
+	}
+	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	return store.Write(finish, func(tx ports.StoreTx) error {
+		_, err := tx.Bindings().EndLaunch(ports.LaunchEnd{
+			Expected: binding, Owner: *session.LaunchOwner, Runtime: *session.Runtime,
+			ObservedAtMs: uint64(wallClock{}.NowMs()),
+		})
+		return err
+	})
 }
 
 func (app application) observeForeground(ctx context.Context, observer runtime.Observer, entry bindingEntry,
