@@ -40,12 +40,10 @@ impl CommandRunner for Runner {
             "non-Remote plans retain their existing bound"
         );
         assert_eq!(request.max_output_bytes, upgrade_all::LIMIT);
-        if applying {
+        if applying || !request.input.is_empty() {
             let plan = Plan::parse(request.input).unwrap();
             assert!(plan.products.is_empty());
             assert_eq!(plan.pending[1].2, "1.1.0");
-        } else {
-            assert!(request.input.is_empty());
         }
         self.inputs.borrow_mut().push(request.input.to_vec());
         let (stdout, status) = self

@@ -35,6 +35,8 @@ pub(crate) struct InstallProgress {
 struct View {
     progress: Progress,
     enabled: bool,
+    animate: bool,
+    cursor_hidden: bool,
     output_failed: bool,
     last_draw: Option<Instant>,
     /// When the spinner started turning; frames count from here.
@@ -48,9 +50,27 @@ impl View {
             return;
         }
         let mut output = tmt_cli_style::stream::stdout(false);
+        if self.animate && self.progress.running() && !self.cursor_hidden {
+            if tmt_cli_style::progress::hide_cursor(&mut output).is_err() {
+                self.output_failed = true;
+                return;
+            }
+            self.cursor_hidden = true;
+        }
         let terminal = output.terminal();
         self.output_failed = self.progress.write(&mut output, terminal).is_err();
         self.last_draw = Some(Instant::now());
+    }
+
+    fn restore_cursor(&mut self) {
+        if !self.cursor_hidden {
+            return;
+        }
+        self.cursor_hidden = false;
+        if !self.output_failed {
+            let mut output = tmt_cli_style::stream::stdout(false);
+            let _ = tmt_cli_style::progress::show_cursor(&mut output);
+        }
     }
 
     /// Turns the running mark to the frame `now` selects and redraws when it moved.
@@ -108,10 +128,13 @@ impl Ticker {
 impl InstallProgress {
     pub(crate) fn new(action: &'static str, product: Product, interaction: Interaction) -> Self {
         let live = interaction.stdout && !interaction.dumb;
+        let animate = live && !interaction.json && tmt_cli_style::Terminal::stdout(false).color;
         Self {
             view: Arc::new(Mutex::new(View {
                 progress: Progress::new(&format!("{action} {}", product_label(product)), live),
                 enabled: !interaction.json,
+                animate,
+                cursor_hidden: false,
                 output_failed: false,
                 last_draw: None,
                 since: Instant::now(),
@@ -122,7 +145,7 @@ impl InstallProgress {
             started: Instant::now(),
             step: Step::Download,
             transfer: None,
-            animate: live && !interaction.json && tmt_cli_style::Terminal::stdout(false).color,
+            animate,
             ticker: None,
         }
     }
@@ -234,6 +257,7 @@ impl InstallProgress {
             },
         });
         view.draw();
+        view.restore_cursor();
     }
 
     pub(crate) fn failed(&mut self) {
@@ -246,6 +270,7 @@ impl InstallProgress {
             detail: "stopped; inspect the reported installation outcome",
         });
         view.draw();
+        view.restore_cursor();
     }
 
     fn stop_ticker(&mut self) {
@@ -258,6 +283,7 @@ impl InstallProgress {
 impl Drop for InstallProgress {
     fn drop(&mut self) {
         self.stop_ticker();
+        lock(&self.view).restore_cursor();
     }
 }
 
@@ -816,6 +842,124 @@ mod presentation_tests {
                     eprintln!("{action} plain frame:\n{text}");
                 }
             }
+        }
+    }
+
+    fn pty_child_output(mode: &str, env: &[(&str, &str)], use_pty: bool) -> Vec<u8> {
+        use std::io::Read;
+        use std::process::{Command, Stdio};
+        let exe = std::env::current_exe().unwrap();
+        let mut command = Command::new(exe);
+        command
+            .args([
+                "--exact",
+                "native_progress::presentation_tests::cursor_pty_child_fixture",
+                "--nocapture",
+            ])
+            .env("TMT_TEST_CURSOR_MODE", mode)
+            .env_remove("NO_COLOR")
+            .env_remove("CLICOLOR")
+            .env_remove("CLICOLOR_FORCE")
+            .env("TERM", "xterm-256color")
+            .stdin(Stdio::null())
+            .stderr(Stdio::null());
+        for (k, v) in env {
+            command.env(k, v);
+        }
+        if !use_pty {
+            let output = command.stdout(Stdio::piped()).output().unwrap();
+            assert!(output.status.success());
+            return output.stdout;
+        }
+        let pty = nix::pty::openpty(None, None).unwrap();
+        let slave_stdout = Stdio::from(pty.slave);
+        let mut child = command.stdout(slave_stdout).spawn().unwrap();
+        // Drop slave in parent so master sees EOF once child exits.
+        drop(command);
+        let mut master = std::fs::File::from(pty.master);
+        let mut bytes = Vec::new();
+        let _ = master.read_to_end(&mut bytes);
+        let status = child.wait().unwrap();
+        assert!(status.success(), "child status={status:?}");
+        bytes
+    }
+
+    #[test]
+    fn cursor_pty_child_fixture() {
+        let Ok(mode) = std::env::var("TMT_TEST_CURSOR_MODE") else {
+            return;
+        };
+        let json = mode == "json";
+        let mut progress =
+            InstallProgress::new("Upgrading", Product::Ops, Interaction::detect(json));
+        match mode.as_str() {
+            "success" | "no_color" | "json" | "pipe" => {
+                progress.observe(ProgressEvent::Verifying);
+                progress.settled(false);
+            }
+            "failure" => {
+                progress.observe(ProgressEvent::Verifying);
+                progress.failed();
+            }
+            "panic" => {
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+                    progress.observe(ProgressEvent::Verifying);
+                    panic!("simulated panic");
+                }));
+            }
+            "interrupt" => {
+                let interrupt = tmt_adapters::interrupt::Interrupt::install().unwrap();
+                progress.observe(ProgressEvent::Verifying);
+                nix::sys::signal::raise(nix::sys::signal::Signal::SIGINT).unwrap();
+                if interrupt.is_interrupted() {
+                    progress.failed();
+                }
+            }
+            other => panic!("unknown mode {other}"),
+        }
+    }
+
+    #[test]
+    fn cursor_is_hidden_and_restored_on_tty_and_omitted_on_non_tty_no_color_and_json() {
+        let mut hide = Vec::new();
+        tmt_cli_style::progress::hide_cursor(&mut hide).unwrap();
+        let mut show = Vec::new();
+        tmt_cli_style::progress::show_cursor(&mut show).unwrap();
+        let contains =
+            |haystack: &[u8], needle: &[u8]| haystack.windows(needle.len()).any(|w| w == needle);
+        for mode in ["success", "failure", "panic", "interrupt"] {
+            let bytes = pty_child_output(mode, &[], true);
+            assert!(
+                contains(&bytes, &hide),
+                "mode={mode} should hide cursor on PTY"
+            );
+            assert!(
+                contains(&bytes, &show),
+                "mode={mode} should restore cursor on PTY"
+            );
+            let last_hide = bytes
+                .windows(hide.len())
+                .rposition(|w| w == hide.as_slice())
+                .unwrap();
+            let last_show = bytes
+                .windows(show.len())
+                .rposition(|w| w == show.as_slice())
+                .unwrap();
+            assert!(
+                last_show > last_hide,
+                "mode={mode} must restore cursor after hiding"
+            );
+        }
+        for (mode, env, use_pty) in [
+            ("no_color", &[("NO_COLOR", "1")][..], true),
+            ("json", &[][..], true),
+            ("pipe", &[][..], false),
+        ] {
+            let bytes = pty_child_output(mode, env, use_pty);
+            assert!(
+                !contains(&bytes, &hide) && !contains(&bytes, &show),
+                "mode={mode} must not emit cursor sequences"
+            );
         }
     }
 }

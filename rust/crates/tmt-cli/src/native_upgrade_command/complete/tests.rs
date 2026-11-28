@@ -107,7 +107,10 @@ fn negotiated_apply_receives_the_exact_selection_once_and_reports_missing_provid
     assert_eq!(outcome.providers[0]["status"], "consentRequired");
     let calls = runner.calls.borrow();
     assert_eq!(calls.len(), 2);
-    assert!(calls[0].1.is_empty());
+    assert_eq!(
+        calls[0].1,
+        serde_json::to_vec(&approved.document()).unwrap()
+    );
     assert_eq!(
         calls[1].1,
         serde_json::to_vec(&approved.document()).unwrap()
@@ -174,14 +177,16 @@ fn an_old_target_gets_only_legacy_planning_and_no_missing_item_apply() {
     );
     assert_eq!(outcome.products[0]["status"], "skippedPinned");
     assert_eq!(outcome.products[1]["status"], "consentRequired");
-    assert!(
-        runner
-            .calls
-            .borrow()
-            .iter()
-            .all(|(_, input)| input.is_empty())
+    let calls = runner.calls.borrow();
+    assert_eq!(calls.len(), 2);
+    assert_eq!(
+        calls[0].1,
+        serde_json::to_vec(&approved.document()).unwrap()
     );
-    assert_eq!(runner.calls.borrow().len(), 2);
+    assert_eq!(
+        calls[1].1,
+        serde_json::to_vec(&approved.installed.document()).unwrap()
+    );
 }
 #[test]
 fn apply_results_cannot_claim_unapproved_provider_changes_or_new_targets() {

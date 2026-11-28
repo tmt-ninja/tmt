@@ -935,3 +935,28 @@ fn normal_raw_and_download_hops_never_send_tokens_or_follow_api_redirects() {
         assert_eq!(requests.lock().unwrap().len(), 1);
     }
 }
+
+#[test]
+fn shared_agent_gives_each_acquisition_its_own_429_retry_budget() {
+    let (_server, client, requests) = scripted(vec![
+        limited(429, &[("retry-after", "1")]),
+        Response::ok("product-a"),
+        limited(429, &[("retry-after", "1")]),
+        Response::ok("product-b"),
+    ]);
+    let first = client.for_acquisition();
+    let second = client.for_acquisition();
+    assert_eq!(api_get(&first, 10).unwrap().body, b"product-a");
+    assert_eq!(api_get(&second, 10).unwrap().body, b"product-b");
+    assert_eq!(requests.lock().unwrap().len(), 4);
+
+    // Within a single acquisition, a second 429 still exhausts its single retry.
+    let (_server, client, requests) = scripted(vec![
+        limited(429, &[("retry-after", "1")]),
+        limited(429, &[("retry-after", "1")]),
+    ]);
+    let single = client.for_acquisition();
+    let error = api_get(&single, 10).unwrap_err().to_string();
+    assert!(error.contains("the single retry was exhausted"), "{error}");
+    assert_eq!(requests.lock().unwrap().len(), 2);
+}

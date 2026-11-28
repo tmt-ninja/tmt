@@ -138,6 +138,7 @@ pub fn upgrade_product_with_schema_consent(
         verifier,
         Acquisition {
             prepared: None,
+            prefetched: None,
             progress: &|_| {},
             selected: None,
             allow_schema_ahead,
@@ -218,6 +219,7 @@ pub fn upgrade_product_selected_observed(
         verifier,
         Acquisition {
             prepared: None,
+            prefetched: None,
             progress,
             selected: Some(&version),
             allow_schema_ahead: false,
@@ -276,6 +278,38 @@ fn client_for_selection(selection: &UpgradeSelection) -> io::Result<crate::relea
     }
 }
 
+/// Exact consented selection applied from an already-downloaded release without network IO.
+pub fn upgrade_product_prefetched_observed(
+    product: super::Product,
+    request: UpgradeRequest<'_>,
+    prefetched: super::PrefetchedRelease,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+    progress: super::ProgressObserver<'_>,
+) -> Result<UpgradeReport, UpgradeFailure> {
+    let version = prefetched.release.version.clone();
+    upgrade_product_with_options(
+        product,
+        request,
+        verifier,
+        Acquisition {
+            prepared: None,
+            prefetched: Some(prefetched),
+            progress,
+            selected: Some(&version),
+            allow_schema_ahead: false,
+            deadline: Instant::now() + Duration::from_secs(60),
+        },
+        checkpoint,
+        |_, _, _, _| {
+            Err(super::invalid(
+                "Prefetched upgrade cannot perform network IO.",
+            ))
+        },
+        install_cli,
+    )
+}
+
 #[cfg(test)]
 fn upgrade_product_with(
     product: super::Product,
@@ -298,6 +332,7 @@ fn upgrade_product_with(
         verifier,
         Acquisition {
             prepared: None,
+            prefetched: None,
             progress: &|_| {},
             selected,
             allow_schema_ahead: false,
@@ -312,6 +347,7 @@ fn upgrade_product_with(
 struct Acquisition<'a> {
     progress: super::ProgressObserver<'a>,
     prepared: Option<&'a PreparedUpgrade>,
+    prefetched: Option<super::PrefetchedRelease>,
     selected: Option<&'a semver::Version>,
     allow_schema_ahead: bool,
     deadline: Instant,
@@ -335,6 +371,7 @@ fn upgrade_product_with_options(
     let Acquisition {
         progress,
         prepared,
+        prefetched,
         selected,
         allow_schema_ahead,
         deadline,
@@ -368,7 +405,29 @@ fn upgrade_product_with_options(
     else {
         return Ok(unchanged(current, true));
     };
-    let mut downloaded = if let Channel::Pr(pr) = channel {
+    let mut downloaded = if let Some(prefetched) = prefetched {
+        if prefetched.product != product
+            || prefetched.channel != channel
+            || prefetched.target != current.target
+            || selected.is_some_and(|expected| expected != &prefetched.release.version)
+        {
+            return Err(super::invalid(
+                "Prefetched release does not match the approved upgrade target.",
+            )
+            .into());
+        }
+        let archive_bytes = prefetched.release.archive.len() as u64;
+        progress(super::ProgressEvent::Selected {
+            version: &prefetched.release.version.to_string(),
+            archive_bytes,
+        });
+        progress(super::ProgressEvent::Download {
+            received_bytes: archive_bytes,
+            total_bytes: Some(archive_bytes),
+        });
+        progress(super::ProgressEvent::Downloaded);
+        prefetched.release
+    } else if let Channel::Pr(pr) = channel {
         super::pr_resolver::download_current_observed(
             super::pr_resolver::Request {
                 product,

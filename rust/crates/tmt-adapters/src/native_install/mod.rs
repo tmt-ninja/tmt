@@ -15,8 +15,10 @@ pub use post_upgrade::{
 mod remove;
 mod retired_squad;
 pub use online::{
-    ReleaseInstallRequest, default_install_prefix, install_missing_release_observed,
-    install_release, install_release_observed, latest_release_version, preview_release,
+    MAX_PARALLEL_ACQUISITION, PrefetchRequest, PrefetchedRelease, ReleaseInstallRequest,
+    default_install_prefix, install_missing_release_observed,
+    install_missing_release_prefetched_observed, install_release, install_release_observed,
+    latest_release_version, latest_release_versions, prefetch_releases, preview_release,
 };
 pub use remove::{ProductRemoval, plan_product_removal, remove_product, uninstall_extension};
 pub use retired_squad::{RetiredSquad, retired_squad};
@@ -56,7 +58,8 @@ pub use uses::{
 mod upgrade;
 pub use upgrade::{
     MigrationPreview, PreparedUpgrade, UpgradeFailure, UpgradeReport, UpgradeRequest,
-    prepare_upgrade, upgrade, upgrade_prepared, upgrade_product, upgrade_product_selected,
+    prepare_upgrade, upgrade, upgrade_prepared, upgrade_product,
+    upgrade_product_prefetched_observed, upgrade_product_selected,
     upgrade_product_selected_observed, upgrade_product_with_schema_consent,
 };
 #[cfg(test)]

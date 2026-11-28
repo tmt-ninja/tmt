@@ -220,6 +220,19 @@ impl Progress {
     }
 }
 
+/// Hides the terminal cursor while a live animated progress block draws.
+/// Callers must only emit this on a live colored TTY and always pair it with [`show_cursor`].
+pub fn hide_cursor(out: &mut impl Write) -> io::Result<()> {
+    out.write_all(b"\x1b[?25l")?;
+    out.flush()
+}
+
+/// Restores the terminal cursor after a live animated progress block finishes or stops.
+pub fn show_cursor(out: &mut impl Write) -> io::Result<()> {
+    out.write_all(b"\x1b[?25h")?;
+    out.flush()
+}
+
 pub fn bytes(bytes: u64) -> String {
     if bytes >= 1_000_000 {
         format!("{:.1} MB", bytes as f64 / 1_000_000.0)
@@ -343,5 +356,15 @@ mod tests {
         progress.write(&mut output, Terminal::PLAIN).unwrap();
         assert!(output[first..].starts_with(b"\x1b[4A"));
         assert!(!output[..first].windows(4).any(|part| part == b"\x1b[4A"));
+    }
+
+    #[test]
+    fn cursor_helpers_emit_exact_hide_and_show_sequences() {
+        let mut hidden = Vec::new();
+        hide_cursor(&mut hidden).unwrap();
+        assert_eq!(hidden, b"\x1b[?25l");
+        let mut shown = Vec::new();
+        show_cursor(&mut shown).unwrap();
+        assert_eq!(shown, b"\x1b[?25h");
     }
 }
