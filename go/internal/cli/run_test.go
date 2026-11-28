@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -65,5 +66,71 @@ func TestRunBindsAndPreparesProviderBeforeForegroundLaunch(t *testing.T) {
 	if status := app.run(t.Context(), []string{"run", "--save", "Worker", provider, "--model", "provider-owned"}, &stdout, &stderr); status != 7 ||
 		!launched || stderr.Len() != 0 {
 		t.Fatalf("run exit=%d launched=%t stdout=%q stderr=%q", status, launched, &stdout, &stderr)
+	}
+}
+
+type foregroundEndFixture struct {
+	ports.Store
+	ports.StoreTx
+	ports.BindingRepo
+	current core.Binding
+	ends    []ports.LaunchEnd
+}
+
+func (f *foregroundEndFixture) Write(_ context.Context, fn func(ports.StoreTx) error) error {
+	return fn(f)
+}
+func (f *foregroundEndFixture) Bindings() ports.BindingRepo { return f }
+func (f *foregroundEndFixture) FindByIdentity(id core.IdentityID) (*core.Binding, error) {
+	if f.current.IdentityID != id {
+		return nil, nil
+	}
+	return &f.current, nil
+}
+func (f *foregroundEndFixture) EndLaunch(end ports.LaunchEnd) (bool, error) {
+	f.ends = append(f.ends, end)
+	return reflect.DeepEqual(end.Expected, f.current), nil
+}
+
+func TestForegroundExitRefreshesOnlyExactLateAdmission(t *testing.T) {
+	owner := core.ProcessIncarnation{PID: 120, StartIdentity: "owner"}
+	runtime := core.ProcessIncarnation{PID: 121, StartIdentity: "runtime"}
+	original := core.Binding{ID: "binding", IdentityID: "member", PaneID: "%1",
+		Session: core.BindingSessionState{RuntimeState: "running", LaunchOwner: &owner, Runtime: &runtime}}
+	session, transition := "late-session", "started"
+	for _, test := range []struct {
+		name   string
+		change func(*core.Binding)
+		match  bool
+	}{
+		{"exact late session", func(*core.Binding) {}, true},
+		{"exact late resume", func(b *core.Binding) { resumed := "resumed"; b.Session.LastTransition = &resumed }, true},
+		{"different binding", func(b *core.Binding) { b.ID = "replacement" }, false},
+		{"different pane", func(b *core.Binding) { b.PaneID = "%2" }, false},
+		{"same PID reused", func(b *core.Binding) {
+			b.Session.Runtime = &core.ProcessIncarnation{PID: runtime.PID, StartIdentity: "new-runtime"}
+		}, false},
+		{"different owner", func(b *core.Binding) {
+			b.Session.LaunchOwner = &core.ProcessIncarnation{PID: owner.PID, StartIdentity: "new-owner"}
+		}, false},
+		{"different transition", func(b *core.Binding) { ended := "ended"; b.Session.LastTransition = &ended }, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			current := original
+			current.Session.ProviderSessionID, current.Session.LastTransition = &session, &transition
+			test.change(&current)
+			store := &foregroundEndFixture{current: current}
+			if err := settleForeground(t.Context(), store, original); err != nil {
+				t.Fatal(err)
+			}
+			expected := original
+			if test.match {
+				expected = current
+			}
+			if len(store.ends) != 1 || !reflect.DeepEqual(store.ends[0].Expected, expected) ||
+				store.ends[0].Owner != owner || store.ends[0].Runtime != runtime {
+				t.Fatalf("end launch = %+v, want exact owner/runtime and %+v", store.ends, expected)
+			}
+		})
 	}
 }

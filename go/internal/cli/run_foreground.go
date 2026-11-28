@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"reflect"
 	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
@@ -126,8 +127,26 @@ func settleForeground(ctx context.Context, store ports.Store, binding core.Bindi
 	finish, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 	defer cancel()
 	return store.Write(finish, func(tx ports.StoreTx) error {
-		_, err := tx.Bindings().EndLaunch(ports.LaunchEnd{
-			Expected: binding, Owner: *session.LaunchOwner, Runtime: *session.Runtime,
+		repo := tx.Bindings()
+		expected := binding
+		if session.ProviderSessionID == nil && session.PlainProgram == nil {
+			current, err := repo.FindByIdentity(binding.IdentityID)
+			if err != nil {
+				return err
+			}
+			// Accept exactly the enrichment from late provider admission.
+			if current != nil && current.Session.ProviderSessionID != nil && current.Session.LastTransition != nil &&
+				(*current.Session.LastTransition == "started" || *current.Session.LastTransition == "resumed") {
+				enriched := binding
+				enriched.Session.ProviderSessionID = current.Session.ProviderSessionID
+				enriched.Session.LastTransition = current.Session.LastTransition
+				if reflect.DeepEqual(enriched, *current) {
+					expected = enriched
+				}
+			}
+		}
+		_, err := repo.EndLaunch(ports.LaunchEnd{
+			Expected: expected, Owner: *session.LaunchOwner, Runtime: *session.Runtime,
 			ObservedAtMs: uint64(wallClock{}.NowMs()),
 		})
 		return err
