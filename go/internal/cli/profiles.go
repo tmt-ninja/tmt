@@ -156,7 +156,7 @@ func (app application) runProfile(ctx context.Context, root home.Root, inv invoc
 			transact = store.Write
 		}
 		err := transact(ctx, func(tx ports.StoreTx) error {
-			member, err := resolveProfileMember(tx, selected)
+			member, err := resolveSelectedIdentity(tx, selected)
 			if err != nil {
 				return err
 			}
@@ -199,7 +199,7 @@ func (app application) runProfile(ctx context.Context, root home.Root, inv invoc
 	})
 }
 
-func resolveProfileMember(tx ports.StoreTx, selected identitySelection) (*core.Identity, error) {
+func resolveSelectedIdentity(tx ports.StoreTx, selected identitySelection) (*core.Identity, error) {
 	if selected.explicit != nil {
 		member, err := core.ResolveIdentity(tx.Identities(), *selected.explicit)
 		if err != nil {

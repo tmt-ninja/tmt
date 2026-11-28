@@ -50,14 +50,15 @@ type TargetIdentity struct {
 
 // Failure keeps presentation fields separate from its process exit status.
 type Failure struct {
-	Code       string
-	Message    string
-	Status     int
-	Reason     string
-	Stage      string
-	Suggestion string
-	Request    *RequestFailure
-	Target     *TargetFailure
+	Code            string
+	Message         string
+	Status          int
+	Reason          string
+	Stage           string
+	Suggestion      string
+	Request         *RequestFailure
+	Target          *TargetFailure
+	MetadataCurrent map[string]*string
 }
 
 func (f *Failure) Error() string { return f.Message }
@@ -67,11 +68,12 @@ func (f *Failure) HumanStream() Stream { return Stderr }
 func (f *Failure) ExitStatus() int { return f.Status }
 
 type errorFields struct {
-	Code       string `json:"code"`
-	Message    string `json:"message"`
-	Reason     string `json:"reason,omitempty"`
-	Stage      string `json:"stage,omitempty"`
-	Suggestion string `json:"suggestion,omitempty"`
+	Code       string             `json:"code"`
+	Message    string             `json:"message"`
+	Reason     string             `json:"reason,omitempty"`
+	Stage      string             `json:"stage,omitempty"`
+	Suggestion string             `json:"suggestion,omitempty"`
+	Current    map[string]*string `json:"current,omitempty"`
 }
 
 type failureDocument struct {
@@ -84,7 +86,7 @@ func (f *Failure) JSON() any {
 	return failureDocument{
 		Error: errorFields{
 			Code: f.Code, Message: f.Message, Reason: f.Reason,
-			Stage: f.Stage, Suggestion: f.Suggestion,
+			Stage: f.Stage, Suggestion: f.Suggestion, Current: f.MetadataCurrent,
 		},
 		RequestFailure: f.Request,
 		TargetFailure:  f.Target,

@@ -41,9 +41,14 @@ func (app application) runIdentity(ctx context.Context, root home.Root, inv invo
 	if len(inv.path) == 1 {
 		return talkUsage("An identity subcommand is required.")
 	}
-	if inv.path[1] == "mv" {
+	switch inv.path[1] {
+	case "mv":
 		inv.path = []string{"mv"}
 		return app.runBinding(ctx, root, inv)
+	case "meta":
+		return app.runMetadata(ctx, root, inv)
+	case "status":
+		return app.runIdentityStatus(ctx, root, inv)
 	}
 	var selection identitySelection
 	if inv.path[1] == "show" && !inv.has("expect-name") {
@@ -68,23 +73,26 @@ func (app application) runIdentity(ctx context.Context, root home.Root, inv invo
 			}
 			return app.showIdentity(ctx, selection)
 		case "ls":
-			if inv.has("where") || inv.has("has") {
-				// NOT PORTED (#6938): querying identity metadata needs a typed store port.
-				return bindingUnavailable("identity metadata filters")
+			filters, failed := metadataFilters(inv)
+			if failed != nil {
+				return failed
 			}
 			var rows []core.Identity
 			err := store.Read(ctx, func(tx ports.StoreTx) error {
 				var err error
-				rows, err = tx.Identities().List()
+				if len(filters) > 0 {
+					rows, err = tx.Identities().ListMatchingMetadata(filters)
+				} else {
+					rows, err = tx.Identities().List()
+				}
 				return err
 			})
 			if err != nil {
-				return identityOperationFailure()
+				return metadataFailure(err)
 			}
 			return identityListReport(rows)
 		default:
-			// NOT PORTED (#6938): identity status and metadata need their typed store ports.
-			return bindingUnavailable(strings.Join(inv.path, " "))
+			return talkUsage("An identity subcommand is required.")
 		}
 	})
 }
@@ -161,10 +169,15 @@ func createIdentity(ctx context.Context, store ports.Store, raw string) output.R
 
 func (app application) showPinnedIdentity(ctx context.Context, selector, expected string) output.Report {
 	var entry bindingEntry
+	var retired bool
 	err := app.store.Read(ctx, func(tx ports.StoreTx) error {
 		var err error
 		entry.identity, err = tx.Identities().FindByID(core.IdentityID(selector))
-		if err != nil || entry.identity == nil {
+		if err != nil {
+			return err
+		}
+		if entry.identity == nil {
+			retired, err = tx.Identities().IsRetired(core.IdentityID(selector))
 			return err
 		}
 		entry.binding, err = tx.Bindings().FindByIdentity(entry.identity.ID)
@@ -174,7 +187,9 @@ func (app application) showPinnedIdentity(ctx context.Context, selector, expecte
 		return identityOperationFailure()
 	}
 	if entry.identity == nil {
-		// NOT PORTED (#6938): distinguish retired UUIDs using a typed retired-identity read.
+		if retired {
+			return bindingFailure("IDENTITY_CHANGED", fmt.Sprintf("The identity %s has been retired.", selector), 5)
+		}
 		return identityMissing(selector)
 	}
 	if entry.identity.CanonicalName != core.NormalizeName(expected) {

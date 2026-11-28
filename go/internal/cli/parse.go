@@ -14,6 +14,7 @@ import (
 type invocation struct {
 	path     []string
 	options  map[string]string
+	repeated map[string][]string
 	operands []string
 	json     bool
 	help     bool
@@ -66,15 +67,25 @@ func (s *argumentScan) option(chain []*commandSpec, opt *optionSpec, value strin
 		return 0
 	}
 	if supplied {
-		s.options[opt.name] = value
+		s.setValue(opt, value)
 		return 0
 	}
 	if len(tail) > 0 && tail[0] != "--" && (opt.hyphen || tail[0] == "-" || !strings.HasPrefix(tail[0], "-")) {
-		s.options[opt.name] = tail[0]
+		s.setValue(opt, tail[0])
 		return 1
 	}
 	s.reject("A value is required for '--%s'.", opt.name)
 	return 0
+}
+
+func (s *argumentScan) setValue(opt *optionSpec, value string) {
+	s.options[opt.name] = value
+	if opt.repeat {
+		if s.repeated == nil {
+			s.repeated = make(map[string][]string)
+		}
+		s.repeated[opt.name] = append(s.repeated[opt.name], value)
+	}
 }
 
 func scanArguments(args []string) (argumentScan, *commandSpec) {

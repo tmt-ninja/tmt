@@ -8,6 +8,7 @@ type optionSpec struct {
 	value      bool
 	hyphen     bool
 	hidden     bool
+	repeat     bool
 }
 
 type operandSpec struct {
@@ -110,8 +111,10 @@ var options = []optionSpec{
 	{name: "receipt", value: true, help: "Receipt supplied by talk"},
 	{name: "from", value: true, help: "Only requests from this identity"},
 	{name: "request", value: true, help: "Answer this open request ID"},
-	{name: "where", value: true},
-	{name: "has", value: true},
+	{name: "where", value: true, repeat: true},
+	{name: "has", value: true, repeat: true},
+	{name: "mood", value: true},
+	{name: "for", value: true, hyphen: true},
 	{name: "global"},
 	{name: "activity-only", hidden: true},
 }
@@ -130,6 +133,18 @@ var grammar = commandSpec{
 			{name: "mv", aliases: []string{"rename"}, summary: "Rename an identity", operands: []operandSpec{required("old"), required("new")}},
 			{name: "show", summary: "Show an identity", operands: []operandSpec{optional("name")}, options: []string{"expect-name"}},
 			{name: "ls", aliases: []string{"list"}, summary: "List non-retired identities", options: []string{"where", "has"}},
+			{name: "status", summary: "Manage self-reported status", children: []commandSpec{
+				{name: "show", summary: "Show current or stale status", options: []string{"identity"}},
+				{name: "set", summary: "Replace status and renew its expiry", options: []string{"identity", "mood", "for"}, operands: []operandSpec{required("activity")}},
+				{name: "rm", aliases: []string{"clear"}, summary: "Remove self-reported status", options: []string{"identity"}},
+			}},
+			{name: "meta", summary: "Manage descriptive metadata", children: []commandSpec{
+				{name: "apply", summary: "Apply conditional metadata changes from JSON stdin", options: []string{"identity"}},
+				{name: "set", summary: "Set a metadata value", options: []string{"identity"}, operands: []operandSpec{required("key"), required("value")}},
+				{name: "show", aliases: []string{"get"}, summary: "Show a metadata value", options: []string{"identity"}, operands: []operandSpec{required("key")}},
+				{name: "ls", aliases: []string{"list"}, summary: "List metadata values", options: []string{"identity"}},
+				{name: "rm", summary: "Remove a metadata value", options: []string{"identity"}, operands: []operandSpec{required("key")}},
+			}},
 		}},
 		{name: "notes", summary: "Access saved identity notes", children: []commandSpec{
 			{name: "path", summary: "Initialize and print the local Markdown path", options: []string{"identity"}},
