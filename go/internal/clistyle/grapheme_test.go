@@ -41,3 +41,15 @@ func TestFitKeepsJoinedEmojiInBothEnds(t *testing.T) {
 		t.Errorf("wrapped graphemes = %q", lines)
 	}
 }
+
+// NOT PORTED (#6938): uniseg v0.4.7 uses older Unicode data than Rust
+// unicode-width 0.2.2. These Unicode 16 emoji measure one cell in Go and two
+// in Rust until the approved Go dependency updates its width tables.
+func TestExpectedWidthDifferenceForUnicode16Emoji(t *testing.T) {
+	for _, text := range []string{"\U0001fae9", "\U0001fac6", "\U0001fa89"} {
+		const rustWidth, goWidth = 2, 1
+		if got := DisplayWidth(text); got != goWidth {
+			t.Errorf("width of %U = %d, expected Go %d (Rust %d); revisit this exception", []rune(text)[0], got, goWidth, rustWidth)
+		}
+	}
+}

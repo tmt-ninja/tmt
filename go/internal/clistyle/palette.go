@@ -47,7 +47,7 @@ func (term Terminal) Paint(token Token, text string) string {
 		switch role {
 		case RoleAccent, RoleUnread, RoleMatrixBatch, RoleMatrixUrgent, RoleWorking,
 			RoleWaiting, RoleBlocked, RoleReview, RoleLink:
-			return ThemeTerminal.Paint(role, ANSI16, text)
+			return (Theme{Base: ThemeTerminal}).Paint(role, ANSI16, text)
 		}
 		return text
 	}
@@ -60,7 +60,7 @@ func (term Terminal) Paint(token Token, text string) string {
 		if term.Theme != nil {
 			return term.Theme.Paint(role, term.Depth, text)
 		}
-		return ThemeTerminal.Paint(role, ANSI16, text)
+		return (Theme{Base: ThemeTerminal}).Paint(role, ANSI16, text)
 	default:
 		return text
 	}

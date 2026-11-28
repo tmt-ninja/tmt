@@ -6,7 +6,7 @@ import (
 )
 
 func WriteSuccess(output io.Writer, term Terminal, text string) error {
-	return writeMessageLine(output, term, TokenOK, "✓", text)
+	return writeMessageLine(output, term, MarkDone.Token(), MarkDone.Symbol(), text)
 }
 
 func WriteError(output io.Writer, term Terminal, text, hint string) error {

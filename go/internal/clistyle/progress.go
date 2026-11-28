@@ -125,11 +125,11 @@ func (p *Progress) mark(state ProgressState) (string, Token) {
 		}
 		return "⠹", TokenAccent
 	case ProgressDone:
-		return "✓", TokenOK
+		return MarkDone.Symbol(), MarkDone.Token()
 	case ProgressFailed:
-		return "✗", TokenError
+		return MarkFailed.Symbol(), MarkFailed.Token()
 	case ProgressWarning:
-		return "!", TokenWarn
+		return MarkWarning.Symbol(), MarkWarning.Token()
 	default:
 		return "·", TokenDim
 	}
