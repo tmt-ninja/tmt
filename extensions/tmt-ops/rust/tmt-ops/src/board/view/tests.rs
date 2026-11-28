@@ -200,13 +200,13 @@ fn narrow_annotation_caption_keeps_excerpt_and_whole_removal_control_and_hint() 
         "{lines:?}"
     );
     assert!(
-        lines.iter().any(
-            |line| line.contains("Alt+⏎") && (line.contains("@ mention") || line.contains('@'))
-        ),
+        lines
+            .iter()
+            .any(|line| line.contains("@ mention") && line.contains("^L checklist")),
         "{lines:?}"
     );
     let editor = app.input_viewport.get().unwrap().0;
-    assert!(lines[usize::from(editor.bottom())].contains("Alt+⏎"));
+    assert!(lines[usize::from(editor.bottom())].contains("@ mention"));
     assert!(
         lines
             .iter()

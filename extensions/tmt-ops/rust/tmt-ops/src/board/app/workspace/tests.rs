@@ -2285,7 +2285,7 @@ fn a_composer_with_its_own_key_legend_does_not_advertise_list_shortcuts() {
             assert!(
                 lines
                     .iter()
-                    .any(|line| line.contains("Alt+⏎") && line.contains('@')),
+                    .any(|line| line.contains("@ mention") && line.contains("^L checklist")),
                 "{width}: {lines:?}"
             );
         }
