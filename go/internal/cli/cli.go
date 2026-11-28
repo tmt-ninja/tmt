@@ -80,6 +80,8 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return publish(stdout, stderr, failure, invocation.json)
 	}
 	switch invocation.path[0] {
+	case "config":
+		return publish(stdout, stderr, runConfig(ctx, root, invocation), invocation.json)
 	case "reply", "result", "inbox", "answer", "x", "talk":
 		return publish(stdout, stderr, app.runRequest(ctx, root, invocation), invocation.json)
 	case "check":

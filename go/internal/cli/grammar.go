@@ -109,6 +109,7 @@ var options = []optionSpec{
 	{name: "receipt", value: true, help: "Receipt supplied by talk"},
 	{name: "from", value: true, help: "Only requests from this identity"},
 	{name: "request", value: true, help: "Answer this open request ID"},
+	{name: "global"},
 	{name: "activity-only", hidden: true},
 }
 
@@ -116,6 +117,11 @@ var grammar = commandSpec{
 	name: "tmt-go", summary: "TMT native alpha: collaborate with terminal agents through durable exchanges",
 	children: []commandSpec{
 		{name: "help", summary: "Show help for a command", trailing: true, humanOnly: true, operands: []operandSpec{optional("command-path")}},
+		{name: "config", summary: "View or modify settings", children: []commandSpec{
+			{name: "show", summary: "Show settings"},
+			{name: "set", summary: "Set a setting", options: []string{"global"}, operands: []operandSpec{required("key"), required("value")}},
+			{name: "rm", aliases: []string{"clear"}, summary: "Reset local setting overrides", operands: []operandSpec{optional("key")}},
+		}},
 		{name: "run", summary: "Start a known agent, or bind this pane and run a command", usage: "AGENT [ARGS...] | NAME [COMMAND...]",
 			humanOnly: true, trailing: true, operands: []operandSpec{required("run-argv")},
 			options: []string{"save", "model", "effort", "resume", "host", "channel", "no-channel"}},

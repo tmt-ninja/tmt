@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"crypto/rand"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,7 +12,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/tmt-ninja/tmt/go/internal/adapters/config"
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
@@ -36,7 +34,6 @@ type talkPlan struct {
 func (app application) prepareTalk(ctx context.Context, root home.Root, inv invocation) (talkPlan, *output.Failure) {
 	plan := talkPlan{
 		target: inv.operands[0], message: inv.operands[1], detach: inv.has("detach"),
-		timeout: 180 * time.Second, poll: time.Second, retention: core.DefaultRetentionDays,
 	}
 	for _, option := range []string{"remote", "room", "passthrough", "urgent", "kind", "expect-name"} {
 		if inv.has(option) {
@@ -45,45 +42,12 @@ func (app application) prepareTalk(ctx context.Context, root home.Root, inv invo
 		}
 	}
 
-	files, err := config.Resolve(root, root.Dir)
+	settings, err := loadSettings(root)
 	if err != nil {
 		return plan, talkConfigFailure()
 	}
-	doc, err := files.Read(config.Global)
-	if err != nil {
-		return plan, talkConfigFailure()
-	}
-	var defaults struct {
-		Timeout      *float64 `json:"timeout"`
-		PollInterval *float64 `json:"pollInterval"`
-	}
-	var exchange struct {
-		RetentionDays *uint64 `json:"retentionDays"`
-	}
-	if raw := doc["defaults"]; len(raw) != 0 && json.Unmarshal(raw, &defaults) != nil {
-		return plan, talkConfigFailure()
-	}
-	if raw := doc["exchange"]; len(raw) != 0 && json.Unmarshal(raw, &exchange) != nil {
-		return plan, talkConfigFailure()
-	}
-	if defaults.Timeout != nil {
-		if !core.ValidObserverTimeoutSeconds(*defaults.Timeout) {
-			return plan, talkConfigFailure()
-		}
-		plan.timeout = timerSeconds(*defaults.Timeout)
-	}
-	if defaults.PollInterval != nil {
-		if !core.ValidObserverTimeoutSeconds(*defaults.PollInterval) {
-			return plan, talkConfigFailure()
-		}
-		plan.poll = timerSeconds(*defaults.PollInterval)
-	}
-	if exchange.RetentionDays != nil {
-		if !core.ValidRetentionDays(*exchange.RetentionDays) {
-			return plan, talkConfigFailure()
-		}
-		plan.retention = *exchange.RetentionDays
-	}
+	plan.timeout = timerSeconds(settings["timeout"].value.(float64))
+	plan.retention = settings["exchange.retentionDays"].value.(uint64)
 
 	if inv.has("timeout") {
 		value, failure := durationSeconds(inv.options["timeout"])
@@ -95,6 +59,8 @@ func (app application) prepareTalk(ctx context.Context, root home.Root, inv invo
 		}
 		plan.timeout = timerSeconds(value)
 	}
+	// No observation interval needs to exceed the request's own deadline.
+	plan.poll = timerSeconds(min(settings["pollInterval"].value.(float64), plan.timeout.Seconds()))
 	if inv.has("delay") {
 		value, failure := durationSeconds(inv.options["delay"])
 		if failure != nil {

@@ -28,7 +28,16 @@ func publish(stdout, stderr io.Writer, report output.Report, asJSON bool) int {
 	if failure, ok := report.(*output.Failure); ok && !asJSON {
 		report = styledFailure{failure}
 	}
-	return output.Publish(stdout, stderr, report, asJSON)
+	status := output.Publish(stdout, stderr, report, asJSON)
+	if status == 0 && !asJSON {
+		if diagnostic, ok := report.(interface{ HumanDiagnostic(io.Writer) error }); ok {
+			if err := diagnostic.HumanDiagnostic(stderr); err != nil {
+				_ = warn(stderr, "Could not write CLI output: "+err.Error())
+				return 1
+			}
+		}
+	}
+	return status
 }
 
 type styledFailure struct{ *output.Failure }

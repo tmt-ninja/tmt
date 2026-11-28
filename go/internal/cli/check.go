@@ -2,12 +2,10 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
 
-	"github.com/tmt-ninja/tmt/go/internal/adapters/config"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
@@ -50,29 +48,11 @@ func checkLines(inv invocation) (*uint64, string) {
 }
 
 func checkDefaultLines(root home.Root) (uint64, error) {
-	files, err := config.Resolve(root, root.Dir)
+	settings, err := loadSettings(root)
 	if err != nil {
 		return 0, err
 	}
-	doc, err := files.Read(config.Global)
-	if err != nil {
-		return 0, err
-	}
-	var defaults struct {
-		CaptureLines *uint64 `json:"captureLines"`
-	}
-	if raw := doc["defaults"]; len(raw) != 0 {
-		if err := json.Unmarshal(raw, &defaults); err != nil {
-			return 0, err
-		}
-	}
-	if defaults.CaptureLines == nil {
-		return 100, nil
-	}
-	if !core.ValidCaptureLines(*defaults.CaptureLines) {
-		return 0, fmt.Errorf("capture lines out of range")
-	}
-	return *defaults.CaptureLines, nil
+	return settings["captureLines"].value.(uint64), nil
 }
 
 func (app application) check(ctx context.Context, root home.Root, inv invocation) (report output.Report) {

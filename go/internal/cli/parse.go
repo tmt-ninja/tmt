@@ -96,6 +96,12 @@ func scanArguments(args []string) (argumentScan, *commandSpec) {
 			}
 			i += scan.option(chain, opt, value, supplied, args[i+1:])
 		case strings.HasPrefix(token, "-") && token != "-":
+			if slices.Equal(scan.path, []string{"config", "set"}) && len(scan.operands) == 1 {
+				if _, err := strconv.ParseFloat(token, 64); err == nil {
+					scan.operands = append(scan.operands, token)
+					continue
+				}
+			}
 			for _, short := range token[1:] {
 				opt := findOption(chain, "", short)
 				if opt == nil {
