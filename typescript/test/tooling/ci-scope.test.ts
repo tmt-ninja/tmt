@@ -2311,8 +2311,19 @@ describe('hosted reader emulator selection', () => {
 });
 
 describe('CI diff and command integration', () => {
-  it('reads actual additions, cross-owner renames and deletions with whitespace-safe paths', () => {
-    const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-scope-'));
+  const capture = () => {
+    let text = '';
+    return { write: (chunk: string) => void (text += chunk), text: () => text };
+  };
+  const outputs = (text: string) =>
+    Object.fromEntries(
+      text
+        .trim()
+        .split('\n')
+        .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)])
+    );
+
+  function fixtureGit(root: string) {
     const git = (args: string[]): string =>
       runPackedCommand('git', args, {
         cwd: root,
@@ -2334,6 +2345,12 @@ describe('CI diff and command integration', () => {
       ]);
       return git(['rev-parse', 'HEAD']).trim();
     };
+    return { git, commit };
+  }
+
+  it('reads actual additions, cross-owner renames and deletions with whitespace-safe paths', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-scope-'));
+    const { git, commit } = fixtureGit(root);
     try {
       git(['init', '--quiet']);
       writeFileSync(path.join(root, 'README.md'), 'fixture\n');
@@ -2386,31 +2403,7 @@ describe('CI diff and command integration', () => {
 
   it('writes only the step outputs to stdout and the evidence to stderr and the summary', () => {
     const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-scope-run-'));
-    const git = (args: string[]): string =>
-      runPackedCommand('git', args, {
-        cwd: root,
-        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_SYSTEM: '/dev/null' },
-      });
-    const commit = (): string => {
-      git(['add', '.']);
-      git([
-        '-c',
-        'user.name=TMT Test',
-        '-c',
-        'user.email=test@example.invalid',
-        '-c',
-        'commit.gpgsign=false',
-        'commit',
-        '--quiet',
-        '-m',
-        'Test fixture',
-      ]);
-      return git(['rev-parse', 'HEAD']).trim();
-    };
-    const capture = () => {
-      let text = '';
-      return { write: (chunk: string) => void (text += chunk), text: () => text };
-    };
+    const { git, commit } = fixtureGit(root);
     try {
       git(['init', '--quiet']);
       writeFileSync(path.join(root, 'ARCHITECTURE.md'), 'fixture\n');
@@ -2424,13 +2417,6 @@ describe('CI diff and command integration', () => {
       const stdout = capture();
       const stderr = capture();
       runCiScope([base, head], { cwd: root, stdout, stderr, summaryFile });
-      const outputs = (text: string) =>
-        Object.fromEntries(
-          text
-            .trim()
-            .split('\n')
-            .map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)])
-        );
       const full = outputs(stdout.text());
       expect(full).toMatchObject({
         native: 'true',
@@ -2580,33 +2566,6 @@ describe('CI diff and command integration', () => {
       const unrelatedHead = commit();
       expect(colabSelected(deletedColabHead, unrelatedHead)).toBe('false');
 
-      mkdirSync(path.join(root, 'typescript'));
-      const lockPath = path.join(root, 'typescript/pnpm-lock.yaml');
-      writeFileSync(lockPath, lockFixture());
-      const lockBase = commit();
-      writeFileSync(lockPath, lockFixture('2.0.0'));
-      const unrelatedLockHead = commit();
-      const lockOutput = capture();
-      runCiScope([lockBase, unrelatedLockHead], {
-        cwd: root,
-        stdout: lockOutput,
-        stderr: capture(),
-      });
-      expect(outputs(lockOutput.text())).toMatchObject({
-        colab_app: 'false',
-        colab_chrome: 'true',
-        colab_harness: 'true',
-      });
-      writeFileSync(lockPath, lockFixture('2.0.0', 'sha512-changed'));
-      const relevantLockHead = commit();
-      const relevantOutput = capture();
-      runCiScope([unrelatedLockHead, relevantLockHead], {
-        cwd: root,
-        stdout: relevantOutput,
-        stderr: capture(),
-      });
-      expect(outputs(relevantOutput.text()).colab_app).toBe('true');
-
       expect(() => runCiScope(['only-one'], { cwd: root, stdout, stderr })).toThrow(
         'exact base and head'
       );
@@ -2617,6 +2576,35 @@ describe('CI diff and command integration', () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(`${root}-summary.md`, { force: true });
+    }
+  }, 5000);
+
+  it('selects Colab from the resolved closure of a changed lockfile in Git', () => {
+    const root = mkdtempSync(path.join(tmpdir(), 'tmt-ci-scope-lock-'));
+    const { git, commit } = fixtureGit(root);
+    const outputFor = (base: string, head: string) => {
+      const stdout = capture();
+      runCiScope([base, head], { cwd: root, stdout, stderr: capture() });
+      return outputs(stdout.text());
+    };
+    try {
+      git(['init', '--quiet']);
+      mkdirSync(path.join(root, 'typescript'));
+      const lockPath = path.join(root, 'typescript/pnpm-lock.yaml');
+      writeFileSync(lockPath, lockFixture());
+      const lockBase = commit();
+      writeFileSync(lockPath, lockFixture('2.0.0'));
+      const unrelatedLockHead = commit();
+      expect(outputFor(lockBase, unrelatedLockHead)).toMatchObject({
+        colab_app: 'false',
+        colab_chrome: 'true',
+        colab_harness: 'true',
+      });
+      writeFileSync(lockPath, lockFixture('2.0.0', 'sha512-changed'));
+      const relevantLockHead = commit();
+      expect(outputFor(unrelatedLockHead, relevantLockHead).colab_app).toBe('true');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   }, 5000);
 
@@ -2686,7 +2674,6 @@ describe('CI diff and command integration', () => {
   it('uses the Colab resolved lockfile closure without changing the required chrome selection', () => {
     const lock = lockFixture();
     const linked = lock.replace('"direct":{"specifier":"1.0.0"', '"direct":{"specifier":"^1.0.0"');
-    const transitive = lockFixture('1.0.0', 'sha512-changed');
     const settings = lock.replace('"autoInstallPeers":true', '"autoInstallPeers":false');
     const overrides = lock.replace('"settings":', '"overrides":{"unused":"1.0.0"},"settings":');
     const patches = lock.replace(
@@ -2694,14 +2681,12 @@ describe('CI diff and command integration', () => {
       '"patchedDependencies":{"unused":"unused.patch"},"settings":'
     );
     const paths = ['typescript/pnpm-lock.yaml'];
-    expect(colabAppLockfilesDiffer(lock, lockFixture('2.0.0'))).toBe(false);
     expect(selectColabChrome(paths)).toBe(true);
     const duplicate = lock.replace('"settings":{', '"settings":{},"settings":{');
     const missingApp = lock.replace('../extensions/tmt-colab/typescript/app', '../unknown');
     const missingLinked = lock.replace('"../design/browser-ui"', '"../unknown"');
     for (const variant of [
       linked,
-      transitive,
       settings,
       overrides,
       patches,
