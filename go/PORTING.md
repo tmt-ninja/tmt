@@ -128,6 +128,16 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     and `TestDigestReceivingUsesSharedPlanAndFencesCalendar` verifies projected
     receiving, exact source and slot, the master switch and stale-calendar refusal.
 
+- [x] GO1-27: Read Jobs by exact display number and project last-run request evidence.
+  - Native `storage/orchestration/jobs.rs::resolve_orchestration_job` and
+    `jobs/tests/public_read.rs::public_jobs_page_is_complete_scoped_and_bounded_while_show_keeps_exact_text`
+    map to `TestReadJobsFiltersPagesAndProjectsPolicyAndRuns` for exact text,
+    valid and removed job numbers, bounded selectors, and unchanged paging.
+  - Native `jobs/tests/public_read.rs::last_run_uses_canonical_final_state_without_read_mutations_or_response_bodies`
+    and `request/service/history.rs` map to `TestReadJobRunProjectsExactRequestEvidence`
+    for canonical final metadata, unchanged cursor, no final text, and exact
+    parent, room and recipient acknowledgement evidence.
+
 ## go-2 (sys, process, tmux, host, drivers, channel)
 
 - [x] GO2-01: Native selected-process start reads on Darwin and Linux before the bounded ps fallback. Rust `process/process_info.rs::stopped_and_exited_owned_children_keep_batch_parity` → `TestNativeProcessStartsForLiveStoppedAndGone` and `TestNativeStartTokenMatchesTheBoundedPSFallback`; Linux stat parsing → `TestNativeLinuxStatKeepsTheStartFieldAfterComplexCommand`. Under concurrent test suites, repeated batched ps reads exhausted the swap budget, including the fresh post-swap check. Native reads preserve the persisted token and remove those subprocesses. Each focus ancestry proof also checks both required links from one snapshot (`TestProcessTreeProvesBothSegmentsFromOneSnapshot`), with fresh rechecks and deadlines intact.

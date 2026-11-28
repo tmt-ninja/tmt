@@ -81,6 +81,37 @@ func TestReadJobsFiltersPagesAndProjectsPolicyAndRuns(t *testing.T) {
 	if err != nil || page.FullMessage == nil || *page.FullMessage != message {
 		t.Fatalf("full message: %v, %v", page.FullMessage, err)
 	}
+	firstNumber := uint64(1)
+	byNumber := core.OrchJobQuery{Limit: 1, NowMs: 6000, Number: &firstNumber, FullMessage: true}
+	page, err = store.ReadJobs(ctx, byNumber)
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != first || page.NextAfter != nil ||
+		page.FullMessage == nil || *page.FullMessage != message {
+		t.Fatalf("exact number page: %+v, %v", page, err)
+	}
+	both := byNumber
+	both.JobID = &first
+	_, err = store.ReadJobs(ctx, both)
+	requireRequestFailure(t, err, "ORCH_INPUT_INVALID", 1)
+	for _, invalid := range []uint64{0, core.MaxJSSafeInteger + 1} {
+		invalidQuery := byNumber
+		invalidQuery.Number = &invalid
+		_, err = store.ReadJobs(ctx, invalidQuery)
+		requireRequestFailure(t, err, "ORCH_INPUT_INVALID", 1)
+	}
+	excluded := byNumber
+	other := bindingOtherID
+	excluded.OwnerID = &other
+	page, err = store.ReadJobs(ctx, excluded)
+	if err != nil || len(page.Items) != 0 || page.FullMessage != nil {
+		t.Fatalf("filtered job returned text: %+v, %v", page, err)
+	}
+	if _, err := store.db.ExecContext(ctx, "UPDATE orchestration_jobs SET removed=1, revision=2 WHERE id=?", first); err != nil {
+		t.Fatal(err)
+	}
+	page, err = store.ReadJobs(ctx, byNumber)
+	if err != nil || len(page.Items) != 0 || page.FullMessage != nil {
+		t.Fatalf("removed job returned text: %+v, %v", page, err)
+	}
 	if version, err := store.SchemaVersion(ctx); err != nil || version != uint64(SchemaVersion) {
 		t.Fatalf("schema: %d, %v", version, err)
 	}
@@ -299,5 +330,86 @@ func TestSchemaVersionObservesNewerHistoryOnOpenHandle(t *testing.T) {
 	}
 	if got, err := store.SchemaVersion(ctx); err != nil || got != version {
 		t.Fatalf("observed schema = %d, %v, want %d", got, err, version)
+	}
+}
+
+func TestReadJobRunProjectsExactRequestEvidence(t *testing.T) {
+	parallelStorageFixture(t)
+	ctx := t.Context()
+	store := bindingFixture(t)
+	clock := &requestClock{ms: 10_000}
+	service := NewRequestService(store, clock)
+	requestID := core.RequestID("req_1f2f8c9c-ecc4-46e5-9230-e08a7bf54f61")
+	in := inboxRequest(requestID)
+	sender, recipient := bindingOtherID, bindingOwnerID
+	in.Originator.IdentityID, in.Recipient, in.Route.Recipient = &sender, &recipient, &recipient
+	prepared, err := service.Enqueue(ctx, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent := core.RequestID("req_361a34af-1316-46a3-aab4-c2274468b471")
+	room := core.RoomID("044b7488-3fd8-4913-ad09-2aa7dc66d00b")
+	operation := "d11f253f-9af4-47aa-bcd3-bbb9a46b48b0"
+	receipt := fmt.Sprintf(`{"operationId":%q,"createdAtMs":10000,"items":[{"recipientId":%q,"requestId":%q,"acceptance":"queued"}]}`,
+		operation, recipient, requestID)
+	editResumeFixture(t, store, `UPDATE request_attempts SET thread_root_request_id=?1, room_id=?2 WHERE request_id=?3`, parent, room, requestID)
+	editResumeFixture(t, store, `INSERT INTO orchestration_jobs(id,revision,owner_id,message,schedule)
+		VALUES (?,1,?,'run it','{"kind":"every","zone":"UTC","seconds":60,"anchorMs":0}')`, orchFirstJob, recipient)
+	editResumeFixture(t, store, `INSERT INTO office_dispatch_operations(operation_id,intent_digest,receipt)
+		VALUES (?,?,?)`, operation, strings.Repeat("a", 64), receipt)
+	editResumeFixture(t, store, `INSERT INTO orchestration_job_runs(job_id,revision,slot_ms,observed_slot_ms,manual,operation_id,recorded_ms)
+		VALUES (?,1,0,0,0,?,10000)`, orchFirstJob, operation)
+	number := uint64(1)
+	read := func(acknowledged bool) core.OrchJobRequest {
+		t.Helper()
+		var before, after uint64
+		if err := store.db.QueryRowContext(ctx, "SELECT value FROM change_cursor WHERE id=1").Scan(&before); err != nil {
+			t.Fatal(err)
+		}
+		page, err := store.ReadJobs(ctx, core.OrchJobQuery{Limit: 1, Number: &number, NowMs: uint64(clock.ms)})
+		runs := page.RecentRuns[orchFirstJob]
+		if err != nil || len(runs) != 1 || runs[0].Request == nil {
+			t.Fatalf("job runs = %+v, %v", runs, err)
+		}
+		request := *runs[0].Request
+		if request.Attempt.RequestID != requestID || request.ParentRequestID == nil || *request.ParentRequestID != parent ||
+			request.RoomID == nil || *request.RoomID != room || request.RecipientAcknowledged != acknowledged {
+			t.Fatalf("request evidence = %+v, want acknowledged=%t", request, acknowledged)
+		}
+		if err := store.db.QueryRowContext(ctx, "SELECT value FROM change_cursor WHERE id=1").Scan(&after); err != nil || before != after {
+			t.Fatalf("job read changed cursor: %d to %d, %v", before, after, err)
+		}
+		return request
+	}
+	if request := read(false); request.Final.Status != core.FinalNotSubmitted {
+		t.Fatalf("unanswered request final = %+v", request.Final)
+	}
+	if _, err := service.AckAllX(ctx, sender, core.XOutgoing); err != nil {
+		t.Fatal(err)
+	}
+	read(false)
+	incoming, err := service.ShowX(ctx, recipient, core.XIncoming, requestID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ack, err := service.AckX(ctx, recipient, core.XIncoming, requestID, incoming.Exchange.Revision); err != nil || !ack.Changed {
+		t.Fatalf("individual acknowledgement = %+v, %v", ack, err)
+	}
+	read(true)
+	// Reset just this fixture's per-request acknowledgement to isolate the
+	// recipient-wide watermark case from the per-row case.
+	editResumeFixture(t, store, "UPDATE request_attempts SET recipient_attention_acknowledged_revision=0 WHERE request_id=?", requestID)
+	read(false)
+	if _, err := service.AckAllX(ctx, recipient, core.XIncoming); err != nil {
+		t.Fatal(err)
+	}
+	read(true)
+	if _, err := service.SubmitResponse(ctx, core.SubmitResponse{
+		RequestID: requestID, Receipt: prepared.Receipt, Body: "FINAL-BODY-MUST-NOT-BE-IN-JOBS",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if request := read(true); request.Final.Status != core.FinalRetained || request.Final.Response != nil {
+		t.Fatalf("answered request final = %+v", request.Final)
 	}
 }

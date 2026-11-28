@@ -2,7 +2,6 @@ package storage
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json/v2"
 	"errors"
 	"strings"
@@ -96,8 +95,9 @@ func (s *Storage) ReadPlans(ctx context.Context) (core.OrchPlansPage, error) {
 
 func (s *Storage) ReadJobs(ctx context.Context, q core.OrchJobQuery) (core.OrchJobReadPage, error) {
 	if q.Limit == 0 || q.Limit > 128 || !safeTime(q.NowMs) || !core.ValidJSSafeInteger(q.AfterNumber) ||
-		q.FullMessage && q.JobID == nil || !optionalOrchID(q.RoomID) || !optionalOrchID(q.OwnerID) || !optionalOrchID(q.JobID) {
-		return core.OrchJobReadPage{}, errors.New("invalid orchestration job query")
+		q.FullMessage && q.JobID == nil && q.Number == nil || q.Number != nil && (q.JobID != nil || !safeTime(*q.Number)) ||
+		!optionalOrchID(q.RoomID) || !optionalOrchID(q.OwnerID) || !optionalOrchID(q.JobID) {
+		return core.OrchJobReadPage{}, requestFailure("ORCH_INPUT_INVALID", "Invalid job input, calendar or page selection.", 1)
 	}
 	calendar, err := s.loadDigestCalendar(ctx)
 	if err != nil {
@@ -136,13 +136,11 @@ func (s *Storage) ReadJobs(ctx context.Context, q core.OrchJobQuery) (core.OrchJ
 				page.RecentRuns[job.ID] = runs
 			}
 		}
-		if q.FullMessage {
-			err = r.one("SELECT message FROM orchestration_jobs WHERE id=? AND removed=0", *q.JobID).Scan(&page.FullMessage)
-			if errors.Is(err, sql.ErrNoRows) {
-				return nil
-			}
+		if q.FullMessage && len(page.Items) == 1 {
+			return r.one("SELECT message FROM orchestration_jobs WHERE id=? AND removed=0", page.Items[0].ID).
+				Scan(&page.FullMessage)
 		}
-		return err
+		return nil
 	})
 	if err != nil {
 		return core.OrchJobReadPage{}, err
@@ -162,8 +160,8 @@ func orchJobs(r records, q core.OrchJobQuery) ([]core.OrchJob, error) {
 		FROM orchestration_jobs j LEFT JOIN orchestration_job_legacy l ON l.job_id=j.id
 		LEFT JOIN identities i ON i.id=j.owner_id
 		WHERE j.removed=0 AND (?1 IS NULL OR j.room_id=?1) AND (?2 IS NULL OR j.owner_id=?2)
-			AND (?3 IS NULL OR j.id=?3) AND j.number>?4 ORDER BY j.number LIMIT ?5`,
-		q.RoomID, q.OwnerID, q.JobID, q.AfterNumber, int(q.Limit)+1)
+			AND (?3 IS NULL OR j.id=?3) AND (?4 IS NULL OR j.number=?4) AND j.number>?5 ORDER BY j.number LIMIT ?6`,
+		q.RoomID, q.OwnerID, q.JobID, q.Number, q.AfterNumber, int(q.Limit)+1)
 	if err != nil {
 		return nil, err
 	}
@@ -308,8 +306,19 @@ func orchJobRequest(delivery *deliveryProjector, id core.RequestID) (*core.OrchJ
 	if err != nil {
 		return nil, err
 	}
-	return &core.OrchJobRequest{
+	request := &core.OrchJobRequest{
 		Attempt: *attempt, Final: final, DeliveryView: view,
 		Urgent: policy.urgent, DigestKind: policy.kind, Mode: policy.mode,
-	}, nil
+	}
+	err = r.one(`SELECT a.thread_root_request_id,a.room_id,
+		a.route_kind='inbox' AND a.recipient_attention_revision>0 AND
+		MAX(a.recipient_attention_acknowledged_revision,COALESCE(c.acknowledged_through,0))>=a.recipient_attention_revision
+		FROM request_attempts a
+		LEFT JOIN request_recipient_attention_identities c ON c.identity_id=a.recipient_identity_id
+		WHERE a.request_id=?`, id).
+		Scan(&request.ParentRequestID, &request.RoomID, &request.RecipientAcknowledged)
+	if err != nil {
+		return nil, err
+	}
+	return request, nil
 }

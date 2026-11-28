@@ -25,6 +25,7 @@ type OrchJobQuery struct {
 	RoomID      *string
 	OwnerID     *IdentityID
 	JobID       *string
+	Number      *uint64
 	AfterNumber uint64
 	Limit       uint16
 	NowMs       uint64
@@ -121,12 +122,15 @@ const (
 )
 
 type OrchJobRequest struct {
-	Attempt      RequestAttempt
-	Final        XFinal
-	DeliveryView DeliveryView
-	Urgent       bool
-	DigestKind   string
-	Mode         string
+	Attempt               RequestAttempt
+	Final                 XFinal
+	DeliveryView          DeliveryView
+	Urgent                bool
+	DigestKind            string
+	Mode                  string
+	ParentRequestID       *RequestID
+	RoomID                *RoomID
+	RecipientAcknowledged bool
 }
 
 type OrchPolicySnapshot struct {
