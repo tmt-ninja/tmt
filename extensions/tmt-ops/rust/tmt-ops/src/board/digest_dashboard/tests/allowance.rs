@@ -403,3 +403,113 @@ fn direction_a_allowance_has_at_most_one_ellipsis_at_each_width() {
         }
     }
 }
+
+pub(in crate::board) fn budget_fixture(look: crate::look::Look) -> App {
+    use crate::{
+        board::{
+            limits::budget_period,
+            usage_report::budgets::{Delivery, SpendReport},
+        },
+        config::{AllowanceBudget, BudgetPeriod},
+    };
+    let mut app = super::impact::spec_fixture(look);
+    let zone = jiff::tz::TimeZone::UTC;
+    app.local_zone = Some(zone.clone());
+    let (start, _) = budget_period(BudgetPeriod::Month, NOW, &zone).unwrap();
+    let cut = NOW / 300_000 * 300_000;
+    app.view
+        .as_mut()
+        .unwrap()
+        .home
+        .as_mut()
+        .unwrap()
+        .workspace
+        .allowance_budgets = [
+        ("openai", "OpenAI budget"),
+        ("google", "Google budget"),
+        ("anthropic", "Anthropic budget"),
+    ]
+    .into_iter()
+    .map(|(provider, name)| AllowanceBudget {
+        name: name.into(),
+        provider: provider.into(),
+        limit_usd_micros: 500_000_000,
+        period: BudgetPeriod::Month,
+    })
+    .collect();
+    let quote = |provider, model, micros: Option<u64>, reasons: &[&str]| {
+        let pace: Vec<_> = [(3, 30_000_000), (6, 6_000_000), (24, 0)]
+            .into_iter()
+            .map(|(hours, micros)| {
+                serde_json::json!({
+                    "windowMs": hours * HOUR,
+                    "fromMs": cut - hours * HOUR, "toMs": cut,
+                    "usdMicros": micros, "complete": true, "lowerBound": false, "reasons": [],
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "provider": provider, "models": [model], "fromMs": start, "toMs": cut,
+            "total": {
+                "usdMicros": micros, "complete": reasons.is_empty(),
+                "lowerBound": micros.is_some() && !reasons.is_empty(), "reasons": reasons
+            },
+            "pace": pace,
+        })
+    };
+    let document = serde_json::json!({
+        "version": 1, "since": null,
+        "spend": {
+            "requestedFromMs": start, "fromMs": start, "toMs": cut,
+            "providers": [
+                quote("anthropic", "claude-x", None, &["no_price"]),
+                quote("google", "gemini-4-argon", Some(6_000_000), &["coverage_partial", "unattributed"]),
+                quote("openai", "gpt-5", Some(480_000_000), &[]),
+            ]
+        }
+    });
+    let starts = crate::status::with_now_ms(NOW, || app.usage_report_want().unwrap().budget_starts);
+    assert_eq!(starts, [start]);
+    app.usage_report.apply_budget(
+        Delivery {
+            start,
+            result: SpendReport::decode(&document, start),
+        },
+        &starts,
+    );
+    app
+}
+
+#[test]
+fn allowance_budget_rows_distinguish_missing_floors_and_exact_spend() {
+    let mut app = budget_fixture(crate::look::Look::default());
+    let shown = buffer(&mut app, 160, 36);
+    let lines = rows(&shown);
+    let heading = lines.iter().find(|row| row.contains("NEED/h")).unwrap();
+    let tokens = heading.find("tokens").unwrap();
+    let resets = heading.find("RESETS").unwrap();
+    let budget = |name: &str| lines.iter().find(|row| row.contains(name)).unwrap();
+    assert!(budget("OpenAI budget").contains("✗ Oct 10 04:40"));
+    assert!(budget("Google budget").contains("≤ $494"));
+    assert!(budget("Anthropic budget").contains("—"));
+    for name in ["OpenAI budget", "Google budget", "Anthropic budget"] {
+        assert!(
+            budget(name)
+                .chars()
+                .skip(tokens)
+                .take(resets - tokens)
+                .all(char::is_whitespace),
+            "{name}"
+        );
+    }
+    let narrow = rows(&buffer(&mut app, 80, 36)).join("\n");
+    assert!(narrow.contains("OpenAI budget $20 left"));
+    assert!(narrow.contains("✗ Oct 10 04:40"));
+    assert!(narrow.contains("Google budget ≤ $494 left"));
+    let details = super::super::allowance::budget_details(&app, NOW).join("\n");
+    assert!(details.contains("All google usage on this machine; other machines not included."));
+    assert!(details.contains("Spend: coverage_partial, unattributed"));
+    assert!(details.contains("Spend: no_price"));
+    assert_eq!(details.matches("phase:").count(), 3);
+    assert!(!details.contains("tokens:"));
+}

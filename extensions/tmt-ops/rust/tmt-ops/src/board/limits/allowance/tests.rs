@@ -278,8 +278,8 @@ fn allowance_budget_forecasts_use_only_complete_owner_quotes() {
         lasts(60),
     ];
     let no_data = [Outcome::Unknown; 4];
-    for (label, quote, left, lines) in [
-        ("complete", Some(quote.clone()), Some(80), full),
+    for (label, quote, left, upper_bound, lines) in [
+        ("complete", Some(quote.clone()), Some(80), false, full),
         (
             "missing pace",
             Some(BudgetQuote {
@@ -287,6 +287,7 @@ fn allowance_budget_forecasts_use_only_complete_owner_quotes() {
                 ..quote.clone()
             }),
             Some(80),
+            false,
             [full[0], Outcome::Unknown, Outcome::Unknown, full[3]],
         ),
         (
@@ -295,7 +296,8 @@ fn allowance_budget_forecasts_use_only_complete_owner_quotes() {
                 total: incomplete,
                 ..quote.clone()
             }),
-            None,
+            Some(80),
+            true,
             no_data,
         ),
         (
@@ -305,9 +307,10 @@ fn allowance_budget_forecasts_use_only_complete_owner_quotes() {
                 ..quote
             }),
             None,
+            false,
             no_data,
         ),
-        ("no reading", None, None, no_data),
+        ("no reading", None, None, false, no_data),
     ] {
         let got = budget_forecast(100 * DOLLAR, start, end, NOW, quote.as_ref());
         assert_eq!(
@@ -317,9 +320,11 @@ fn allowance_budget_forecasts_use_only_complete_owner_quotes() {
         );
         assert_eq!(
             got.need_usd_micros_per_hour,
-            left.map(|dollars| (dollars * DOLLAR) as f64 / 10.0),
+            left.filter(|_| !upper_bound)
+                .map(|dollars| (dollars * DOLLAR) as f64 / 10.0),
             "{label}"
         );
+        assert_eq!(got.left_is_upper_bound, upper_bound, "{label}");
         assert_eq!(got.lines, lines, "{label}");
     }
 }

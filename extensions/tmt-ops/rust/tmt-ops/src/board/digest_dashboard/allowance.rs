@@ -279,3 +279,289 @@ fn clock(at_ms: u64, zone: &jiff::tz::TimeZone) -> String {
             },
         )
 }
+
+struct BudgetRow<'a> {
+    budget: &'a crate::config::AllowanceBudget,
+    forecast: crate::board::limits::BudgetForecast,
+    report: Option<&'a Result<crate::board::usage_report::budgets::SpendReport, String>>,
+    quote: Option<&'a crate::board::limits::BudgetQuote>,
+    resets: u64,
+}
+
+fn budget_count(app: &App) -> usize {
+    app.workspace_snapshot()
+        .map_or(0, |snapshot| snapshot.allowance_budgets.len())
+}
+
+fn budget_rows(app: &App, now: u64) -> impl Iterator<Item = BudgetRow<'_>> {
+    let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
+    app.workspace_snapshot()
+        .into_iter()
+        .flat_map(|snapshot| &snapshot.allowance_budgets)
+        .filter_map(move |budget| {
+            use crate::board::limits::{budget_forecast, budget_period};
+            let (start, resets) = budget_period(budget.period, now, &zone)?;
+            let report = app.usage_report.budget(start);
+            let quote = report
+                .and_then(|report| report.as_ref().ok())
+                .and_then(|report| {
+                    report
+                        .providers
+                        .iter()
+                        .find(|row| row.provider == budget.provider)
+                });
+            Some(BudgetRow {
+                budget,
+                forecast: budget_forecast(budget.limit_usd_micros, start, resets, now, quote),
+                report,
+                quote,
+                resets,
+            })
+        })
+}
+
+const BUDGET_COLUMNS: [u16; 10] = [20, 21, 12, 11, 16, 16, 16, 16, 7, 16];
+const WIDE_BUDGET: u16 = 151;
+
+pub(super) fn budget_height(app: &App, width: u16, available: u16) -> u16 {
+    let count = budget_count(app);
+    if count == 0 {
+        return 0;
+    }
+    let heading = u16::from(width >= WIDE_BUDGET);
+    let height = u16::try_from(count)
+        .unwrap_or(u16::MAX)
+        .saturating_add(heading);
+    let height = height.min(available);
+    if height > heading { height } else { 0 }
+}
+
+fn money(micros: u64, upper_bound: bool) -> String {
+    let micros = u128::from(micros);
+    let cents = if upper_bound {
+        micros.div_ceil(10_000)
+    } else {
+        (micros + 5_000) / 10_000
+    };
+    if cents % 100 == 0 {
+        format!("${}", cents / 100)
+    } else {
+        format!("${}.{:02}", cents / 100, cents % 100)
+    }
+}
+
+fn dollars(value: Option<u64>) -> String {
+    value.map_or_else(|| "—".into(), |micros| money(micros, false))
+}
+
+fn dated(at: u64, zone: &jiff::tz::TimeZone) -> String {
+    i64::try_from(at)
+        .ok()
+        .and_then(|ms| jiff::Timestamp::from_millisecond(ms).ok())
+        .map_or_else(
+            || "—".into(),
+            |at| {
+                at.to_zoned(zone.clone())
+                    .strftime("%b %d %H:%M")
+                    .to_string()
+            },
+        )
+}
+
+fn outcome(value: Outcome, zone: &jiff::tz::TimeZone, ascii: bool) -> (String, Role) {
+    match value {
+        Outcome::RunsOut(at) => (
+            format!("{} {}", if ascii { "x" } else { "✗" }, dated(at, zone)),
+            Role::Waiting,
+        ),
+        Outcome::Lasts(micros) => (dollars(Some(micros.round() as u64)), Role::Text),
+        Outcome::Unknown => ("—".into(), Role::Dim),
+    }
+}
+
+impl BudgetRow<'_> {
+    fn left(&self) -> String {
+        match self.forecast.left_usd_micros {
+            Some(micros) if self.forecast.left_is_upper_bound => {
+                format!("≤ {}", money(micros, true))
+            }
+            value => dollars(value),
+        }
+    }
+
+    fn need(&self) -> String {
+        dollars(
+            self.forecast
+                .need_usd_micros_per_hour
+                .map(|micros| micros.round() as u64),
+        )
+    }
+
+    fn plan(&self) -> String {
+        use crate::config::BudgetPeriod;
+        let period = match self.budget.period {
+            BudgetPeriod::Week => "week",
+            BudgetPeriod::Month => "month",
+        };
+        format!(
+            "{} {}/{period}",
+            self.budget.provider,
+            dollars(Some(self.budget.limit_usd_micros))
+        )
+    }
+}
+
+pub(super) fn paint_budgets(frame: &mut Frame, app: &App, area: Rect) {
+    if area.is_empty() {
+        return;
+    }
+    let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
+    let ascii = matches!(
+        app.cron_glyphs,
+        crate::board::overview::cron_counts::GlyphSet::Ascii
+    );
+    let wide = area.width >= WIDE_BUDGET;
+    super::paint_grid(frame, app, area, |grid| {
+        let text = |grid: &mut ds::CellGrid, y, x, width: u16, value: &str, role| {
+            grid.text_with(
+                ds::Rect {
+                    x,
+                    y,
+                    width,
+                    height: 1,
+                },
+                &crate::board::view::fit(value, width.saturating_sub(1).into()),
+                Some(role),
+                None,
+                false,
+            );
+        };
+        let mut y = 0;
+        if wide {
+            let mut x = 0;
+            for (width, title) in BUDGET_COLUMNS.into_iter().zip([
+                "SOURCE", "PLAN", "LEFT", "NEED/h", "3 h", "6 h", "24 h", "phase", "tokens",
+                "RESETS",
+            ]) {
+                text(grid, y, x, width, title, Role::Muted);
+                x += width;
+            }
+            y += 1;
+        }
+        for row in budget_rows(app, crate::status::now_ms()).take(usize::from(area.height - y)) {
+            if wide {
+                let [h3, h6, h24, phase] =
+                    row.forecast.lines.map(|line| outcome(line, &zone, ascii));
+                let fields = [
+                    (row.budget.name.clone(), Role::Text),
+                    (row.plan(), Role::Muted),
+                    (row.left(), Role::Text),
+                    (row.need(), Role::Text),
+                    h3,
+                    h6,
+                    h24,
+                    phase,
+                    (String::new(), Role::Text),
+                    (dated(row.resets, &zone), Role::Muted),
+                ];
+                let mut x = 0;
+                for (width, (value, role)) in BUDGET_COLUMNS.into_iter().zip(fields) {
+                    text(grid, y, x, width, &value, role);
+                    x += width;
+                }
+            } else {
+                let (projection, role) = outcome(
+                    crate::board::limits::worst(row.forecast.lines),
+                    &zone,
+                    ascii,
+                );
+                let figures = format!("{} left · {}/h needed · ", row.left(), row.need());
+                let projection_width = u16::try_from(projection.width()).unwrap_or(u16::MAX);
+                let fields = figures
+                    .width()
+                    .saturating_add(usize::from(projection_width) + 2);
+                let label = crate::board::view::fit(
+                    &row.budget.name,
+                    usize::from(area.width).saturating_sub(fields),
+                );
+                let prefix = format!("{} {figures}", label.trim_end());
+                let prefix_width = u16::try_from(prefix.width())
+                    .unwrap_or(u16::MAX)
+                    .min(area.width);
+                text(
+                    grid,
+                    y,
+                    0,
+                    prefix_width.saturating_add(1).min(area.width),
+                    &prefix,
+                    Role::Text,
+                );
+                text(
+                    grid,
+                    y,
+                    prefix_width,
+                    area.width - prefix_width,
+                    &projection,
+                    role,
+                );
+            }
+            y += 1;
+        }
+    });
+}
+
+pub(super) fn budget_details(app: &App, now: u64) -> Vec<String> {
+    let zone = app.local_zone.clone().unwrap_or(jiff::tz::TimeZone::UTC);
+    let ascii = matches!(
+        app.cron_glyphs,
+        crate::board::overview::cron_counts::GlyphSet::Ascii
+    );
+    let mut lines = Vec::new();
+    for row in budget_rows(app, now) {
+        lines.push(format!(
+            "{} · {} · resets {}",
+            row.budget.name,
+            row.plan(),
+            dated(row.resets, &zone)
+        ));
+        lines.push(format!(
+            "All {} usage on this machine; other machines not included. List-price estimate.",
+            row.budget.provider
+        ));
+        lines.push(format!("LEFT {} · NEED/h {}", row.left(), row.need()));
+        for (label, projection) in ["3 h", "6 h", "24 h", "phase"]
+            .into_iter()
+            .zip(row.forecast.lines)
+        {
+            lines.push(format!("{label}: {}", outcome(projection, &zone, ascii).0));
+        }
+        if let Some(quote) = row.quote {
+            lines.push(format!(
+                "Observed {}–{}",
+                dated(quote.from_ms, &zone),
+                dated(quote.to_ms, &zone)
+            ));
+            if !quote.total.reasons.is_empty() {
+                lines.push(format!(
+                    "Spend: {}",
+                    crate::board::notes::sanitize(&quote.total.reasons.join(", "))
+                ));
+            }
+            for pace in &quote.pace {
+                if !pace.spend.reasons.is_empty() {
+                    lines.push(format!(
+                        "{} h pace: {}",
+                        pace.window_ms / 3_600_000,
+                        crate::board::notes::sanitize(&pace.spend.reasons.join(", "))
+                    ));
+                }
+            }
+        } else if let Some(Err(message)) = row.report {
+            lines.push(format!(
+                "Spend unavailable: {}",
+                crate::board::notes::sanitize(message)
+            ));
+        }
+    }
+    lines
+}

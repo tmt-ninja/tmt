@@ -94,9 +94,12 @@ fn the_reader_reads_only_while_wanted_and_for_the_wanted_window() {
     )
     .unwrap();
     let (sender, received) = mpsc::channel();
-    let reader = Reader::spawn(&fake_core(&scratch), quick(), move |d| {
-        sender.send(d).is_ok()
-    });
+    let reader = Reader::spawn(
+        &fake_core(&scratch),
+        quick(),
+        move |d| sender.send(d).is_ok(),
+        |_| true,
+    );
     let wants = reader.wants();
     // Nothing is read before the panel is wanted.
     std::thread::sleep(Duration::from_millis(150));
@@ -142,9 +145,12 @@ fn a_failing_supplier_is_delivered_as_a_message_and_a_malformed_document_is_refu
     let scratch = Scratch::new("usage-report");
     std::fs::write(scratch.join("fail"), "").unwrap();
     let (sender, received) = mpsc::channel();
-    let reader = Reader::spawn(&fake_core(&scratch), quick(), move |d| {
-        sender.send(d).is_ok()
-    });
+    let reader = Reader::spawn(
+        &fake_core(&scratch),
+        quick(),
+        move |d| sender.send(d).is_ok(),
+        |_| true,
+    );
     reader
         .wants()
         .set(Some(super::Request::new(crate::config::TokRange::Week, [])));
@@ -192,6 +198,7 @@ fn a_changed_demand_cancels_the_inflight_window_and_delivers_the_new_range_promp
             ..quick()
         },
         move |d| sender.send(d).is_ok(),
+        |_| true,
     );
     let wants = reader.wants();
     wants.set(Some(super::Request::new(Since::Day, [])));
@@ -234,6 +241,7 @@ fn dropping_the_reader_cancels_an_inflight_public_read_and_joins() {
             ..quick()
         },
         move |d| sender.send(d).is_ok(),
+        |_| true,
     );
     reader
         .wants()

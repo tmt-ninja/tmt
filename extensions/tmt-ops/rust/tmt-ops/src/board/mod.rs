@@ -213,6 +213,7 @@ pub(in crate::board) enum BoardEvent {
     FileInfo(composer::files::Delivery),
     /// A finished Usage report read; no generation, it is not a load.
     UsageReport(usage_report::Delivery),
+    BudgetReport(usage_report::budgets::Delivery),
     /// Only the identities `consumption.changes` named, merged into the last full sample.
     HomeUsageChanged {
         cancellation: crate::runner::Cancellation,
@@ -351,6 +352,7 @@ impl BoardEvent {
             Self::Labels(_) => "Labels",
             Self::FileInfo(_) => "FileInfo",
             Self::UsageReport(_) => "UsageReport",
+            Self::BudgetReport(_) => "BudgetReport",
             Self::HomeUsage { .. } => "HomeUsage",
             Self::HomeUsageChanged { .. } => "HomeUsageChanged",
             Self::Conversation { .. } => "Conversation",
@@ -1535,6 +1537,13 @@ fn session(
                         dirty = true;
                         Effect::None
                     }
+                    Ok(BoardEvent::BudgetReport(delivery)) => {
+                        if let Some(want) = app.usage_report_want() {
+                            app.usage_report.apply_budget(delivery, &want.budget_starts);
+                            dirty = true;
+                        }
+                        Effect::None
+                    }
                     Ok(BoardEvent::Attention {
                         cancellation,
                         attention,
@@ -2174,10 +2183,18 @@ pub fn run(
     let squad = Some(ALL.to_owned());
     let label_sources = config.label_sources()?;
     // The Usage report reads in the background and only while its panel shows.
-    let usage_reader = usage_report::Reader::spawn(&core, usage_report::Timing::default(), {
-        let events = events.clone();
-        move |delivery| events.send(BoardEvent::UsageReport(delivery)).is_ok()
-    });
+    let usage_reader = usage_report::Reader::spawn(
+        &core,
+        usage_report::Timing::default(),
+        {
+            let events = events.clone();
+            move |delivery| events.send(BoardEvent::UsageReport(delivery)).is_ok()
+        },
+        {
+            let events = events.clone();
+            move |delivery| events.send(BoardEvent::BudgetReport(delivery)).is_ok()
+        },
+    );
     let usage_wants = usage_reader.wants();
     let initial_theme = config.theme(squad.as_deref().unwrap_or(""))?.0;
     let requested = initial_theme.base;

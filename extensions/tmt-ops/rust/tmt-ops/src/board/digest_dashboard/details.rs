@@ -302,6 +302,7 @@ pub(super) fn evidence(app: &App, now_ms: u64, row: Option<&Value>) -> Vec<Strin
         ));
         text.extend(model::pricing_details(status, now_ms));
     }
+    text.extend(super::allowance::budget_details(app, now_ms));
     text.push(METHOD.into());
     text
 }

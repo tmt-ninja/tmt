@@ -271,6 +271,19 @@ impl App {
                     std::sync::Arc::clone(&snapshot.identity_ids),
                 );
                 request.window_series = self.shell.tab == OpsTab::Digest;
+                if request.window_series {
+                    let now = crate::status::now_ms();
+                    let utc = jiff::tz::TimeZone::UTC;
+                    let zone = self.local_zone.as_ref().unwrap_or(&utc);
+                    request
+                        .budget_starts
+                        .extend(snapshot.allowance_budgets.iter().filter_map(|budget| {
+                            super::super::limits::budget_period(budget.period, now, zone)
+                                .map(|(start, _)| start)
+                        }));
+                    request.budget_starts.sort_unstable();
+                    request.budget_starts.dedup();
+                }
                 request
             })
     }

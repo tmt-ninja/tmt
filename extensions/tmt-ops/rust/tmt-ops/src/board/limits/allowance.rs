@@ -236,6 +236,7 @@ impl BudgetQuote {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct BudgetForecast {
     pub left_usd_micros: Option<u64>,
+    pub left_is_upper_bound: bool,
     pub need_usd_micros_per_hour: Option<f64>,
     /// Dollar projections in 3 h, 6 h, 24 h and phase order, in USD micros.
     pub lines: [Outcome; 4],
@@ -250,6 +251,7 @@ pub(crate) fn budget_forecast(
 ) -> BudgetForecast {
     let unknown = BudgetForecast {
         left_usd_micros: None,
+        left_is_upper_bound: false,
         need_usd_micros_per_hour: None,
         lines: [Outcome::Unknown; 4],
     };
@@ -257,11 +259,22 @@ pub(crate) fn budget_forecast(
         return unknown;
     }
     let Some(quote) = quote.filter(|quote| {
-        quote.from_ms == period_start_ms && (quote.from_ms..=now_ms).contains(&quote.to_ms)
+        quote.from_ms >= period_start_ms && (quote.from_ms..=now_ms).contains(&quote.to_ms)
     }) else {
         return unknown;
     };
-    let Some(spend) = quote.total.complete_micros() else {
+    if let Some(spend) = quote.total.usd_micros.filter(|_| quote.total.lower_bound) {
+        return BudgetForecast {
+            left_usd_micros: Some(limit_usd_micros.saturating_sub(spend)),
+            left_is_upper_bound: true,
+            ..unknown
+        };
+    }
+    let Some(spend) = quote
+        .total
+        .complete_micros()
+        .filter(|_| quote.from_ms == period_start_ms)
+    else {
         return unknown;
     };
     let left = limit_usd_micros.saturating_sub(spend);
@@ -278,9 +291,47 @@ pub(crate) fn budget_forecast(
     .map(|pace| project(left as f64, remaining_ms, now_ms, pace));
     BudgetForecast {
         left_usd_micros: Some(left),
+        left_is_upper_bound: false,
         need_usd_micros_per_hour: Some(left as f64 / remaining_hours),
         lines,
     }
+}
+
+/// Calendar bounds in the board zone, including daylight-saving transitions.
+pub(in crate::board) fn budget_period(
+    period: crate::config::BudgetPeriod,
+    now_ms: u64,
+    zone: &jiff::tz::TimeZone,
+) -> Option<(u64, u64)> {
+    use crate::config::BudgetPeriod;
+    use jiff::{Span, Timestamp};
+    let date = Timestamp::from_millisecond(i64::try_from(now_ms).ok()?)
+        .ok()?
+        .to_zoned(zone.clone())
+        .date();
+    let start = match period {
+        BudgetPeriod::Week => date
+            .checked_sub(Span::new().days(date.weekday().to_monday_zero_offset()))
+            .ok()?,
+        BudgetPeriod::Month => date.first_of_month(),
+    };
+    let duration = match period {
+        BudgetPeriod::Week => Span::new().days(7),
+        BudgetPeriod::Month => Span::new().months(1),
+    };
+    let boundary = |day: jiff::civil::Date| {
+        u64::try_from(
+            zone.to_zoned(day.at(0, 0, 0, 0))
+                .ok()?
+                .timestamp()
+                .as_millisecond(),
+        )
+        .ok()
+    };
+    Some((
+        boundary(start)?,
+        boundary(start.checked_add(duration).ok()?)?,
+    ))
 }
 
 /// A weekly window as of now, with its projection lines.
@@ -294,13 +345,16 @@ pub struct Weekly {
 impl Weekly {
     /// The worst of the lines, for a row with no room for all five.
     pub fn worst(&self) -> Outcome {
-        self.lines
-            .iter()
-            .copied()
-            .filter_map(|outcome| outcome.severity().map(|key| (key, outcome)))
-            .min_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-            .map_or(Outcome::Unknown, |(_, outcome)| outcome)
+        worst(self.lines)
     }
+}
+
+pub(in crate::board) fn worst(lines: impl IntoIterator<Item = Outcome>) -> Outcome {
+    lines
+        .into_iter()
+        .filter_map(|outcome| outcome.severity().map(|key| (key, outcome)))
+        .min_by(|(a, _), (b, _)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
+        .map_or(Outcome::Unknown, |(_, outcome)| outcome)
 }
 
 /// One source of the block. `weekly` is `None` while no usable reading stands.

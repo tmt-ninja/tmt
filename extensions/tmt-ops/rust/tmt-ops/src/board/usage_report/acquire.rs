@@ -10,6 +10,7 @@ pub struct Request {
     pub range: TokRange,
     pub identities: std::sync::Arc<[String]>,
     pub window_series: bool,
+    pub budget_starts: Vec<u64>,
 }
 impl Request {
     /// Identities come from the acquired roster's unique, ordered UUID keys.
@@ -17,6 +18,7 @@ impl Request {
         Self {
             range,
             window_series: false,
+            budget_starts: Vec::new(),
             identities: identities.into(),
         }
     }
