@@ -2940,13 +2940,19 @@ p.question-history,
   width: 100%;
   max-width: 960px;
 }
-/* The title starts where the centred column does: the layout's start margin, then half of what the
-   column leaves of its track (the track is the width less the end lane, the gap and the strip). */
+/* The title shares the centred column's measure: it starts with the column's text, after the
+   layout's start margin and half of what the column leaves of its track (the track is the width less
+   the end lane, the gap and the strip), and it ends where the column does, so a long title wraps
+   well before the strip (#6959). */
 .workspace:has(.structured-layout > .page-outline[data-strip]) > .page-mobile-title {
-  padding-inline-start: calc(
-    var(--tmt-ui-header-padding-inline) + var(--colab-block-inset) +
-      max(0px, (100% - var(--tmt-ui-header-padding-inline) - var(--colab-lane) - 92px - 960px) / 2)
+  --colab-title-centre: max(
+    0px,
+    (100% - var(--tmt-ui-header-padding-inline) - var(--colab-lane) - 92px - 960px) / 2
   );
+  padding-inline: calc(
+      var(--tmt-ui-header-padding-inline) + var(--colab-block-inset) + var(--colab-title-centre)
+    )
+    calc(var(--colab-lane) + 92px + var(--colab-title-centre));
 }
 /* The shared shell moves the destination layout. Interpolating the outline tracks while
    swapping their order can momentarily give the block column the outline's narrow track. */
