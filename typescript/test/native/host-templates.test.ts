@@ -269,7 +269,7 @@ describe('the tmux launch template', () => {
           `TMT_TEST_MODE=${quote(testCase.mode)}`,
           `TMT_TEST_PID_FILE=${quote(pidFile)}`,
           `TMT_TEST_QUIT_FILE=${quote(quitFile)}`,
-          `${quote(sandbox.cli.command)} run ${quote(`member-${testCase.id}`)} ${testCase.tool}`,
+          `${[quote(sandbox.cli.executable), ...sandbox.cli.args.map(quote)].join(' ')} run ${quote(`member-${testCase.id}`)} ${testCase.tool}`,
         ].join(' ');
 
         const opened = launch('squad', command);
