@@ -27,12 +27,14 @@ func Main(args []string, stdout, stderr io.Writer) int {
 
 func systemApplication() application {
 	client := sync.OnceValues(newTmuxClient)
-	return application{
+	app := application{
 		stdin:  os.Stdin,
 		caller: systemCaller(client),
 		tmux:   client,
 		live:   systemLiveTalkHost(client),
 	}
+	app.launch = app.launchForeground
+	return app
 }
 
 type application struct {

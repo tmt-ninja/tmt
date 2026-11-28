@@ -14,7 +14,6 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
-	"github.com/tmt-ninja/tmt/go/internal/invoke"
 	"github.com/tmt-ninja/tmt/go/internal/output"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
@@ -71,11 +70,7 @@ func prepareRun(root home.Root, inv invocation) (runPlan, *output.Failure) {
 	if err != nil {
 		return runPlan{}, bindingFailure("RUN_LAUNCH_FAILED", "Could not prepare the requested agent launch. No agent was launched.", 1)
 	}
-	coreExecutable, err := os.Executable()
-	if err != nil {
-		return runPlan{}, bindingFailure("RUN_LAUNCH_FAILED", "Could not resolve the tmt-go executable. No agent was launched.", 1)
-	}
-	command.Env = invoke.OverlayEnv(command.Env, []string{"TMT_EXECUTABLE=" + coreExecutable})
+
 	return runPlan{
 		binding: bindingSelection{name: name, save: inv.has("save")}, provider: driver.Name(), command: command,
 	}, nil

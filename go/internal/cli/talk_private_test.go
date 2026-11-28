@@ -3,12 +3,13 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,9 +26,6 @@ func TestLiveTalkGetsDurableReplyFromPrivateFakeProvider(t *testing.T) {
 	rootDir := t.TempDir()
 	bin := t.TempDir()
 	t.Setenv("TMT_GO_HOME", rootDir)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("TMUX", "")
-	t.Setenv("TMUX_PANE", "")
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	fake, binary := filepath.Join(bin, "codex"), filepath.Join(bin, "tmt-go")
@@ -45,12 +43,13 @@ func TestLiveTalkGetsDurableReplyFromPrivateFakeProvider(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	exitFile := filepath.Join(bin, "run-exit")
 	pane, err := host.Launch(ctx, ports.LaunchSpec{
 		Server: server.Socket, Session: "t", Window: "fake-provider", Dir: rootDir,
 		Command: ports.ProcessSpec{
 			Path: "/bin/sh",
-			Args: []string{"-c", `/bin/stty -echo && exec "$1"`, "fixture", fake},
-			Env:  []string{"TMT_GO_HOME=" + rootDir, "TMT_EXECUTABLE=" + binary},
+			Args: []string{"-c", `/bin/stty -echo && "$1" run --save Worker "$2"; printf '%s\n' "$?" > "$3"`, "fixture", binary, fake, exitFile},
+			Env:  []string{"TMT_GO_HOME=" + rootDir, "PATH=" + os.Getenv("PATH")},
 		},
 	})
 	if err != nil {
@@ -60,74 +59,75 @@ func TestLiveTalkGetsDurableReplyFromPrivateFakeProvider(t *testing.T) {
 		screen, err := host.Capture(ctx, pane, ports.CaptureOpts{})
 		return (codex.Driver{}).Classify(screen) == ports.DriverIdle, err
 	})
-	if _, err := host.EnsureServerID(ctx, pane.Server); err != nil {
-		t.Fatal(err)
-	}
-	probe, err := host.ProbeBinding(ctx, pane)
-	if err != nil || probe.State != core.EndpointProbeLive || len(probe.Panes) != 1 || probe.Panes[0].Incarnation == nil {
-		t.Fatalf("private probe = %+v, error = %v", probe, err)
-	}
-	records, recipient, _ := requestIdentitiesFixture()
-	evidence := probe.Panes[0]
-	binding := core.Binding{
-		ID: "private-fixture-binding", IdentityID: recipient.ID, PaneID: pane.PaneID,
-		PanePID: evidence.PID, PaneIncarnation: evidence.Incarnation, Server: probe.Server,
-		Session: core.BindingSessionState{RuntimeState: "running", Runtime: &core.ProcessIncarnation{
-			PID: evidence.PID, StartIdentity: *evidence.Incarnation,
-		}},
-	}
-	if ok, err := host.PublishBinding(ctx, binding, *recipient); err != nil || !ok {
-		t.Fatalf("publish private fixture binding = %t, %v", ok, err)
-	}
 
 	root, err := home.Resolve(os.LookupEnv, t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	clock := wallClock{}
 	store, err := storage.Open(ctx, root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if err := store.Write(ctx, func(tx ports.StoreTx) error {
-		return tx.Identities().Insert(*recipient, uint64(clock.NowMs()))
-	}); err != nil {
-		t.Fatal(err)
+	waitForPrivateFake(t, ctx, func() (bool, error) {
+		ready := false
+		err := store.Read(ctx, func(tx ports.StoreTx) error {
+			identity, err := core.FindIdentityByName(tx.Identities(), "Worker")
+			if err != nil || identity == nil {
+				return err
+			}
+			binding, err := tx.Bindings().FindByIdentity(identity.ID)
+			if err == nil && binding != nil {
+				ready = binding.Session.RuntimeState == "running" && binding.Session.Runtime != nil &&
+					binding.Session.ProviderSessionID == nil && binding.Server.Socket == pane.Server && binding.PaneID == pane.PaneID
+			}
+			return err
+		})
+		return ready, err
+	})
+
+	command := func(args ...string) []byte {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, binary, args...)
+		cmd.Env = tmuxtest.Env()
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v: %v\n%s", args, err, out)
+		}
+		return out
 	}
-	app := systemApplication()
-	// Seed only the binding read here. The real request store accepts the
-	// reply from a different process and the caller reads the durable final.
-	app.store = callerTestStore{tx: callerTestTx{
-		identityTxFake: identityTxFake{records: records.records}, bindings: callerBindingRepo{row: binding},
-	}}
-	app.requests = storage.NewRequestService(store, clock)
-	var stdout, stderr bytes.Buffer
-	if status := app.run(ctx, []string{"talk", "Worker", "verify", "--timeout", "8s", "--json"}, &stdout, &stderr); status != 0 || stderr.Len() != 0 {
-		t.Fatalf("talk exit = %d, stdout = %q, stderr = %q", status, &stdout, &stderr)
-	}
+	talkJSON := command("talk", "Worker", "verify", "--timeout", "8s", "--json")
 	var talk struct {
 		RequestID core.RequestID
 		Status    string
 		Pane      string
 		Response  string
 	}
-	if err := json.Unmarshal(stdout.Bytes(), &talk); err != nil || talk.RequestID == "" ||
+	if err := json.Unmarshal(talkJSON, &talk); err != nil || talk.RequestID == "" ||
 		talk.Status != "completed" || talk.Pane != pane.PaneID || talk.Response != "ack: verify" {
-		t.Fatalf("talk output = %q, error = %v", &stdout, err)
+		t.Fatalf("talk output = %q, error = %v", talkJSON, err)
 	}
-	fresh := exec.CommandContext(ctx, binary, "result", string(talk.RequestID), "--json")
-	fresh.Env = tmuxtest.Env()
-	out, err := fresh.CombinedOutput()
+	resultJSON := command("result", string(talk.RequestID), "--json")
 	var result struct {
 		RequestID core.RequestID
 		Status    string
 		Response  string
 	}
-	if decodeErr := json.Unmarshal(out, &result); err != nil || decodeErr != nil ||
+	if err := json.Unmarshal(resultJSON, &result); err != nil ||
 		result.RequestID != talk.RequestID || result.Status != "completed" || result.Response != talk.Response {
-		t.Fatalf("fresh result = %q, error = %v, decode = %v", out, err, decodeErr)
+		t.Fatalf("fresh result = %q, decode = %v", resultJSON, err)
 	}
+
+	waitForPrivateFake(t, ctx, func() (bool, error) {
+		status, err := os.ReadFile(exitFile)
+		if errors.Is(err, os.ErrNotExist) || err == nil && !strings.HasSuffix(string(status), "\n") {
+			return false, nil
+		}
+		if err == nil && string(status) != "0\n" {
+			t.Fatalf("foreground run exited with %q", status)
+		}
+		return err == nil, err
+	})
 }
 
 func waitForPrivateFake(t *testing.T, ctx context.Context, probe func() (bool, error)) {
@@ -146,7 +146,7 @@ func waitForPrivateFake(t *testing.T, ctx context.Context, probe func() (bool, e
 		}
 		select {
 		case <-ctx.Done():
-			t.Fatalf("private fake provider did not reach its composer: %v", ctx.Err())
+			t.Fatalf("private pane did not reach the expected state: %v", ctx.Err())
 		case <-ticker.C:
 		}
 	}
