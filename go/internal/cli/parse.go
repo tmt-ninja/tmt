@@ -195,6 +195,9 @@ func parse(args []string) (invocation, *output.Failure) {
 			return fail("USAGE_ERROR", problem)
 		}
 	}
+	if parsed.json && command.name == "resume" {
+		return fail("USAGE_ERROR", "Unknown option or argument 'json' for resume.\nUsage: tmt-go resume [OPTIONS] [name]\nTry `tmt-go help resume` for supported options.")
+	}
 	if parsed.json && command.humanOnly {
 		return fail("JSON_UNSUPPORTED", "This command does not support --json.")
 	}
@@ -262,6 +265,17 @@ func commandConstraints(parsed invocation) (required []string, conflicts, requir
 		requires = [][2]string{{"identity", "expect"}, {"socket", "expect"}}
 	case "run":
 		conflicts = [][2]string{{"model", "resume"}, {"effort", "resume"}, {"channel", "no-channel"}}
+	case "resume":
+		conflicts = [][2]string{
+			{"driver", "forget"}, {"driver", "forget-launch"}, {"driver", "show"},
+			{"move", "forget"}, {"move", "forget-launch"}, {"move", "show"},
+			{"new", "driver"}, {"new", "move"}, {"new", "retry"}, {"new", "forget"}, {"new", "forget-launch"}, {"new", "show"},
+			{"retry", "forget"}, {"show", "forget"}, {"show", "forget-launch"}, {"show", "retry"},
+			{"show", "channel"}, {"show", "no-channel"}, {"show", "model"}, {"show", "effort"},
+			{"forget-launch", "forget"}, {"forget-launch", "retry"}, {"forget-launch", "channel"}, {"forget-launch", "no-channel"},
+			{"forget-launch", "model"}, {"forget-launch", "effort"}, {"forget", "model"}, {"forget", "effort"},
+			{"forget", "channel"}, {"forget", "no-channel"}, {"channel", "no-channel"},
+		}
 	case "reply":
 		required = []string{"receipt"}
 	case "x ack":
@@ -315,6 +329,10 @@ func validateOperands(parsed invocation) string {
 		return failure
 	case "run":
 		return validateRunOperands(parsed)
+	case "resume":
+		if len(parsed.operands) == 0 && (parsed.has("move") || parsed.has("driver")) {
+			return "Missing required argument '<name>'."
+		}
 	case "__hook":
 		if parsed.operands[0] != "claude" {
 			return fmt.Sprintf("Invalid value '%s' for '<provider>'.", parsed.operands[0])
