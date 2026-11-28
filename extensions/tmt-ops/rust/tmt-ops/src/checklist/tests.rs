@@ -356,6 +356,49 @@ fn ambiguous_caller_retired_actor_and_retired_recorded_uuid_refuse_without_fallb
 }
 
 #[test]
+fn checklist_completion_checks_authority_once_under_the_writer_and_refuses_stale_edits() {
+    let f = Fixture::new();
+    let manager = f.manager();
+    manager
+        .apply(&create(ITEM, InventoryExpectation::Absent, None))
+        .unwrap();
+    f.change(|model| {
+        model["lockedReads"] = json!(0);
+        model["calls"] = json!([]);
+    });
+
+    let done = manager.apply(&mutate(ITEM, 1, Mutation::Complete)).unwrap();
+    assert_eq!(done.item_revision, Some(2));
+    let observed = f.model();
+    assert_eq!(observed["lockedReads"], 1);
+    let room_checks: Vec<_> = observed["calls"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|call| {
+            call["operation"] == "references.resolve" && call["input"]["roomIds"].is_array()
+        })
+        .map(|call| call["locked"].as_bool().unwrap())
+        .collect();
+    assert_eq!(room_checks, [false, true]);
+
+    let before = f.bytes();
+    let error = manager
+        .apply(&mutate(
+            ITEM,
+            1,
+            Mutation::Edit(Edit {
+                title: Some("stale edit".into()),
+                ..Default::default()
+            }),
+        ))
+        .unwrap_err();
+    assert_eq!(error.code, Code::Conflict);
+    assert_eq!(error.current.unwrap().items[0].item.revision, 2);
+    assert_eq!(f.bytes(), before);
+}
+
+#[test]
 fn locked_publication_rechecks_room_actor_privilege_and_assignment() {
     for change in [
         json!({"roomRetired":true}),
@@ -372,7 +415,7 @@ fn locked_publication_rechecks_room_actor_privilege_and_assignment() {
         let before = f.bytes();
         f.change(|m| {
             m["lockedReads"] = json!(0);
-            m["changeAtLockedRead"] = json!(3);
+            m["changeAtLockedRead"] = json!(1);
             m["change"] = change.clone();
         });
         let error = manager
@@ -548,7 +591,7 @@ fn no_op_assignment_refreshes_only_projection_and_user_privilege_reload_refuses(
     let model_path = f.root.join("model.json");
     let error = store::with_fault(
         Box::new(move |stage| {
-            if stage == store::Stage::BeforePublish {
+            if stage == store::Stage::BeforeAuthorization {
                 // Core stops resolving this actor as the user mid-admission.
                 let mut model: serde_json::Value = serde_json::from_slice(&fs::read(&model_path)?)
                     .map_err(std::io::Error::other)?;

@@ -289,9 +289,10 @@ The board uses `checklist::Counts` for the open-todo rule.
   version 1 and migrates the same way. An Ops binary that only knows version 1 refuses a
   version 2 document (unsupported, no repair). It persists no copied membership, actor authority or operation ledger.
   Read/list/show create nothing and distinguish absent, empty and filtered-empty results
-  from errors. Unsupported/corrupt data and unsafe files fail closed without repair. A
-  candidate is written inside the database transaction and `before_publish` (the service's
-  repeated room/actor/assignment admission) runs before it commits: a refusal discards it.
+  from errors. Unsupported/corrupt data and unsafe files fail closed without repair. The
+  service preflights admission outside the writer, then authorizes once under the writer
+  after it prepares the candidate against the expected revisions. That decision supplies the
+  final assignment label and response projection. A refusal rolls back the transaction.
 - `checklist::events` owns the mutation log. `model::apply` returns an `AppliedChange` (action, item,
   resulting revision, and the stamp's actor and time) exactly when the change moved something;
   `Store::update` appends it inside the same transaction that replaces the document
