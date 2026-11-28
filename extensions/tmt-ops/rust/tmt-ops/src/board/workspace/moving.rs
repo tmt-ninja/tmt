@@ -330,7 +330,15 @@ impl App {
     pub(in crate::board) fn moving_key(&mut self, key: KeyEvent) -> Option<Effect> {
         let moving = self.moving.as_ref()?;
         if !moving.lifted() {
-            return Some(Effect::None);
+            if moving.phase == Phase::AwaitingRoster
+                && key.code == KeyCode::Esc
+                && self.shell.tab == crate::board::shell::OpsTab::Agents
+                && self.workspace_input_owner() == crate::board::shell::OpsInputOwner::List
+            {
+                let moving = self.moving.take().expect("awaiting the roster");
+                return Some(self.say(format!("Moved {}. Placement not saved.", moving.name)));
+            }
+            return None;
         }
         if moving.order.is_some() {
             return Some(self.order_key(key));
@@ -591,18 +599,40 @@ impl App {
     }
 
     fn save_landing(&mut self) -> Effect {
-        let moving = self.moving.take().expect("confirmed membership move");
-        let order = moving.order.expect("display placement");
+        let moving = self.moving.as_ref().expect("confirmed membership move");
+        let order = moving.order.as_ref().expect("display placement");
+        let Some(snapshot) = self.workspace_snapshot().filter(|_| self.error.is_none()) else {
+            return Effect::None;
+        };
+        let roster = &snapshot.roster;
         let source = moving.source.as_deref();
         let target = moving.target.as_deref();
-        let mut source_after = order.source;
-        source_after.remove(&moving.member);
-        if !self.observed_member_order(source, &source_after)
-            || !self.observed_member_order(target, &order.draft)
-            || self.workspace.saving_placement
+        let complete = [source, target]
+            .into_iter()
+            .all(|room| OpsWorkspace::complete_for_placement(roster, room));
+        if !complete && !roster.complete() {
+            return Effect::None;
+        }
+        let source_members = OpsWorkspace::placement_members(roster, source);
+        let target_members = OpsWorkspace::placement_members(roster, target);
+        // A refresh sent before the write can finish after the membership reply.
+        if complete
+            && order.source.same_members(&source_members)
+            && order.initial.same_members(&target_members)
         {
+            return Effect::None;
+        }
+        let mut source_after = order.source.clone();
+        source_after.remove(&moving.member);
+        let landed = complete
+            && source_after.same_members(&source_members)
+            && order.draft.same_members(&target_members);
+
+        let moving = self.moving.take().expect("confirmed membership move");
+        if !landed || self.workspace.saving_placement {
             return self.say("Membership moved. Placement not saved: The member list changed. Lift the agent again.");
         }
+        let order = moving.order.expect("display placement");
         let mut next = self.workspace.placements.clone();
         let reveal = order
             .draft
@@ -611,7 +641,7 @@ impl App {
                 room_id: moving.target.clone(),
                 identity_id: member.into(),
             });
-        next.replace(target, order.draft);
+        next.replace(moving.target.as_deref(), order.draft);
         self.workspace.saving_placement = true;
         Effect::Act(Request::MemberPlacement(Box::new(Save {
             expected: self.workspace.placements.clone(),

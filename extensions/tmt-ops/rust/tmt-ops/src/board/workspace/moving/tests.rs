@@ -321,6 +321,12 @@ fn crossing_down_lands_first_and_saves_only_after_confirmed_membership() {
             })
         );
         assert_eq!(app.prune_member_placement(), Effect::None);
+        let tab = KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(
+            app.moving_key(tab),
+            None,
+            "applying leaves normal keys to the board"
+        );
         if !accepted {
             app.finished_workspace(Err(crate::core::SquadError::new(
                 "ROOM_REVISION_CONFLICT",
@@ -337,6 +343,17 @@ fn crossing_down_lands_first_and_saves_only_after_confirmed_membership() {
         }));
         assert_eq!(app.workspace.placements, before);
         assert!(!app.workspace.saving_placement);
+        assert_eq!(
+            app.moving_key(tab),
+            None,
+            "awaiting leaves normal keys to the board"
+        );
+        assert_eq!(app.prune_member_placement(), Effect::None);
+        assert_eq!(app.moving.as_ref().unwrap().phase, Phase::AwaitingRoster);
+        assert_eq!(
+            app.workspace.placements, before,
+            "the pre-move roster does not consume the landing"
+        );
         let roster = &mut app
             .view
             .as_mut()

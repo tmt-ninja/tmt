@@ -5173,8 +5173,8 @@ impl App {
             self.move_pointer(event);
             return Effect::None;
         }
-        // Move mode owns input until the lift is cancelled or the request settles.
-        if self.moving.is_some() {
+        // Only the visible lift owns the pointer.
+        if self.moving.as_ref().is_some_and(|moving| moving.lifted()) {
             return Effect::None;
         }
         if let Some(effect) = self.frame_mouse(event) {
