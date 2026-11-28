@@ -118,9 +118,16 @@ func TestLayerRules(t *testing.T) {
 			}
 
 			switch {
+			case under(f.pkg, "internal/jobcalendar"), under(f.pkg, "internal/hostgrammar"):
+				if internal && !under(target, f.pkg) && !(f.test && under(target, "test")) {
+					fail("pure leaves import no other TMT package")
+				}
+				if !internal && !stdlib(imp) {
+					fail("pure leaves import only the standard library")
+				}
 			case under(f.pkg, "internal/core"):
-				if internal && !under(target, "internal/core") {
-					fail("core imports only core")
+				if internal && !under(target, "internal/core") && !under(target, "internal/hostgrammar") {
+					fail("core imports only core and hostgrammar")
 				}
 				if !internal && !stdlib(imp) && !coreAllowedModule(imp) {
 					fail("core imports only the standard library and golang.org/x/text")
