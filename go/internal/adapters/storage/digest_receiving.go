@@ -110,6 +110,7 @@ func (s *Storage) loadDigestCalendar(ctx context.Context) (digestCalendar, error
 type digestReceiving struct {
 	source     core.OrchSource
 	mode       core.OrchReceivingMode
+	intervalMs uint64
 	nextChange *uint64
 	revision   uint64
 	zone       string
@@ -127,7 +128,8 @@ func resolveDigestReceiving(r records, identity *core.Identity, cal digestCalend
 	if cal.location == nil || cal.configured != configured {
 		return digestReceiving{}, errors.New("receiving calendar selection changed; retry the operation")
 	}
-	resolved := digestReceiving{mode: policy.BaseReceiving[identity.ID].Mode, revision: policy.Revision, zone: cal.location.String(),
+	base := policy.BaseReceiving[identity.ID]
+	resolved := digestReceiving{mode: base.Mode, intervalMs: base.IntervalMs, revision: policy.Revision, zone: cal.location.String(),
 		source: core.OrchSource{Kind: core.OrchSourceBase, IdentityID: &identity.ID, Revision: policy.DigestRevision}}
 	for _, plan := range policy.Plans {
 		if !plan.Enabled || !digestPlanMatches(plan, identity) {
@@ -169,7 +171,7 @@ func (d *digestReceiving) consider(now, when uint64) {
 
 func (d *digestReceiving) apply(f core.OrchPolicyFields, source core.OrchSource) {
 	if f.Receiving != nil {
-		d.mode, d.source = f.Receiving.Mode, source
+		d.mode, d.intervalMs, d.source = f.Receiving.Mode, f.Receiving.IntervalMs, source
 		return
 	}
 	if f.State == nil {
@@ -181,7 +183,7 @@ func (d *digestReceiving) apply(f core.OrchPolicyFields, source core.OrchSource)
 	case "awake":
 		d.mode = core.OrchReceivingDirect
 	case "low":
-		d.mode = core.OrchReceivingBatch
+		d.mode, d.intervalMs = core.OrchReceivingBatch, 1_800_000
 	case "focus":
 		d.mode = core.OrchReceivingUrgent
 	case "sleep":

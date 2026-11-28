@@ -222,7 +222,7 @@ func currentResumeRefusal(snapshot *core.ResumeSnapshot) error {
 		result.Reason = "session_stale"
 		result.Message = fmt.Sprintf("%s's remembered %s session looked gone when it was last resumed. "+
 			"Forget it with: tmt resume --forget %s; try it once more with: tmt resume --retry %s. "+
-			"Start fresh from its notes: tmt resume --new -- %s", name, selected.Driver, name, name, resumeCommandWord(string(name)))
+			"Start fresh from its notes: tmt resume --new -- %s", name, selected.Driver, name, name, core.CommandWord(string(name)))
 	case selected.PendingAtMs != nil:
 		result.Code = "RESUME_UNAVAILABLE"
 		result.Reason = "session_pending"
@@ -259,12 +259,4 @@ func supportsResumeMode(session core.ResumeSession) bool {
 	default:
 		return false
 	}
-}
-
-func resumeCommandWord(value string) string {
-	const safe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._"
-	if value != "" && !strings.ContainsFunc(value, func(c rune) bool { return !strings.ContainsRune(safe, c) }) {
-		return value
-	}
-	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

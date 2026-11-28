@@ -23,14 +23,32 @@ func (s *RequestService) Inbox(ctx context.Context, q core.InboxQuery) (core.Inb
 	if q.Recipient == "" || limit > maxExchangeLimit || (q.Originator != nil && *q.Originator == "") {
 		return core.InboxPage{}, requestFailure("ANSWER_INPUT_INVALID", "Invalid inbox limit or originator.", 1)
 	}
+	calendar, err := s.store.loadDigestCalendar(ctx)
+	if err != nil {
+		return core.InboxPage{}, err
+	}
 	var page core.InboxPage
-	err := s.transact(ctx, true, func(r records, now uint64) error {
+	err = s.transact(ctx, true, func(r records, now uint64) error {
 		items, err := openRequests(r, q.Recipient, q.Originator, limit+1, now)
 		if err != nil {
 			return err
 		}
 		page.More = len(items) > int(limit)
 		page.Items = items[:min(len(items), int(limit))]
+		delivery := deliveryProjector{r: r, now: now, calendar: calendar}
+		for i := range page.Items {
+			attempt, err := r.Requests().FindByID(page.Items[i].RequestID)
+			if err != nil {
+				return err
+			}
+			if attempt == nil {
+				return errDeliveryEvidence
+			}
+			page.Items[i].MessageState, err = delivery.project(*attempt)
+			if err != nil {
+				return err
+			}
+		}
 		return nil
 	})
 	return page, err
@@ -68,13 +86,6 @@ func openRequests(r records, recipient core.IdentityID, originator *core.Identit
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
-	}
-	for i := range items {
-		view, err := requestDeliveryView(r, items[i].RequestID, now)
-		if err != nil {
-			return nil, err
-		}
-		items[i].MessageState = view
 	}
 	return items, nil
 }
@@ -184,54 +195,4 @@ func selectAnswer(r records, in core.AnswerRequest, now uint64) (*core.RequestAt
 
 func matchesIdentity(identity *core.IdentityID, expected core.IdentityID) bool {
 	return identity != nil && *identity == expected
-}
-
-func requestDeliveryView(r records, id core.RequestID, now uint64) (core.DeliveryView, error) {
-	var route core.RequestRouteKind
-	var attempt core.AttemptStatus
-	var wake string
-	var final, person bool
-	if err := r.one(`SELECT route_kind, status,
-			CASE WHEN wake_state = 'uncertain' AND receipt_deadline_ms > ?2 THEN 'claimed' ELSE wake_state END,
-			response_submitted_at_ms IS NOT NULL,
-			EXISTS (SELECT 1 FROM identity_metadata m JOIN identities i ON i.id = m.identity_id
-				WHERE m.identity_id = request_attempts.recipient_identity_id AND m.key = 'user' AND m.value = 'true'
-					AND i.retired_at_ms IS NULL)
-		FROM request_attempts WHERE request_id = ?1`, id, now).Scan(&route, &attempt, &wake, &final, &person); err != nil {
-		return core.DeliveryView{}, err
-	}
-	view := func(state, reason, text string, sendNow bool) core.DeliveryView {
-		return core.DeliveryView{State: state, Reason: reason, ReasonText: text, CanSendNow: sendNow}
-	}
-	if final {
-		return view("answered", "answered_by_reply", "answered", false), nil
-	}
-	if person && (attempt == core.AttemptSent || (route == core.RequestRouteInbox && attempt == core.AttemptQueued)) {
-		return view("delivered", "waiting_for_person", "waiting for the person", false), nil
-	}
-	// NOT PORTED (#6938, GO1-08): Digest holds and provider activity in the delivery view.
-	if route == core.RequestRouteInbox {
-		switch wake {
-		case "sent":
-			return view("delivered", "reached_the_agent", "delivered", false), nil
-		case "unavailable":
-			return view("not_sent", "unreachable", "not sent, the agent could not be reached", true), nil
-		case "uncertain":
-			return view("unconfirmed", "handed_over", "handed to the agent, delivery unconfirmed, do not resend", false), nil
-		case "claimed":
-			return view("sent", "waiting_for_delivery", "waiting for delivery", false), nil
-		default:
-			return view("sent", "waiting_for_delivery", "waiting for delivery", true), nil
-		}
-	}
-	switch attempt {
-	case core.AttemptSent:
-		return view("delivered", "reached_the_agent", "delivered", false), nil
-	case core.AttemptDefinitelyFailed:
-		return view("not_sent", "refused", "not sent, nothing reached the agent", false), nil
-	case core.AttemptUncertain:
-		return view("unconfirmed", "handed_over", "handed to the agent, delivery unconfirmed, do not resend", false), nil
-	default:
-		return view("sent", "waiting_for_delivery", "waiting for delivery", true), nil
-	}
 }

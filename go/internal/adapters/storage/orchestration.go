@@ -82,8 +82,12 @@ func (s *Storage) ReadJobs(ctx context.Context, q core.OrchJobQuery) (core.OrchJ
 		q.FullMessage && q.JobID == nil || !optionalOrchID(q.RoomID) || !optionalOrchID(q.OwnerID) || !optionalOrchID(q.JobID) {
 		return core.OrchJobReadPage{}, errors.New("invalid orchestration job query")
 	}
+	calendar, err := s.loadDigestCalendar(ctx)
+	if err != nil {
+		return core.OrchJobReadPage{}, err
+	}
 	var page core.OrchJobReadPage
-	err := s.transact(ctx, true, func(r records) error {
+	err = s.transact(ctx, true, func(r records) error {
 		var err error
 		page.Items, err = orchJobs(r, q)
 		if err != nil {
@@ -105,8 +109,9 @@ func (s *Storage) ReadJobs(ctx context.Context, q core.OrchJobQuery) (core.OrchJ
 			return err
 		}
 		page.RecentRuns = make(map[string][]core.OrchJobRun)
+		delivery := deliveryProjector{r: r, now: q.NowMs, calendar: calendar}
 		for _, job := range page.Items {
-			runs, err := orchJobRuns(r, job.ID, q.NowMs)
+			runs, err := orchJobRuns(&delivery, job.ID)
 			if err != nil {
 				return err
 			}
@@ -218,7 +223,8 @@ func validOrchJobSchedule(s core.OrchJobSchedule) bool {
 	}
 }
 
-func orchJobRuns(r records, id string, now uint64) ([]core.OrchJobRun, error) {
+func orchJobRuns(delivery *deliveryProjector, id string) ([]core.OrchJobRun, error) {
+	r := delivery.r
 	rows, err := r.query(`SELECT j.id,j.revision,j.slot_ms,j.recorded_ms,j.operation_id,d.receipt
 		FROM orchestration_job_runs j LEFT JOIN office_dispatch_operations d ON d.operation_id=j.operation_id
 		WHERE j.job_id=? ORDER BY j.id DESC LIMIT 5`, id)
@@ -245,7 +251,7 @@ func orchJobRuns(r records, id string, now uint64) ([]core.OrchJobRun, error) {
 		return nil, err
 	}
 	if len(runs) > 0 {
-		runs[0].Request, err = orchJobRequest(r, runs[0].Receipt.Items[0].RequestID, now)
+		runs[0].Request, err = orchJobRequest(delivery, runs[0].Receipt.Items[0].RequestID)
 	}
 	return runs, err
 }
@@ -267,7 +273,8 @@ func validOrchDispatchReceipt(receipt core.OrchDispatchReceipt, operation string
 	}
 }
 
-func orchJobRequest(r records, id core.RequestID, now uint64) (*core.OrchJobRequest, error) {
+func orchJobRequest(delivery *deliveryProjector, id core.RequestID) (*core.OrchJobRequest, error) {
+	r, now := delivery.r, delivery.now
 	attempt, err := r.Requests().FindByID(id)
 	if err != nil || attempt == nil {
 		return nil, err
@@ -280,7 +287,7 @@ func orchJobRequest(r records, id core.RequestID, now uint64) (*core.OrchJobRequ
 	if err != nil {
 		return nil, err
 	}
-	view, err := requestDeliveryView(r, id, now)
+	view, err := delivery.project(*attempt)
 	if err != nil {
 		return nil, err
 	}
