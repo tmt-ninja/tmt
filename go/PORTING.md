@@ -26,7 +26,13 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO1-06: Atomic SQLite symlink refusal when opening the hook queue.
 - [ ] GO1-07: SQLite no-checkpoint-on-close connection option.
 - [x] GO1-08: Digest holds and provider activity in the request delivery view.
-- [ ] GO1-09: Read footprint page counts and discovery ownership when a WAL exists without an index.
+- [x] GO1-09: Read footprint page counts and discovery ownership from an unindexed WAL.
+  - Native `storage/compaction.rs::page_observation_is_read_only` maps to
+    `TestInspectFootprintObservesCommittedWALPages` for a successful observation
+    during a writer with unchanged source bytes. This test and
+    `TestReadDiscoveryPreservesOwnershipAndFiltersHostSocket` add committed
+    WAL-only visibility with no SHM creation. `TestInspectionRefusesUnindexedWALDrift`
+    pins refusal on file drift.
 - [ ] GO1-10: Enumerate the full native Colab backup set in footprint.
 - [ ] GO1-11: Reply callbacks, provider capture and flow accounting.
 - [ ] GO1-12: Partial usage totals for unmeasured wake turns.

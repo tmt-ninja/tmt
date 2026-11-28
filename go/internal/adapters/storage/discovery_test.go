@@ -63,6 +63,24 @@ func TestReadDiscoveryPreservesOwnershipAndFiltersHostSocket(t *testing.T) {
 	}
 	assertFootprintFile(t, root.Database, disk)
 	assertFootprintFile(t, root.Database+"-wal", wal)
+
+	// The live bindings are committed in WAL. Copy the DB and WAL alone to
+	// model an offline store whose shared-memory index is absent.
+	copyRoot := testRoot(t)
+	writeFootprintFixture(t, copyRoot.Dir, filepath.Base(copyRoot.Database), string(disk))
+	writeFootprintFixture(t, copyRoot.Dir, filepath.Base(copyRoot.Database)+"-wal", string(wal))
+	copied, err := ReadDiscovery(t.Context(), copyRoot, first.Server.Host, first.Server.Socket)
+	if err != nil || !reflect.DeepEqual(copied, page) {
+		t.Fatalf("discovery from the unindexed WAL = %+v, %v, want %+v", copied, err, page)
+	}
+	assertFootprintFile(t, copyRoot.Database, disk)
+	assertFootprintFile(t, copyRoot.Database+"-wal", wal)
+	for _, suffix := range []string{"-shm", "-journal"} {
+		if _, err := os.Lstat(copyRoot.Database + suffix); !os.IsNotExist(err) {
+			t.Fatalf("unindexed discovery sidecar %s: %v", suffix, err)
+		}
+	}
+
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}

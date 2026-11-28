@@ -55,25 +55,25 @@ func ReadDiscovery(ctx context.Context, root home.Root, host, socket string) (Di
 	if !file.Mode().IsRegular() {
 		return DiscoveryPage{}, errors.New("discovery database is not a regular file")
 	}
-	db, err := openExistingSQLiteReadOnly(base, database, 0)
+	err = withExistingSQLiteReadOnly(ctx, base, database, 0, func(tx *sql.Tx) error {
+		return readDiscoveryPage(ctx, tx, host, socket, &page)
+	})
 	if err != nil {
 		return DiscoveryPage{}, err
 	}
-	defer db.Close()
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return DiscoveryPage{}, err
-	}
-	defer tx.Rollback()
+	return page, nil
+}
+
+func readDiscoveryPage(ctx context.Context, tx *sql.Tx, host, socket string, page *DiscoveryPage) error {
 	if err := validateHistoryTable(ctx, tx); err != nil {
-		return DiscoveryPage{}, err
+		return err
 	}
 	version, err := validateHistory(ctx, tx)
 	if err != nil {
-		return DiscoveryPage{}, err
+		return err
 	}
 	if version != SchemaVersion {
-		return DiscoveryPage{}, fmt.Errorf("discovery requires schema version %d, found %d", SchemaVersion, version)
+		return fmt.Errorf("discovery requires schema version %d, found %d", SchemaVersion, version)
 	}
 	r := records{ctx: ctx, tx: tx, readOnly: true}
 	ids, err := scanRows(r, `SELECT b.identity_id FROM bindings b JOIN identities i ON i.id=b.identity_id
@@ -84,27 +84,21 @@ func ReadDiscovery(ctx context.Context, root home.Root, host, socket string) (Di
 			return id, err
 		}, host, socket, discoveryEntryLimit+1)
 	if err != nil {
-		return DiscoveryPage{}, err
+		return err
 	}
 	page.Truncated = len(ids) > discoveryEntryLimit
 	for _, id := range ids[:min(len(ids), discoveryEntryLimit)] {
 		identity, err := r.Identities().FindByID(id)
 		if err != nil {
-			return DiscoveryPage{}, err
+			return err
 		}
 		binding, err := r.Bindings().FindByIdentity(id)
 		if err != nil {
-			return DiscoveryPage{}, err
+			return err
 		}
 		if identity != nil && binding != nil {
 			page.Entries = append(page.Entries, DiscoveryEntry{Identity: *identity, Binding: *binding})
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return DiscoveryPage{}, err
-	}
-	if err := db.Close(); err != nil {
-		return DiscoveryPage{}, err
-	}
-	return page, nil
+	return nil
 }

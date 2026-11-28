@@ -3,14 +3,15 @@ package storage
 import (
 	"bytes"
 	"database/sql"
+	"errors"
 	"io/fs"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
+	"time"
 )
 
 func TestInspectFootprintLeavesMissingHomeAbsent(t *testing.T) {
@@ -111,8 +112,19 @@ func TestInspectFootprintObservesCommittedWALPages(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	writer, err := db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Rollback()
+	if _, err := writer.ExecContext(t.Context(), "INSERT INTO fixture VALUES ('not yet committed')"); err != nil {
+		t.Fatal(err)
+	}
 	got, err := InspectFootprint(t.Context(), root)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Rollback(); err != nil {
 		t.Fatal(err)
 	}
 	database := got.Database
@@ -133,19 +145,73 @@ func TestInspectFootprintObservesCommittedWALPages(t *testing.T) {
 		t.Fatal(err)
 	}
 	copied := copyFootprint.Database
-	if copied == nil || copied.Pages != nil || copied.PageError == nil ||
-		copied.Bytes != uint64(len(disk)) || copied.WALBytes != uint64(len(wal)) {
+	if copied == nil || copied.Pages == nil || copied.PageError != nil ||
+		*copied.Pages != *database.Pages || copied.Bytes != uint64(len(disk)) || copied.WALBytes != uint64(len(wal)) {
 		t.Fatalf("database without SHM = %+v", copied)
-	}
-	if _, err := ReadDiscovery(t.Context(), copyRoot, "tmux", "/tmp/fixture.sock"); err == nil ||
-		!strings.Contains(err.Error(), "shared-memory index") {
-		t.Fatalf("discovery without SHM error = %v", err)
 	}
 	if _, err := os.Lstat(copyRoot.Database + "-shm"); !os.IsNotExist(err) {
 		t.Fatalf("WAL index stat = %v", err)
 	}
 	assertFootprintFile(t, copyRoot.Database, disk)
 	assertFootprintFile(t, copyRoot.Database+"-wal", wal)
+}
+
+func TestInspectionRefusesUnindexedWALDrift(t *testing.T) {
+	ctx := t.Context()
+	source := testRoot(t)
+	if err := os.Mkdir(source.Dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	db := openFootprintFixture(t, source.Database)
+	if _, err := db.Exec("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; CREATE TABLE fixture (value TEXT); INSERT INTO fixture VALUES ('WAL only')"); err != nil {
+		t.Fatal(err)
+	}
+	disk, err := os.ReadFile(source.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wal, err := os.ReadFile(source.Database + "-wal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, evidence := range []struct {
+		name   string
+		change func(path string) error
+	}{
+		{"WAL mtime", func(path string) error {
+			st, err := os.Lstat(path + "-wal")
+			if err != nil {
+				return err
+			}
+			return os.Chtimes(path+"-wal", st.ModTime(), st.ModTime().Add(time.Second))
+		}},
+		{"SHM appearance", func(path string) error { return os.WriteFile(path+"-shm", nil, 0600) }},
+	} {
+		t.Run(evidence.name, func(t *testing.T) {
+			root := testRoot(t)
+			name := filepath.Base(root.Database)
+			writeFootprintFixture(t, root.Dir, name, string(disk))
+			writeFootprintFixture(t, root.Dir, name+"-wal", string(wal))
+			base, err := os.OpenRoot(root.Dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer base.Close()
+			err = withExistingSQLiteReadOnly(ctx, base, root.Database, 0, func(tx *sql.Tx) error {
+				var value string
+				err := tx.QueryRowContext(ctx, "SELECT value FROM fixture").Scan(&value)
+				if err != nil || value != "WAL only" {
+					t.Fatalf("WAL-only row = %q, %v", value, err)
+				}
+				return evidence.change(root.Database)
+			})
+			if !errors.Is(err, errInspectionWALChanged) {
+				t.Fatalf("drifting read = %v", err)
+			}
+			assertFootprintFile(t, root.Database, disk)
+			assertFootprintFile(t, root.Database+"-wal", wal)
+		})
+	}
 }
 
 func TestInspectFootprintPreservesSizeWhenPageAccountingUnavailable(t *testing.T) {

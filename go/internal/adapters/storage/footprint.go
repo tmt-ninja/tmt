@@ -145,35 +145,28 @@ func inspectDatabaseFootprint(ctx context.Context, root *os.Root, path string) (
 }
 
 func observeFootprintPages(ctx context.Context, root *os.Root, path string) (*DatabasePages, error) {
-	db, err := openExistingSQLiteReadOnly(root, path, 100)
-	if err != nil {
-		return nil, err
-	}
-	defer db.Close()
-	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
 	var result DatabasePages
-	var vacuum uint64
-	err = tx.QueryRowContext(ctx, `SELECT page_size,page_count,freelist_count,auto_vacuum FROM
-		pragma_page_size(),pragma_page_count(),pragma_freelist_count(),pragma_auto_vacuum()`).
-		Scan(&result.PageSize, &result.PageCount, &result.FreePages, &vacuum)
+	err := withExistingSQLiteReadOnly(ctx, root, path, 100, func(tx *sql.Tx) error {
+		var vacuum uint64
+		err := tx.QueryRowContext(ctx, `SELECT page_size,page_count,freelist_count,auto_vacuum FROM
+			pragma_page_size(),pragma_page_count(),pragma_freelist_count(),pragma_auto_vacuum()`).
+			Scan(&result.PageSize, &result.PageCount, &result.FreePages, &vacuum)
+		if err != nil {
+			return err
+		}
+		switch vacuum {
+		case 0:
+			result.AutoVacuum = AutoVacuumNone
+		case 1:
+			result.AutoVacuum = AutoVacuumFull
+		case 2:
+			result.AutoVacuum = AutoVacuumIncremental
+		default:
+			return errors.New("unrecognized database auto-vacuum mode")
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, err
-	}
-	switch vacuum {
-	case 0:
-		result.AutoVacuum = AutoVacuumNone
-	case 1:
-		result.AutoVacuum = AutoVacuumFull
-	case 2:
-		result.AutoVacuum = AutoVacuumIncremental
-	default:
-		return nil, errors.New("unrecognized database auto-vacuum mode")
-	}
-	if err := tx.Commit(); err != nil {
 		return nil, err
 	}
 	return &result, nil
