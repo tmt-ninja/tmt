@@ -148,3 +148,21 @@ func validBindingMarker(identity IdentityID, binding *Binding, marker *BindingMa
 	name, err := ValidateExistingName(string(marker.Name))
 	return err == nil && name.CanonicalName() == marker.CanonicalName
 }
+
+// BindingReservation owns a future binding while its marker is published and
+// verified. The old binding remains active until the reservation is activated.
+type BindingReservation struct {
+	Target            Binding
+	OldBindingID      *BindingID
+	ExpectedBindingID *BindingID
+	Publisher         ProcessIncarnation
+	CreatedAtMs       uint64
+	ExpiresAtMs       uint64
+}
+
+type LaunchTransition string
+
+const (
+	LaunchTransitionStarted LaunchTransition = "started"
+	LaunchTransitionResumed LaunchTransition = "resumed"
+)

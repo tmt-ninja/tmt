@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
 )
@@ -55,7 +56,7 @@ func readIncarnation(pid *uint64, start *string) (*core.ProcessIncarnation, erro
 }
 
 func validStart(value string) bool {
-	return len(value) > 0 && len(value) <= 256 && strings.TrimSpace(value) != "" && !strings.ContainsFunc(value, unicode.IsControl)
+	return len(value) > 0 && len(value) <= 256 && utf8.ValidString(value) && strings.TrimSpace(value) != "" && !strings.ContainsFunc(value, unicode.IsControl)
 }
 
 func (r bindingRows) FindByIdentity(id core.IdentityID) (*core.Binding, error) {
