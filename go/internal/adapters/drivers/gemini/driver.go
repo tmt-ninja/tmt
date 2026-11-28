@@ -2,6 +2,8 @@ package gemini
 
 import (
 	"errors"
+	"regexp"
+	"strings"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -29,9 +31,18 @@ func (d Driver) LaunchCommand(launch ports.AgentLaunch) (ports.ProcessSpec, erro
 	return drivers.Command(d.Name(), d.Executable, launch, append(args, launch.Extra...))
 }
 
+var screenRules = drivers.ScreenRules{
+	Prompts:   []string{">", "> Type your message or @path/to/file", "* Type your message or @path/to/file"},
+	Busy:      regexp.MustCompile(`(?i)(?:^|[ (·•])esc to cancel(?:, [0-9][0-9hms ]*)?\)?$`),
+	Questions: []string{"do you trust the files in this folder?", "allow execution of:"},
+	Footer: func(line string) bool {
+		return line == "? for shortcuts" || strings.Contains(line, "/model ") ||
+			(strings.Contains(line, "gemini-") && strings.HasSuffix(line, "% context left)"))
+	},
+}
+
 func (Driver) Classify(screen ports.Screen) ports.DriverState {
-	return drivers.ScreenState(screen, ">", []string{"esc to cancel"},
-		[]string{"do you trust the files in this folder?", "allow execution of:"})
+	return drivers.ScreenState(screen, screenRules)
 }
 
 func (Driver) SubmitPlan(string) []ports.KeyStep { return drivers.Enter() }

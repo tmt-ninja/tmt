@@ -1,0 +1,6 @@
+Example response ends here.
+
+› Ask Codex to do anything
+
+GPT-6.2-Sol medium · ~/dev/example · Context 3% used
+← for agents · ? for shortcuts

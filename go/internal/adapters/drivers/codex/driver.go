@@ -3,6 +3,7 @@ package codex
 import (
 	"encoding/json"
 	"errors"
+	"regexp"
 	"strings"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers"
@@ -81,9 +82,18 @@ func embeddedByDefault(extra []string) bool {
 	return true
 }
 
+var screenRules = drivers.ScreenRules{
+	Prompts:   []string{"›", "› Ask Codex to do anything"},
+	Busy:      regexp.MustCompile(`(?i)(?:^|[ (·•])esc to interrupt\)?$`),
+	Questions: []string{"do you trust the contents of this directory?", "would you like to run the following command?"},
+	Footer: func(line string) bool {
+		return line == "? for shortcuts" || line == "← for agents · ? for shortcuts" ||
+			(strings.Count(line, " · ") >= 2 && strings.Contains(line, " · Context "))
+	},
+}
+
 func (Driver) Classify(screen ports.Screen) ports.DriverState {
-	return drivers.ScreenState(screen, "›", []string{"esc to interrupt"},
-		[]string{"do you trust the contents of this directory?", "would you like to run the following command?"})
+	return drivers.ScreenState(screen, screenRules)
 }
 
 func (Driver) SubmitPlan(string) []ports.KeyStep { return drivers.Enter() }

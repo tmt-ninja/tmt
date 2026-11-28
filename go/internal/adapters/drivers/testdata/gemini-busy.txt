@@ -1,0 +1,6 @@
+⠙ Working (esc to cancel, 8m 15s)
+
+Using: 1 GEMINI.md file
+╭─────────────────────────────────────────╮
+│ >   Type your message or @path/to/file   │
+╰─────────────────────────────────────────╯

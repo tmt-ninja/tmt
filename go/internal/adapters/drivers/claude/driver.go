@@ -2,6 +2,8 @@ package claude
 
 import (
 	"errors"
+	"regexp"
+	"strings"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/drivers"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -36,9 +38,17 @@ func (d Driver) LaunchCommand(launch ports.AgentLaunch) (ports.ProcessSpec, erro
 	return drivers.Command(d.Name(), d.Executable, launch, append(args, launch.Extra...))
 }
 
+var screenRules = drivers.ScreenRules{
+	Prompts:   []string{"❯"},
+	Busy:      regexp.MustCompile(`(?i)(?:^|[ (·•])esc to interrupt(?:[,·•].*)?\)?$`),
+	Questions: []string{"do you want to proceed?", "would you like to proceed?", "do you want to make this edit"},
+	Footer: func(line string) bool {
+		return line == "? for shortcuts" || strings.HasPrefix(line, "⏵⏵ ")
+	},
+}
+
 func (Driver) Classify(screen ports.Screen) ports.DriverState {
-	return drivers.ScreenState(screen, "❯", []string{"esc to interrupt"},
-		[]string{"do you want to proceed?", "would you like to proceed?", "do you want to make this edit"})
+	return drivers.ScreenState(screen, screenRules)
 }
 
 func (Driver) SubmitPlan(string) []ports.KeyStep { return drivers.Enter() }
