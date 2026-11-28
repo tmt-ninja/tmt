@@ -1,4 +1,10 @@
 # Go port CI (#6938). Lives only on poc/go; main never carries this file.
+#
+# Runner budget (shared Team cap with main/PR CI): every push gets exactly one
+# ubuntu job (check + build + test, about 1 min). dist runs only for the newest
+# head. The race detector and macOS run only on workflow_dispatch, which the
+# lead triggers at milestones; the race build of modernc.org/sqlite needs
+# about 7 min locally for storage alone.
 name: go
 on:
   push:
@@ -12,42 +18,18 @@ on:
 permissions:
   contents: read
 
-# No concurrency group: with several members pushing a minute apart, one
-# serialized group cancels almost every pending run. Ubuntu runs are cheap and
-# independent, so every pushed head gets its own complete result.
-
 defaults:
   run:
     working-directory: go
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go/go.mod
-          cache-dependency-path: go/go.sum
-      - name: gofmt
-        run: |
-          start=$(date +%s)
-          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
-          go vet ./...
-          sh scripts/check-schema-copy.sh
-          echo "check: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
-
-  # macOS runners are shared with every squad's release and CI. Members run
-  # the full suite on macOS locally before each push, so branch CI runs macOS
-  # only on workflow_dispatch (milestones), never on every push.
   test:
     strategy:
       fail-fast: false
       matrix:
         os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
+    timeout-minutes: 15
     env:
       CGO_ENABLED: '0'
     steps:
@@ -56,6 +38,14 @@ jobs:
         with:
           go-version-file: go/go.mod
           cache-dependency-path: go/go.sum
+      - name: check
+        if: runner.os == 'Linux'
+        run: |
+          start=$(date +%s)
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+          go vet ./...
+          sh scripts/check-schema-copy.sh
+          echo "check: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
       - name: tmux
         run: |
           if [ "$RUNNER_OS" = Linux ]; then sudo apt-get install -y tmux >/dev/null; else brew install tmux >/dev/null; fi
@@ -68,14 +58,13 @@ jobs:
       - name: test
         run: |
           start=$(date +%s)
-          env -u TMUX -u TMUX_PANE go test -count=1 ./...
+          env -u TMUX -u TMUX_PANE go test -count=1 -timeout 8m ./...
           echo "${{ matrix.os }} test: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
 
-  # Race runs beside test, not after it: the race build of modernc.org/sqlite
-  # dominates wall time, and dist does not wait for it.
   race:
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     env:
       CGO_ENABLED: '1'
     steps:
@@ -89,11 +78,16 @@ jobs:
       - name: race
         run: |
           start=$(date +%s)
-          env -u TMUX -u TMUX_PANE go test -race -count=1 ./...
+          env -u TMUX -u TMUX_PANE go test -race -count=1 -timeout 25m ./...
           echo "race: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
 
+  # Only the newest head needs installable artifacts (tmt-go upgrade takes the
+  # newest successful run), so older dist jobs are cancelled.
   dist:
-    needs: [check, test]
+    needs: [test]
+    concurrency:
+      group: go-dist-${{ github.ref }}
+      cancel-in-progress: true
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
