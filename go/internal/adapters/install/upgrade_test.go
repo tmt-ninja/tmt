@@ -3,6 +3,7 @@ package install
 import (
 	"context"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -36,14 +37,14 @@ func TestReplaceExecutableVerifiesBeforeAtomicReplacement(t *testing.T) {
 	defer original.Close()
 	binary := fakeRelease("replacement")
 	artifact := ports.Artifact{
-		OS: runtime.GOOS, Arch: runtime.GOARCH,
+		Version: "0.0.0-go.12+aaaaaaaaaa", OS: runtime.GOOS, Arch: runtime.GOARCH,
 		SHA256: fmt.Sprintf("%x", sha256.Sum256(binary)),
 	}
-	if err := replaceExecutable(t.Context(), fakeRelease("corrupt"), artifact, target); err == nil {
+	if err := replaceExecutable(t.Context(), fakeRelease("corrupt"), artifact, "0.0.0-go-dev", target); err == nil {
 		t.Fatal("accepted a corrupt artifact")
 	}
 	assertFile(t, target, "original")
-	if err := replaceExecutable(t.Context(), binary, artifact, target); err != nil {
+	if err := replaceExecutable(t.Context(), binary, artifact, "0.0.0-go.9+bbbbbbbbbb", target); err != nil {
 		t.Fatal(err)
 	}
 	assertFile(t, target, string(binary))
@@ -63,5 +64,23 @@ func assertFile(t *testing.T, path, want string) {
 	got, err := os.ReadFile(path)
 	if err != nil || string(got) != want {
 		t.Fatalf("%s = %q, %v; want %q", path, got, err, want)
+	}
+}
+
+func TestReplaceExecutableRejectsOlderAndSameWorkflowRuns(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "tmt-go")
+	if err := os.WriteFile(target, []byte("original"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	for _, version := range []string{"0.0.0-go.9+aaaaaaaaaa", "0.0.0-go.12+aaaaaaaaaa"} {
+		t.Run(version, func(t *testing.T) {
+			artifact := ports.Artifact{Version: version, OS: runtime.GOOS, Arch: runtime.GOARCH}
+			// A nil source also proves the rejected artifact never reaches Fetch.
+			err := replaceExecutable(t.Context(), nil, artifact, "0.0.0-go.12+bbbbbbbbbb", target)
+			if !errors.Is(err, ErrNoNewerBuild) {
+				t.Fatalf("same or older run returned %v", err)
+			}
+			assertFile(t, target, "original")
+		})
 	}
 }

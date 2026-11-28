@@ -3,24 +3,45 @@ package install
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
+	"strings"
 
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
-// ReplaceExecutable applies an approved artifact to the running tmt-go.
-func ReplaceExecutable(ctx context.Context, source ports.ReleaseSource, artifact ports.Artifact) error {
+// ErrNoNewerBuild means the selected CI run is no newer than the running build.
+var ErrNoNewerBuild = errors.New("no newer Go workflow build")
+
+// ReplaceExecutable applies an approved, newer artifact to the running tmt-go.
+func ReplaceExecutable(ctx context.Context, source ports.ReleaseSource, artifact ports.Artifact, currentVersion string) error {
 	path, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	return replaceExecutable(ctx, source, artifact, path)
+	return replaceExecutable(ctx, source, artifact, currentVersion, path)
 }
 
-func replaceExecutable(ctx context.Context, source ports.ReleaseSource, artifact ports.Artifact, path string) error {
+func replaceExecutable(ctx context.Context, source ports.ReleaseSource, artifact ports.Artifact, currentVersion, path string) error {
+	nextRun, err := runNumber(artifact.Version)
+	if err != nil {
+		return err
+	}
+	var currentRun int64
+	if currentVersion != "0.0.0-go-dev" {
+		currentRun, err = runNumber(currentVersion)
+		if err != nil {
+			return err
+		}
+	}
+	if nextRun <= currentRun {
+		return fmt.Errorf("%w: running %s, selected %s", ErrNoNewerBuild, currentVersion, artifact.Version)
+	}
 	if artifact.OS != runtime.GOOS || artifact.Arch != runtime.GOARCH {
 		return fmt.Errorf("artifact %s/%s does not match the running tmt-go", artifact.OS, artifact.Arch)
 	}
@@ -72,4 +93,17 @@ func replaceExecutable(ctx context.Context, source ports.ReleaseSource, artifact
 		return fmt.Errorf("executable changed during upgrade: %s", path)
 	}
 	return os.Rename(stage.Name(), path)
+}
+
+// runNumber parses the format injected by go.yml. The SHA identifies the
+// build, while only the workflow run number defines upgrade ordering.
+func runNumber(version string) (int64, error) {
+	build, ok := strings.CutPrefix(version, "0.0.0-go.")
+	number, sha, hasSHA := strings.Cut(build, "+")
+	value, parseErr := strconv.ParseInt(number, 10, 64)
+	_, hexErr := hex.DecodeString(sha)
+	if !ok || !hasSHA || parseErr != nil || value <= 0 || strconv.FormatInt(value, 10) != number || len(sha) != 10 || hexErr != nil {
+		return 0, fmt.Errorf("invalid Go workflow build version %q", version)
+	}
+	return value, nil
 }
