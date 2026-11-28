@@ -43,7 +43,13 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     session clear still need the lifecycle callback path.
 - [ ] GO1-14: Exact resume for Claude and Codex, including the read-only preset projection.
 - [ ] GO1-15: Resume forget, move, new, retry, driver switching and stale/pending settlement.
-- [ ] GO1-16: Gemini exact resume.
+- [ ] GO1-16: Match native Gemini resume refusal and unregistered-session cleanup.
+  - Native `drivers/gemini.rs` registers no runtime.
+    `runtime/session_presence/tests.rs::first_party_drivers_look_only_in_their_own_private_tree`
+    expects unknown Gemini session presence. The storage refusal in
+    `TestVerifyResumeRefusesSavedEvidenceBeforeMutation` covers the
+    `RESUME_UNSUPPORTED` branch in `run_command/resume.rs`.
+    Unregistered-session cleanup and CLI parity remain open.
 - [ ] GO1-17: Resume with saved wrapper, model, effort and channel settings, plus the associated preset model refresh in --show.
 - [x] GO1-18: Exact send-now release, guarded claim and settlement.
 - [ ] GO1-19: Reply and timeout notice production.
