@@ -1354,6 +1354,167 @@ mod through_the_driver {
         );
     }
 
+    /// Which of a caller check's commands runs out of its deadline, as a loaded machine makes it.
+    #[derive(Clone, Copy, PartialEq)]
+    enum Late {
+        Nothing,
+        DriverCall,
+        Ancestry,
+    }
+
+    /// Driver calls run through the fixture's shell and core's own reads as production does,
+    /// each recording its deadline; `late` makes one kind run out of it instead.
+    #[derive(Clone)]
+    struct Timed {
+        late: Late,
+        driver: std::rc::Rc<std::cell::RefCell<Vec<Instant>>>,
+        own: std::rc::Rc<std::cell::RefCell<Vec<Instant>>>,
+    }
+
+    impl CommandRunner for Timed {
+        fn execute(&self, request: CommandRequest<'_>) -> Result<CommandOutput, CommandError> {
+            // These tests never reach a tmux server, the host's least of all.
+            assert!(
+                std::path::Path::new(request.program).file_name() != Some(OsStr::new("tmux")),
+                "a required-caller test ran tmux: {:?}",
+                request.args
+            );
+            let driver = request.args.first().map(OsString::as_os_str)
+                == Some(OsStr::new("TMT_DRIVER_CALL=1"));
+            let (deadlines, late) = if driver {
+                (&self.driver, Late::DriverCall)
+            } else {
+                (&self.own, Late::Ancestry)
+            };
+            deadlines.borrow_mut().push(request.deadline);
+            if self.late == late {
+                return Err(CommandError::new(crate::process::CommandFailure::Timeout));
+            }
+            HostRunner.execute(request)
+        }
+    }
+
+    struct Selected {
+        host: Result<crate::host::Host<Timed>, HostError>,
+        driver: Vec<Instant>,
+        own: Vec<Instant>,
+        before: Instant,
+        after: Instant,
+    }
+
+    /// A caller in the fake host's pane `f1`, whose driver answers `pane` for it (`true`: the
+    /// caller's own process is that pane's shell), selected as a pane-required command does when
+    /// `required`, otherwise as every other command does.
+    fn required_caller(late: Late, pane: bool, required: bool) -> Selected {
+        use crate::host::{CallerEnvironment, Host};
+        let mut declared = answers("fake", "fake-", Some("f{n}"));
+        declared[0].1["ok"]["callerEnv"] = json!(["FAKE_PANE_ID"]);
+        let installed = Installed::new("fake", declared);
+        let answer = if pane {
+            json!({"ok": {"pane": {"id": "fake-1", "socket": SOCKET, "shellPid": std::process::id()}}})
+        } else {
+            json!({"ok": {"pane": null}})
+        };
+        installed.answer("caller", &answer.to_string());
+        let runner = Timed {
+            late,
+            driver: Default::default(),
+            own: Default::default(),
+        };
+        let environment = CallerEnvironment {
+            tmux: None,
+            pane: None,
+            process_id: u64::from(std::process::id()),
+            driver_env: [("FAKE_PANE_ID".to_owned(), OsString::from("f1"))].into(),
+        };
+        let records = vec![installed.approve().unwrap()];
+        let before = Instant::now();
+        let host = if required {
+            Host::for_required_caller_with_drivers(&environment, runner.clone(), records)
+        } else {
+            Host::for_caller_with_drivers(&environment, runner.clone(), records)
+        };
+        let after = Instant::now();
+        let (driver, own) = (runner.driver.borrow().clone(), runner.own.borrow().clone());
+        Selected {
+            host,
+            driver,
+            own,
+            before,
+            after,
+        }
+    }
+
+    /// #6926: a command that cannot do without the caller's pane never reads a check that ran
+    /// out of time as "no pane", like tmux (#4260); the error names the bound that ran out.
+    #[test]
+    fn a_required_caller_whose_check_runs_late_is_a_budget_error_not_no_pane() {
+        for (late, seconds) in [(Late::DriverCall, 1), (Late::Ancestry, 5)] {
+            let selected = required_caller(late, true, true);
+            let error = selected
+                .host
+                .err()
+                .expect("a late check must not select a host");
+            assert!(
+                matches!(&error, HostError::CallerBudget { host, .. } if host.as_str() == "fake")
+            );
+            assert!(!error.cleanup_failed());
+            assert_eq!(
+                error.to_string(),
+                format!(
+                    "Host driver fake did not answer within {seconds} s while checking the caller pane."
+                )
+            );
+            assert_eq!(selected.driver.len(), 1, "one caller call, no retry");
+        }
+        // Every other command keeps its doubt-keeps-tmux selection.
+        let ordinary = required_caller(Late::DriverCall, true, false);
+        assert_eq!(ordinary.host.unwrap().primary, HostKind::Tmux);
+    }
+
+    #[test]
+    fn a_required_caller_check_gets_the_required_budget_and_others_keep_one_second() {
+        use crate::tmux::REQUIRED_CALLER_TIMEOUT;
+        let within = |deadline: Instant, selected: &Selected, bound: Duration| {
+            deadline >= selected.before + bound && deadline <= selected.after + bound
+        };
+        let second = Duration::from_secs(1);
+        let required = required_caller(Late::Nothing, true, true);
+        assert_eq!(
+            required.host.as_ref().unwrap().primary,
+            HostKind::External(HostName::new("fake").unwrap())
+        );
+        // The driver call keeps the protocol's own bound; core's ancestry read gets five seconds.
+        assert_eq!(tmt_driver_protocol::Op::Caller.bounds().deadline, second);
+        assert!(
+            required
+                .driver
+                .iter()
+                .all(|d| within(*d, &required, second))
+        );
+        assert!(!required.own.is_empty());
+        assert!(
+            required
+                .own
+                .iter()
+                .all(|d| within(*d, &required, REQUIRED_CALLER_TIMEOUT)),
+            "{:?}",
+            required.own
+        );
+        let ordinary = required_caller(Late::Nothing, true, false);
+        assert!(!ordinary.own.is_empty());
+        assert!(ordinary.own.iter().all(|d| within(*d, &ordinary, second)));
+    }
+
+    #[test]
+    fn a_required_caller_whose_driver_says_no_pane_stays_no_pane() {
+        let selected = required_caller(Late::Nothing, false, true);
+        // A conclusive "no pane" is absence, not a budget error: selection keeps tmux, whose
+        // own check decides later. Nothing here runs tmux.
+        assert_eq!(selected.host.unwrap().primary, HostKind::Tmux);
+        assert!(selected.own.is_empty(), "no pane, so no ancestry read");
+    }
+
     mod discovery;
     mod nested;
 }

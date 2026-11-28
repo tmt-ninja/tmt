@@ -33,6 +33,16 @@ pub fn host(environment: &CallerEnvironment) -> Result<Host, Failure> {
     Host::for_caller(environment).map_err(selection_failed)
 }
 
+/// [`host`] for a command that cannot do without the caller's pane (`name`, `whoami`,
+/// `unbind`, `ls --here`): an external host's driver that ran out of the required-caller
+/// budget is reported as that, like a late tmux (#4260), never as "no pane" (#6926).
+pub fn required_host(environment: &CallerEnvironment) -> Result<Host, Failure> {
+    Host::for_required_caller(environment).map_err(|error| match error {
+        HostError::CallerBudget { .. } => crate::binding_error::endpoint_failure(error),
+        error => selection_failed(error),
+    })
+}
+
 /// [`host`] for workspace recovery: an explicit socket selects the built-in
 /// host and reads no caller evidence.
 pub fn workspace_host(

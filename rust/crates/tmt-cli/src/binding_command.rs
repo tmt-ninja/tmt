@@ -313,27 +313,39 @@ fn run(request: Invocation) -> Result<(Report, Option<AgentNameOutcome>), Failur
         request,
         CallerEnvironment::current(),
         || ConfigPaths::discover().map_err(Failure::from),
-        crate::caller_context::host,
+        |environment, need| match need {
+            CallerNeed::Host => crate::caller_context::host(environment),
+            CallerNeed::Pane => crate::caller_context::required_host(environment),
+        },
     )
+}
+
+/// What a caller-scoped binding operation needs of the caller's host. `Pane`: the command
+/// cannot do without the caller's pane (`name`, `whoami`, `unbind`, `ls --here`), so its
+/// driver gets the required-caller budget (#4260, #6926).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CallerNeed {
+    Host,
+    Pane,
 }
 
 fn run_with(
     request: Invocation,
     environment: CallerEnvironment,
     paths: impl Fn() -> Result<ConfigPaths, Failure>,
-    caller_host: impl FnOnce(&CallerEnvironment) -> Result<Host, Failure>,
+    caller_host: impl FnOnce(&CallerEnvironment, CallerNeed) -> Result<Host, Failure>,
 ) -> Result<(Report, Option<AgentNameOutcome>), Failure> {
     let listed = listed_target(&request, &paths)?;
     let caller = match &request {
+        Invocation::BindMarked { .. } => caller_host(&environment, CallerNeed::Host)?,
         Invocation::Bind { pane: None, .. }
-        | Invocation::BindMarked { .. }
         | Invocation::Whoami
         | Invocation::Unbind
         | Invocation::List {
             target: None,
             scope: ListScope { here: true, .. },
             ..
-        } => caller_host(&environment)?,
+        } => caller_host(&environment, CallerNeed::Pane)?,
         // This session observes stored bindings on their own hosts; its primary
         // host is not caller evidence. Explicit panes are selected below.
         _ => Host::for_host(

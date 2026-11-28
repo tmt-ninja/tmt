@@ -9,8 +9,8 @@ use crate::driver_protocol::registry;
 mod session;
 
 pub use crate::driver_protocol::process::{CallError, DriverProcess};
-pub(crate) use caller::Callers;
 pub use caller::ExternalCaller;
+pub(crate) use caller::{Callers, RanOut};
 pub use session::{Drivers, ExternalDriver, Session};
 
 use crate::config::ConfigPaths;

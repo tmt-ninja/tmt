@@ -241,8 +241,15 @@ never prove loss. External runtime launch/setup/hooks remain unwired. Details:
   `ls --here` (`binding_command::labeled_caller_pane` through `Host::caller_pane_required`)
   wait 5 s once, no retry, when `TMUX` and `TMUX_PANE` both name a pane. A late tmux there
   is `RECONCILIATION_FAILED` ("tmux did not answer within 5 s while checking the caller
-  pane"), not "no pane"; other doubt still means no pane. The architecture suite pins that
-  call-site list (`required_caller.rs`).
+  pane"), not "no pane"; other doubt still means no pane. The same four commands select their
+  host through `Host::for_required_caller` (#6926): the external check gets the same 5 s, which
+  bounds core's ancestry read of the caller, while the driver's `caller` call keeps the
+  protocol's own 1 s. Either running out is `HostError::CallerBudget`, also
+  `RECONCILIATION_FAILED` ("Host driver <name> did not answer within <bound> s while checking
+  the caller pane", naming the bound that ran out), never a fallback to tmux's "no pane". A
+  driver that answered no pane, or a pane outside the caller's ancestry, is still absence. Both
+  messages come from `tmux::caller_budget_message`. Every other command keeps `Host::for_caller`
+  and its 1 s. The architecture suite pins both call-site lists (`required_caller.rs`).
   Hooks and the caller-session worker use `Host::for_verified_caller` instead, which uses a
   host only when the caller's locators name exactly that host or prove a nested caller's
   owner. No locator keeps tmux (outside any host), and tmux variables alone keep the tmux
