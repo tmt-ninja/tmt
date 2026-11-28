@@ -259,3 +259,20 @@ func TestTalkAdmissionMatchesNativeRemoteAndPassthroughOptions(t *testing.T) {
 		reject("--passthrough sends the message as typed", append([]string{"talk", "peer", "hello", "--passthrough"}, option...)...)
 	}
 }
+
+func TestExchangeListenValidatesNativeTimingOptions(t *testing.T) {
+	arguments := []string{"x", "listen", "--timeout", "1.5m", "--debounce", "250MS"}
+	if inv, failure := parse(arguments); failure != nil ||
+		inv.options["timeout"] != "1.5m" || inv.options["debounce"] != "250MS" {
+		t.Fatalf("parse %q = %+v, %v", arguments, inv, failure)
+	}
+	for _, option := range []string{"--timeout", "--debounce"} {
+		for _, value := range []string{"0", "86400.1s", "NaN", "1h"} {
+			args := []string{"x", "listen", option, value}
+			_, failure := parse(args)
+			if failure == nil || failure.Code != "USAGE_ERROR" {
+				t.Fatalf("parse %q = %v, want usage error", args, failure)
+			}
+		}
+	}
+}

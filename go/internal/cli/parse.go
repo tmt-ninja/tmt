@@ -114,7 +114,7 @@ func scanArguments(args []string) (argumentScan, *commandSpec) {
 			name, value, supplied := strings.Cut(token[2:], "=")
 			opt := findOption(chain, name, 0)
 			if opt == nil {
-				scan.reject("Unexpected argument '%s' found.", token)
+				scan.reject("unexpected argument '%s' found.", token)
 				continue
 			}
 			if command == &grammar && opt.name == "json" ||
@@ -132,7 +132,7 @@ func scanArguments(args []string) (argumentScan, *commandSpec) {
 			for _, short := range token[1:] {
 				opt := findOption(chain, "", short)
 				if opt == nil {
-					scan.reject("Unexpected argument '-%c' found.", short)
+					scan.reject("unexpected argument '-%c' found.", short)
 					continue
 				}
 				scan.option(chain, opt, "", false, nil)
@@ -248,7 +248,7 @@ func validateCommand(command *commandSpec, parsed invocation) string {
 		return ""
 	}
 	if !command.trailing && !command.variadic && len(parsed.operands) > len(command.operands) {
-		return fmt.Sprintf("Unexpected argument '%s' found.", parsed.operands[len(command.operands)])
+		return fmt.Sprintf("unexpected argument '%s' found.", parsed.operands[len(command.operands)])
 	}
 	for i, operand := range command.operands {
 		if operand.required && len(parsed.operands) <= i {
@@ -484,6 +484,20 @@ func validateExchangeOptions(inv invocation) string {
 		case "ack":
 			_, failure := optionalDecimal(inv, "revision", 1, core.MaxJSSafeInteger)
 			return failure
+		case "listen":
+			for _, name := range []string{"timeout", "debounce"} {
+				if !inv.has(name) {
+					continue
+				}
+				value, failure := durationSeconds(inv.options[name])
+				if failure != nil {
+					return failure.Message
+				}
+				if !core.ValidObserverTimeoutSeconds(value) {
+					return "Listen timeout and debounce must be finite, positive, and no greater than 24 hours."
+				}
+			}
+			return ""
 		case "ls":
 		default:
 			return ""

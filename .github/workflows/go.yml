@@ -169,6 +169,11 @@ jobs:
                   ("test/native/check.test.ts", "does not create unknown names or perform endpoint IO for lookup-only misses"),
                   ("test/native/talk.test.ts", "rejects invalid config and timing before storage or endpoint effects"),
                   ("test/native/talk.test.ts", "does not invent unknown targets or prepare exchanges on lookup misses"),
+                  ("test/native/exchange.test.ts", "uses explicit offline identity without config or tmux and keeps reads separate from acknowledgment"),
+                  ("test/native/exchange.test.ts", "rejects unknown and foreign selectors without creating identities or acknowledging another owner"),
+                  ("test/native/inbox.test.ts", "keeps detach immediate and rejects missing or retired identities without another request"),
+                  ("test/native/inbox.test.ts", "refuses --inbox for talk and room send, stores nothing, and still queues for an identity without a pane (#4302)"),
+                  ("test/native/inbox.test.ts", "explains queueing for an identity without a pane and gives recipient pull and correlated inspection"),
                   ("test/native/digest-delivery.test.ts", "advertises only digest operations and rejects the retired feature names without creating state"),
               ],
               "e2e": [
