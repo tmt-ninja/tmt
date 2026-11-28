@@ -18,11 +18,11 @@ The plan, ownership and open questions are on #6938.
 
 | Path | Owner |
 | --- | --- |
-| `go.mod`, `cmd/tmt-go`, `internal/ports`, `internal/home`, `internal/archtest`, `test/tmuxtest`, `test/parity`, `.github/workflows/go.yml` | tmt-go-lead |
+| `go.mod`, `cmd/tmt-go`, `internal/ports`, `internal/home`, `internal/flavor`, `internal/archtest`, `test/tmuxtest`, `test/parity`, `.github/workflows/go.yml` | tmt-go-lead |
 | `internal/core`, `internal/adapters/storage` | go-1 |
 | `internal/sys`, `internal/invoke`, `internal/clistyle`, `internal/adapters/{process,tmux,host,pty,delivery,runtime,interrupt,verifiedstop,drivers,channel}`, `test/fixtures` | go-2 |
 | `internal/cli`, `internal/output` | go-3 |
-| `internal/adapters/{install,skills,release,config,api,mcp,framedstdio,exthooks,extcmd,tick,digest}`, `test/e2e` | go-4 |
+| `internal/adapters/{install,skills,release,config,api,mcp,framedstdio,exthooks,extcmd,tick,digest,orchestration,workspace}`, `test/e2e`; CLI mandates `cli/{api,extcmd,orch,workspace,tick,setup,uninstall}_*.go` | go-4 |
 | `internal/jobcalendar`, `internal/hostgrammar`, `internal/driverprotocol`, `internal/ptyprotocol`, `internal/tuicomponents`, `internal/tui` | lead (ported by core-agy, returned to Core) |
 
 `internal/archtest` enforces: core imports only the standard library and `golang.org/x/text`, with no I/O;
