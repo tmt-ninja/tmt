@@ -459,21 +459,24 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
 :is(.tmt-ui-shell, .workspace):has(.structured-page-stage) {
   --colab-block-inset: 56px;
 }
+/* A page of blocks always keeps the outline's place (#6951): its outline from the first heading, and
+   an empty place on a page with none, so the block column and the title start in the same place on
+   every page, beside an open or closed outline or before the strip's lane, and do not move when a
+   heading is added or removed. */
 .structured-page-stage {
   --colab-comment-gap: 10px;
   box-sizing: border-box;
   max-width: 1280px;
-  margin-inline: var(--tmt-ui-header-padding-inline) calc(var(--colab-lane) + 12px);
   padding-block-start: 16px;
 }
-.structured-layout[data-outline] {
+.structured-layout {
   display: grid;
   grid-template-columns: 188px minmax(0, 1fr);
   align-items: start;
   gap: 40px;
   margin-inline: var(--tmt-ui-header-padding-inline) calc(var(--colab-lane) + 12px);
 }
-.structured-layout[data-outline] .structured-page-stage {
+.structured-layout .structured-page-stage {
   margin-inline: 0;
 }
 .structured-page-stage [data-block-id] {
@@ -505,33 +508,32 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
      same column (#6470). Closing it slides the column shut to the left, leaving only its toggle as
      an icon, and the content and title take the room back; opening is the reverse (#6611). The
      motion tokens are 0ms under reduced motion. */
-  .structured-layout[data-outline] {
+  .structured-layout {
     transition: grid-template-columns var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
   }
-  .structured-layout[data-outline]:has(.page-outline-toggle[aria-expanded='false']) {
+  .structured-layout:is(
+    :has(.page-outline-toggle[aria-expanded='false']),
+    :has(> .page-outline[data-closed])
+  ) {
     grid-template-columns: 34px minmax(0, 1fr);
   }
-  .structured-layout[data-outline] .page-outline {
+  .structured-layout .page-outline {
     margin-block-start: calc(-1 * var(--colab-work-band-size, 0px));
   }
-  .structured-layout[data-outline] .page-outline-toggle[aria-expanded='false'] {
+  .structured-layout .page-outline-toggle[aria-expanded='false'] {
     width: 34px;
     min-height: 34px;
     justify-content: center;
     padding: 0;
   }
-  .structured-layout[data-outline] .page-outline-toggle[aria-expanded='false'] .page-outline-icon {
+  .structured-layout .page-outline-toggle[aria-expanded='false'] .page-outline-icon {
     display: block;
   }
-  .structured-layout[data-outline]
-    .page-outline-toggle[aria-expanded='false']
-    .page-outline-chevron {
+  .structured-layout .page-outline-toggle[aria-expanded='false'] .page-outline-chevron {
     display: none;
   }
   /* The word stays the toggle's name while only the icon shows. */
-  .structured-layout[data-outline]
-    .page-outline-toggle[aria-expanded='false']
-    .page-outline-desktop {
+  .structured-layout .page-outline-toggle[aria-expanded='false'] .page-outline-desktop {
     position: absolute;
     width: 1px;
     height: 1px;
@@ -539,7 +541,7 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     clip-path: inset(50%);
     white-space: nowrap;
   }
-  .structured-layout[data-outline] .page-outline-list {
+  .structured-layout .page-outline-list {
     transition: opacity var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
     @starting-style {
       opacity: 0;
@@ -611,14 +613,15 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   .structured-page-stage [data-block-id] {
     scroll-margin-top: calc(var(--page-bar-size) + 64px);
   }
-  .structured-page-stage {
-    margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
-  }
-  .structured-layout[data-outline] {
+  .structured-layout {
     display: block;
     margin-inline: 0;
   }
-  .structured-layout[data-outline] .structured-page-stage {
+  /* The phone's outline is a bar above the page; a page without one has nothing to hold. */
+  .page-outline[data-placeholder] {
+    display: none;
+  }
+  .structured-layout .structured-page-stage {
     margin-inline: var(--tmt-ui-header-padding-inline) var(--colab-lane);
   }
 }
@@ -667,12 +670,23 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
   pointer-events: auto;
 }
 /* Keep the shown action in the block document's pointer path across the empty gutter. */
-.structured-comment-action[data-fits][data-shown]::before {
+.structured-comment-action[data-fits]:not([data-inside])[data-shown]::before {
   content: '';
   position: absolute;
   inset-block: 0;
   inset-inline-end: 100%;
   inline-size: var(--colab-comment-gap);
+}
+/* Where the gutter beside the row cannot hold the action (a column beside an open outline, about
+   901-1295px wide with the side menu open), it sits inside its row's end (#6957): the row keeps that
+   end free for as long as the gutter is too narrow, so its text never reflows on hover, and the
+   pointer never leaves the row to reach it. */
+.tmt-block:has(> .structured-comment-action[data-inside]) {
+  padding-inline-end: 32px;
+}
+.structured-comment-action[data-inside] {
+  inset-inline-start: auto;
+  inset-inline-end: 4px;
 }
 @media (max-width: 900px) {
   .structured-comment-action {
@@ -2885,37 +2899,23 @@ p.question-history,
   user-select: none;
 }
 
-/* Sections are progress (#6619): a counted heading sits between its mark and its count. A heading
-   that wraps keeps both on its first line (#6731): the count shares that line's baseline, and the
-   mark is centred on that line's box (the heading's size times its 1.3 line height). */
-.structured-section-heading {
-  --structured-section-line: calc(22px * 1.3);
+/* Sections are progress (#6619): under a counted heading, one line of its pills and its count
+   (#6953), in the waiting or blocked tone when the section waits on the reader or is blocked. */
+.structured-section-progress {
   display: flex;
-  align-items: first baseline;
+  align-items: center;
   gap: var(--tmt-ui-space-s);
-}
-.structured-section-heading[data-level='3'] {
-  --structured-section-line: calc(17px * 1.3);
-}
-.structured-section-heading > .tmt-block-heading {
-  flex: 0 1 auto;
-  min-width: 0;
-}
-.structured-section-mark {
-  align-self: flex-start;
-  margin-block-start: calc((var(--structured-section-line) - 12px) / 2);
-  margin-inline-start: calc(-12px - var(--tmt-ui-space-s));
-}
-/* The phone's page gutter has no room beside the heading: the mark moves into its line. */
-@media (max-width: 640px) {
-  .structured-section-mark {
-    margin-inline-start: 0;
-  }
-}
-.structured-section-count {
-  flex: none;
+  margin-block-start: var(--tmt-ui-space-xs);
   color: var(--tmt-ui-color-secondary);
+  font-size: var(--tmt-ui-caption-size);
   font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.structured-section-count[data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.structured-section-count[data-tone='blocked'] {
+  color: var(--tmt-ui-color-blocked);
 }
 
 .deleted-draft-notice {
@@ -2926,14 +2926,14 @@ p.question-history,
    the page's right edge, and a page of blocks reads in a centred column as wide as it had beside the
    side menu and the outline (about 900px at 1440), so nothing reflows much. An HTML page lays the
    strip over the frame's right gutter. */
-.structured-layout[data-outline]:has(> .page-outline[data-strip]) {
+.structured-layout:has(> .page-outline[data-strip]) {
   grid-template-columns: minmax(0, 1fr) 40px;
 }
-.structured-layout[data-outline] > .page-outline[data-strip] {
+.structured-layout > .page-outline[data-strip] {
   grid-column: 2;
   grid-row: 1;
 }
-.structured-layout[data-outline]:has(> .page-outline[data-strip]) > .structured-page-stage {
+.structured-layout:has(> .page-outline[data-strip]) > .structured-page-stage {
   grid-column: 1;
   grid-row: 1;
   justify-self: center;
@@ -2942,7 +2942,7 @@ p.question-history,
 }
 /* The title starts where the centred column does: the layout's start margin, then half of what the
    column leaves of its track (the track is the width less the end lane, the gap and the strip). */
-.workspace:has(.structured-layout[data-outline] > .page-outline[data-strip]) > .page-mobile-title {
+.workspace:has(.structured-layout > .page-outline[data-strip]) > .page-mobile-title {
   padding-inline-start: calc(
     var(--tmt-ui-header-padding-inline) + var(--colab-block-inset) +
       max(0px, (100% - var(--tmt-ui-header-padding-inline) - var(--colab-lane) - 92px - 960px) / 2)
@@ -2950,10 +2950,8 @@ p.question-history,
 }
 /* The shared shell moves the destination layout. Interpolating the outline tracks while
    swapping their order can momentarily give the block column the outline's narrow track. */
-.tmt-ui-shell[data-rail-motion] .structured-layout[data-outline],
-.tmt-ui-shell[data-rail-motion]
-  .workspace:has(.structured-layout[data-outline])
-  > .page-mobile-title {
+.tmt-ui-shell[data-rail-motion] .structured-layout,
+.tmt-ui-shell[data-rail-motion] .workspace:has(.structured-layout) > .page-mobile-title {
   transition: none;
 }
 .html-outline:has(> .page-outline[data-strip]) {

@@ -2,8 +2,7 @@ import { ticketLinks, type TicketLinks } from './ticket-links.js';
 // The parts draw on the design system's UI layer (buttons, selects, chips), as the router's do.
 import '@tmt/browser-ui/ui.css';
 import type { SectionSummary } from './bootstrap.js';
-import { sectionMark } from './section-view.js';
-import { browserUiClasses as ui } from '@tmt/browser-ui/static';
+import { sectionProgress } from './section-view.js';
 import {
   useCallback,
   useEffect,
@@ -13,7 +12,12 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { BrowserAction, BrowserIconAction, BrowserNotice } from '@tmt/browser-ui/react';
+import {
+  BrowserAction,
+  BrowserIconAction,
+  BrowserNotice,
+  BrowserSegments,
+} from '@tmt/browser-ui/react';
 import { MessageSquare, Plus, TriangleAlert } from 'lucide-react';
 import {
   Block,
@@ -425,18 +429,30 @@ export function StructuredPage(props: StructuredPageProps) {
     const observer = (commentObserver.current ??= new ResizeObserver(() => {
       const available = canvas.getBoundingClientRect();
       const layout = [...slots].map(([slot, markers]) => {
-        const { left, right, width } = slot.getBoundingClientRect();
+        // Where the action stands beside its row, whichever placement it has now: the row's
+        // border box and the slot's width do not change with the inside placement's end padding,
+        // so that placement never feeds back into this decision (#6957).
+        const row = slot.parentElement!.getBoundingClientRect();
+        const { width } = slot.getBoundingClientRect();
+        const left =
+          row.right +
+          (parseFloat(getComputedStyle(slot).getPropertyValue('--colab-comment-gap')) || 0);
+        const right = left + width;
         const marker = markers?.getBoundingClientRect();
         return {
           slot,
-          fits:
-            width > 0 &&
+          shown: width > 0,
+          beside:
             left >= available.left &&
             right <= available.right &&
             (!marker || marker.width === 0 || right <= marker.left || left >= marker.right),
         };
       });
-      for (const { slot, fits } of layout) slot.toggleAttribute('data-fits', fits);
+      // A gutter too narrow for the action puts it inside its row's end (#6957).
+      for (const { slot, shown, beside } of layout) {
+        slot.toggleAttribute('data-fits', shown);
+        slot.toggleAttribute('data-inside', shown && !beside);
+      }
     }));
     observer.observe(column);
     observer.observe(canvas);
@@ -1836,20 +1852,18 @@ function Content({
       );
       const section = rest.sections?.get(block.id);
       if (!section) return heading;
-      const view = sectionMark(section);
-      // The mark and the count sit beside the heading, never in its text or its editor.
+      const view = sectionProgress(section);
+      // The section's progress is one line under the heading (#6953), never in its text or its
+      // editor: its pills, a to-do each, and its count.
       return (
         <div className="structured-section-heading" data-level={headingLevel(block)}>
-          <span
-            className="tmt-ui-state-mark structured-section-mark"
-            data-shape={view.shape}
-            data-tone={view.tone}
-            aria-hidden="true"
-          />
           {heading}
-          <span className={`structured-section-count ${ui.countChip}`} contentEditable={false}>
-            {view.count}
-          </span>
+          <div className="structured-section-progress" contentEditable={false}>
+            {view.pills.length > 0 && <BrowserSegments states={view.pills} />}
+            <span className="structured-section-count" data-tone={view.tone}>
+              {view.count}
+            </span>
+          </div>
         </div>
       );
     }

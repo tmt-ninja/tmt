@@ -308,6 +308,14 @@ button.tmt-ui-field-chip:hover {
 .tmt-ui-segments > [data-state='blocked'] {
   background: var(--tmt-ui-color-blocked);
 }
+/* The small size, for a row of a list beside its count (#6953). */
+.tmt-ui-segments[data-size='s'] {
+  gap: 2px;
+}
+.tmt-ui-segments[data-size='s'] > span {
+  width: 7px;
+  height: 5px;
+}
 
 .tmt-ui-work-grip {
   display: inline-flex;

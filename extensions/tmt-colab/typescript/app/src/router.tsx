@@ -4040,10 +4040,7 @@ function OpenPage({
           )}
           <div className="frame-host" ref={host} hidden={view.pageType === 'blocks'} />
           {view.pageType === 'blocks' && view.blocks && (
-            <div
-              className="structured-layout"
-              data-outline={outlineHeadings.length >= 3 || undefined}
-            >
+            <div className="structured-layout">
               <Suspense fallback={null}>
                 <PageOutline
                   headings={outlineHeadings}

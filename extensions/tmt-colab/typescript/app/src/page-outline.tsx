@@ -1,10 +1,11 @@
 import './page-outline.css';
 import { ChevronDown, List } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { BrowserSegments } from '@tmt/browser-ui/react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { text } from './strings.js';
 import { useMedia } from './use-media.js';
 import type { SectionSummary } from './bootstrap.js';
-import { sectionMark, sectionTotals } from './section-view.js';
+import { sectionProgress, sectionTotals } from './section-view.js';
 
 /** A page's visible headings (structured blocks or HTML), kept in the trusted parent; the page view
  * and the shared reader (#6470) render it. */
@@ -100,7 +101,7 @@ export function PageOutline({
     };
   }, [expanded, floating, headings]);
   useEffect(() => {
-    if (headings.length < 3) return;
+    if (!headings.length) return;
     const update = () => {
       const root = document.documentElement;
       const end =
@@ -181,7 +182,21 @@ export function PageOutline({
       window.removeEventListener('keydown', release);
     };
   }, [headings, locate]);
-  if (headings.length < 3) return null;
+  // A page of blocks shows its outline from its first heading (#6951), so the outline's place beside
+  // the column is never empty. A page with no heading has no sections, yet keeps that place: the
+  // strip's lane, or the column open or closed as the reader last left it, so its block column
+  // starts where it does on every other page. HTML pages and the reader overlay their outline and
+  // show it from three headings, so only a page of blocks reaches this.
+  if (!headings.length)
+    return (
+      <div
+        className="page-outline"
+        data-placeholder=""
+        data-strip={strip ? '' : undefined}
+        data-closed={!strip && !expanded ? '' : undefined}
+        aria-hidden="true"
+      />
+    );
   // One list of headings: in the column, the phone bar, the compact menu and the strip's float.
   function rows() {
     return (
@@ -281,9 +296,15 @@ export function PageOutline({
           // A pointer's hover has opened it already; a key toggles it.
           onClick={(event) => setFloating(event.detail === 0 ? !floating : true)}
         >
+          {totals && (
+            <span className="page-outline-strip-total" aria-hidden="true">
+              {text.sections.count(totals.done, totals.total)}
+            </span>
+          )}
           {headings.map((heading, index) => (
-            <OutlineRing
+            <OutlineBar
               key={heading.id}
+              level={heading.level}
               section={bySection.get(heading.id)}
               current={index === current}
             />
@@ -299,6 +320,7 @@ export function PageOutline({
                 </span>
               )}
             </div>
+            {totals && <PageMeter done={totals.done} total={totals.total} />}
             {rows()}
           </div>
         )}
@@ -344,74 +366,90 @@ export function PageOutline({
           )}
         </span>
         <span className="page-outline-phone">{headings[current]?.title}</span>
+        {/* The phone bar says where the reader is: on a page of counted sections, the current
+            section's progress (#6953); on any other page, the heading's place in the list. */}
         <span className="page-outline-count">
-          {current + 1} / {headings.length}
+          {totals ? (
+            <PhoneProgress section={bySection.get(headings[current]?.id ?? '')} />
+          ) : (
+            <>
+              {current + 1} / {headings.length}
+            </>
+          )}
         </span>
         <ChevronDown className="page-outline-chevron" data-expanded={expanded} aria-hidden="true" />
       </button>
+      {expanded && totals && <PageMeter done={totals.done} total={totals.total} />}
       {expanded && rows()}
     </nav>
   );
 }
 
-/** One outline row: the section's mark, its title and its count; a plain heading has only its
- * title, indented as if it had a mark so titles line up. */
-function OutlineRow({ title, section }: { title: string; section?: SectionSummary }) {
-  if (!section) return <span className="page-outline-title">{title}</span>;
-  const view = sectionMark(section);
+/** The page's share of done sections under the outline's title row (#6953). */
+function PageMeter({ done, total }: { done: number; total: number }) {
+  return (
+    <div
+      className="tmt-ui-meter page-outline-meter"
+      style={{ '--tmt-ui-meter-fill': Math.round((done / total) * 100) } as CSSProperties}
+      aria-hidden="true"
+    >
+      <div className="tmt-ui-meter-fill" />
+    </div>
+  );
+}
+
+/** The current section's pills and count in the phone bar (#6953); a plain heading has neither. */
+function PhoneProgress({ section }: { section?: SectionSummary }) {
+  if (!section) return null;
+  const view = sectionProgress(section);
   return (
     <>
-      <span
-        className="tmt-ui-state-mark page-outline-mark"
-        data-shape={view.shape}
-        data-tone={view.tone}
-        aria-hidden="true"
-      />
+      {view.pills.length > 0 && <BrowserSegments size="s" states={view.pills} />}
+      <span data-tone={view.tone}>{view.short}</span>
+    </>
+  );
+}
+
+/** One outline row: the title, the section's pills and its count; a plain heading has only its title
+ * (#6953). */
+function OutlineRow({ title, section }: { title: string; section?: SectionSummary }) {
+  if (!section) return <span className="page-outline-title">{title}</span>;
+  const view = sectionProgress(section);
+  return (
+    <>
       <span className="page-outline-title">{title}</span>
-      {/* The narrow gutter keeps the count; the mark's shape and tone say the state, named here. */}
-      <span className="page-outline-section-count" title={view.word}>
+      {view.pills.length > 0 && <BrowserSegments size="s" states={view.pills} />}
+      <span className="page-outline-section-count" data-tone={view.tone} title={view.word}>
         {view.short}
-        <span className="tmt-ui-visually-hidden">, {view.word}</span>
+        {view.short !== view.word && <span className="tmt-ui-visually-hidden">, {view.word}</span>}
       </span>
     </>
   );
 }
 
-/** The compact mark shares the full outline's section summary and keeps the actual done count. */
-function OutlineRing({ section, current }: { section?: SectionSummary; current: boolean }) {
-  const state = section?.total ? section.state : 'plain';
-  const progress = section?.total ? section.done / section.total : 0;
+/** The strip's mark for one heading (#6953): a short bar filled to the section's share, in its tone
+ * when it waits or is blocked; a plain heading is a thin rule. A level-3 heading's bar is shorter. */
+function OutlineBar({
+  level,
+  section,
+  current,
+}: {
+  level: number;
+  section?: SectionSummary;
+  current: boolean;
+}) {
+  const view = section && sectionProgress(section);
   return (
     <span
-      className="page-outline-ring"
-      data-state={state}
+      className="page-outline-bar"
+      data-level={level}
+      data-plain={section ? undefined : ''}
+      data-tone={view?.tone}
       data-current={current ? '' : undefined}
+      style={
+        view ? ({ '--page-outline-share': `${view.share * 100}%` } as CSSProperties) : undefined
+      }
       aria-hidden="true"
-    >
-      <svg viewBox="0 0 20 20" focusable="false">
-        {state === 'plain' ? (
-          <circle className="page-outline-ring-dot" cx="10" cy="10" r="2" />
-        ) : (
-          <>
-            <circle className="page-outline-ring-track" cx="10" cy="10" r="7.5" />
-            {state === 'done' ? (
-              <path className="page-outline-ring-symbol" d="m7 10 2 2 4-4" />
-            ) : state === 'needs-you' ? (
-              <path className="page-outline-ring-symbol" d="M10 6.5v4M10 13v.5" />
-            ) : (
-              <circle
-                className="page-outline-ring-progress"
-                cx="10"
-                cy="10"
-                r="7.5"
-                pathLength="1"
-                strokeDasharray={`${progress} 1`}
-                transform="rotate(-90 10 10)"
-              />
-            )}
-          </>
-        )}
-      </svg>
-    </span>
+    />
   );
 }

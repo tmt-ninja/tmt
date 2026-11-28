@@ -59,6 +59,55 @@ export function sectionMark(section: SectionSummary): SectionMarkView {
   return { shape, ...(tone ? { tone } : {}), count, word, short };
 }
 
+/** The most pills a section draws (#6953): beyond it each pill stands for a share of its to-dos, so a
+ * row never grows; the count stays exact. */
+export const SECTION_PILLS = 10;
+
+/** How a counted section's progress draws in the outline and under its heading (#6953): one bar
+ * language, a pill per to-do, filled as they are done; a section that needs the reader or is blocked
+ * takes that tone, the only colour. */
+export interface SectionProgressView {
+  pills: BrowserSegmentState[];
+  /** The share the strip's bar fills, 0 to 1: whole for a finished section or one in a tone. */
+  share: number;
+  tone?: 'waiting' | 'blocked';
+  /** The state word, for an accessible name. */
+  word: string;
+  /** The outline's count: "3/5", or the word when it says more ("Done", "Needs you"). */
+  short: string;
+  /** Under the heading: "3/5", "Done", or the count with its word ("0/2 · Needs you"). */
+  count: string;
+}
+
+export function sectionProgress(section: SectionSummary): SectionProgressView {
+  const { state, done, total } = section;
+  const word = sectionWord(state);
+  // A heading marked done by hand (#6687) is in the done state whatever its to-dos say: all its pills
+  // are done and it says Done.
+  const finished = state === 'done';
+  const tone = state === 'blocked' ? 'blocked' : state === 'needs-you' ? 'waiting' : undefined;
+  const size = Math.min(total, SECTION_PILLS);
+  const filled = finished ? size : total > SECTION_PILLS ? Math.round((done / total) * size) : done;
+  const rest: BrowserSegmentState = tone ?? 'todo';
+  const pills = Array.from({ length: size }, (_, index) => (index < filled ? 'done' : rest));
+  const plain = state === 'working' || state === 'not-started';
+  const fraction = t.count(done, total);
+  return {
+    pills,
+    share: finished || tone ? 1 : total ? done / total : 0,
+    ...(tone ? { tone } : {}),
+    word,
+    short: finished || tone || !total ? (finished ? sectionWord('done') : word) : fraction,
+    count: finished
+      ? sectionWord('done')
+      : !total
+        ? word
+        : plain
+          ? fraction
+          : `${fraction} · ${word}`,
+  };
+}
+
 /** An HTML page's sections on the outline the frame measured (#6619): the owner reads the source,
  * the frame lists only visible headings, so each section takes the next heading with its level and
  * title, and one the frame does not show is left out. */

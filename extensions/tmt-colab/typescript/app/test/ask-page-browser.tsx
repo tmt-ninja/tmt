@@ -358,8 +358,12 @@ export async function mount(
     ticketReferences?: 'owner' | 'reader';
     /** A long structured page with headings for the outline. */
     structuredOutline?: boolean;
-    /** More outline sections than the window holds, after the first three. */
+    /** The page's sections: fewer than three, or more than the window holds after the first three. */
     outlineSections?: number;
+    /** The same sections' blocks without their headings: a page with no outline (#6951). */
+    headingless?: boolean;
+    /** A checked to-do in each section after the first three, so each counts as done. */
+    outlineTodos?: boolean;
     structuredKind?: 'duplicate' | 'image' | 'mockup' | 'table';
   } = {},
 ) {
@@ -422,36 +426,53 @@ export async function mount(
                 { length: Math.max(0, (options.outlineSections ?? 3) - 3) },
                 (_, index) => `Section ${index + 4}`,
               ),
-            ].flatMap((title, index) => [
-              [
-                id(101 + index * 2),
-                {
-                  type: 'heading',
-                  parent: 'root',
-                  pos: outlinePos(index, 0),
-                  props: index === 0 ? {} : { level: index === 1 ? 3 : 2 },
-                  text: { s: title, marks: [] },
-                },
-              ],
-              [
-                id(102 + index * 2),
-                {
-                  type: 'paragraph',
-                  parent: 'root',
-                  pos: outlinePos(index, 1),
-                  props: {},
-                  text: { s: `${title} section. `.repeat(100), marks: [] },
-                },
-              ],
-              // The page counts its sections from these (#6687), as `workFacts.sections` says.
-              ...(OUTLINE_WORK[index] ?? []).map(
-                (block, at) =>
-                  [
-                    id(900 + index * 10 + at),
-                    { parent: 'root', pos: `${outlinePos(index, 1)}${at}`, ...block },
-                  ] as const,
-              ),
-            ]),
+            ]
+              .slice(0, options.outlineSections ?? 3)
+              .flatMap((title, index) => [
+                ...(options.headingless
+                  ? []
+                  : [
+                      [
+                        id(101 + index * 2),
+                        {
+                          type: 'heading',
+                          parent: 'root',
+                          pos: outlinePos(index, 0),
+                          props: index === 0 ? {} : { level: index === 1 ? 3 : 2 },
+                          text: { s: title, marks: [] },
+                        },
+                      ] as const,
+                    ]),
+                [
+                  id(102 + index * 2),
+                  {
+                    type: 'paragraph',
+                    parent: 'root',
+                    pos: outlinePos(index, 1),
+                    props: {},
+                    text: { s: `${title} section. `.repeat(100), marks: [] },
+                  },
+                ],
+                // The page counts its sections from these (#6687), as `workFacts.sections` says.
+                ...(
+                  OUTLINE_WORK[index] ??
+                  (options.outlineTodos
+                    ? [
+                        {
+                          type: 'todo',
+                          props: { checked: true },
+                          text: { s: `${title} done`, marks: [] },
+                        },
+                      ]
+                    : [])
+                ).map(
+                  (block, at) =>
+                    [
+                      id(900 + index * 10 + at),
+                      { parent: 'root', pos: `${outlinePos(index, 1)}${at}`, ...block },
+                    ] as const,
+                ),
+              ]),
           )
         : {
             [id(98)]: {

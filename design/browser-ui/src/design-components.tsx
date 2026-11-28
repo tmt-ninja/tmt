@@ -51,16 +51,23 @@ export function BrowserCardMeter({
 export type BrowserSegmentState = 'done' | 'working' | 'waiting' | 'blocked' | 'todo';
 
 /** One segment per part in order, each drawn by its state; `label` names the whole, such as
- * "4 of 9 sections done" (#6619). */
+ * "4 of 9 sections done" (#6619). Without a label the segments are decorative beside a written
+ * count. `size="s"` is the small size for a list row (#6953). */
 export function BrowserSegments({
   label,
   states,
+  size,
 }: {
-  label: string;
+  label?: string;
   states: readonly BrowserSegmentState[];
+  size?: 's';
 }) {
   return (
-    <span className="tmt-ui-segments" role="img" aria-label={label}>
+    <span
+      className="tmt-ui-segments"
+      data-size={size}
+      {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
+    >
       {states.map((state, index) => (
         <span key={index} data-state={state} />
       ))}
