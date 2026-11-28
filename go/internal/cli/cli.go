@@ -84,6 +84,18 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return publish(stdout, stderr, failure, invocation.json)
 	}
 	switch invocation.path[0] {
+	case "extension":
+		if len(invocation.path) == 2 && invocation.path[1] == "ls" {
+			return publish(stdout, stderr, listExtensions(invocation, os.Getenv("PATH")), invocation.json)
+		}
+	case "driver":
+		if len(invocation.path) == 2 && invocation.path[1] == "ls" {
+			return publish(stdout, stderr, listDrivers(root), invocation.json)
+		}
+	case "host":
+		if len(invocation.path) == 2 && invocation.path[1] == "templates" {
+			return publish(stdout, stderr, listHostTemplates(root, os.LookupEnv), invocation.json)
+		}
 	case "completion":
 		return publish(stdout, stderr, inspectCompletion(invocation, os.LookupEnv), invocation.json)
 	case "init":

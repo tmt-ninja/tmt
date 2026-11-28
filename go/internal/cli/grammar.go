@@ -115,6 +115,8 @@ var options = []optionSpec{
 	{name: "has", value: true, repeat: true},
 	{name: "mood", value: true},
 	{name: "for", value: true, hyphen: true},
+	{name: "prefix", value: true},
+	{name: "check"},
 	{name: "global"},
 	{name: "activity-only", hidden: true},
 }
@@ -123,6 +125,15 @@ var grammar = commandSpec{
 	name: "tmt-go", summary: "TMT native alpha: collaborate with terminal agents through durable exchanges",
 	children: []commandSpec{
 		{name: "help", summary: "Show help for a command", trailing: true, humanOnly: true, operands: []operandSpec{optional("command-path")}},
+		{name: "extension", summary: "Manage consented extension integrations", children: []commandSpec{
+			{name: "ls", aliases: []string{"list"}, summary: "List official extensions, versions and PATH shadowing", options: []string{"prefix", "check"}},
+		}},
+		{name: "driver", summary: "Manage consented drivers", children: []commandSpec{
+			{name: "ls", aliases: []string{"list"}, summary: "List approved drivers"},
+		}},
+		{name: "host", summary: "Inspect the terminal hosts TMT can drive", children: []commandSpec{
+			{name: "templates", summary: "Show the default launch templates"},
+		}},
 		{name: "completion", summary: "Check shell completion setup", operands: []operandSpec{optional("shell")}},
 		{name: "init", summary: "Create workspace settings"},
 		{name: "config", summary: "View or modify settings", children: []commandSpec{

@@ -266,6 +266,16 @@ func commandConstraints(parsed invocation) (required []string, conflicts, requir
 
 func validateOperands(parsed invocation) string {
 	switch parsed.path[0] {
+	case "extension", "driver", "host":
+		if len(parsed.path) == 1 {
+			subcommands := map[string]string{
+				"extension": "hooks, install, upgrade, rm, uninstall, ls, list",
+				"driver":    "install, ls, list, rm",
+				"host":      "templates",
+			}
+			name := parsed.path[0]
+			return fmt.Sprintf("error: 'tmt-go %s' requires a subcommand but one was not provided\n  [subcommands: %s]\n\nUsage: tmt-go %s [OPTIONS] <COMMAND>\n", name, subcommands[name], name)
+		}
 	case "completion", "__completion-script":
 		if len(parsed.operands) == 1 && !slices.Contains(completionShells, parsed.operands[0]) {
 			return fmt.Sprintf("Invalid value '%s' for '<shell>'.", parsed.operands[0])
