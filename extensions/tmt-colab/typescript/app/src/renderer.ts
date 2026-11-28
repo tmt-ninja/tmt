@@ -276,7 +276,7 @@ export async function mountRenderer(
     onAttachmentDownload?(reference: string): void;
     /** An admitted `data:` image download request; the parent still confirms before saving. */
     onImageDownload?(image: ImageDownload): void;
-    onTaskCheckbox?(source: string, ordinal: number): void;
+    onTaskCheckbox?(source: string, ordinal: number, anchor: () => SelectionRect): void;
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
     onToggleSelectionMode?(): void;
@@ -673,16 +673,33 @@ export async function mountRenderer(
       ready &&
       options.onTaskCheckbox &&
       !pendingUpdate &&
-      Object.keys(value).length === 4 &&
+      Object.keys(value).length === 5 &&
       value.type === 'colab.render.task-checkbox' &&
       value.renderId === snapshot.renderId &&
       value.sourceDigest === frame.dataset.sourceDigest &&
       typeof value.input === 'number' &&
       Number.isSafeInteger(value.input) &&
-      value.input >= 0
+      value.input >= 0 &&
+      isRenderRectangle(value.rect) &&
+      value.rect.width > 0 &&
+      value.rect.height > 0 &&
+      value.rect.x >= 0 &&
+      value.rect.y >= 0 &&
+      value.rect.x + value.rect.width <= frame.clientWidth &&
+      value.rect.y + value.rect.height <= frame.clientHeight
     ) {
       // A frame can forge a nomination. Only trusted shell chrome can confirm it.
-      options.onTaskCheckbox(appliedSource, value.input);
+      const rect = value.rect;
+      const inParent = () => {
+        const frameRect = frame.getBoundingClientRect();
+        return { ...rect, x: frameRect.left + rect.x, y: frameRect.top + rect.y };
+      };
+      let last = inParent();
+      // A refusal can arrive as a concurrent source edit remounts the frame.
+      options.onTaskCheckbox(appliedSource, value.input, () => {
+        if (frame.isConnected) last = inParent();
+        return last;
+      });
       return;
     }
     if (

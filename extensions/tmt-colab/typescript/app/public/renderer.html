@@ -1075,10 +1075,12 @@
                   )
                 )
                   return;
+                const { x, y, width, height } = input.getBoundingClientRect();
                 event.preventDefault();
                 parent.postMessage(
                   {
                     type: 'colab.render.task-checkbox',
+                    rect: { x, y, width, height },
                     renderId,
                     sourceDigest,
                     input: ordinal,

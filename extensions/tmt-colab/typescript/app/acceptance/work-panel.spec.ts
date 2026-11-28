@@ -133,6 +133,7 @@ test('HTML checklists supply saved section progress to Work and the outline', as
             renderId: document.documentElement.dataset.testRenderId,
             sourceDigest: frame.dataset.sourceDigest,
             input: 0,
+            rect: { x: 10, y: 10, width: 14, height: 14 },
           },
         },
         '*',
@@ -142,8 +143,11 @@ test('HTML checklists supply saved section progress to Work and the outline', as
     await expect(forged.getByText(/Draft notes/)).toBeVisible();
     const forgedConfirm = forged.getByRole('button', { name: 'Uncheck and save' });
     await expect(forgedConfirm).toBeEnabled();
+    await expect(forged).toBeFocused();
+    await page.keyboard.press('Enter');
     await forgedConfirm.dispatchEvent('click');
-    await forged.getByRole('button', { name: 'Cancel' }).click();
+    await page.keyboard.press('Escape');
+    await expect(forged).toBeHidden();
     expect(sent).toEqual([]);
     expect(read()).toBe(initial);
 
@@ -156,7 +160,7 @@ test('HTML checklists supply saved section progress to Work and the outline', as
     race = true;
     await confirm.click();
     await expect(dialog.getByRole('alert')).toContainText('This checkbox was not saved');
-    await dialog.getByRole('button', { name: 'Close', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Close checkbox confirmation' }).click();
     const latest = initial.replace('Example markup', 'Latest markup');
     expect(read()).toBe(latest);
     expect(sent.map(({ type }) => type)).toEqual(['metadata']);
@@ -185,6 +189,19 @@ test('HTML checklists supply saved section progress to Work and the outline', as
         .filter({ hasText: 'Release checklist' })
         .locator('.work-home-sections'),
     ).toContainText('2/2');
+
+    await page.goBack();
+    await expect(checkbox).toBeChecked();
+    await checkbox.focus();
+    await page.keyboard.press('Space');
+    const uncheck = page.getByRole('dialog', { name: 'Uncheck saved checkbox?' });
+    await expect(uncheck).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(uncheck.getByRole('button', { name: 'Uncheck and save' })).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(uncheck).toBeHidden();
+    await expect(checkbox).not.toBeChecked();
+    expect(read()).toBe(latest);
   });
 });
 

@@ -1,0 +1,30 @@
+.task-checkbox-confirm {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  box-sizing: border-box;
+  max-width: min(20rem, calc(100vw - 16px));
+  padding: var(--tmt-ui-space-s);
+  color: var(--tmt-ui-color-text);
+  background: var(--tmt-ui-surface-sheet);
+  border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+  border-radius: var(--tmt-ui-radius-s);
+  box-shadow: var(--tmt-ui-shadow-overlay);
+}
+
+.task-checkbox-confirm:popover-open {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--tmt-ui-space-xs);
+}
+
+.task-checkbox-label,
+.task-checkbox-error {
+  flex: 1 0 100%;
+  overflow-wrap: anywhere;
+}
+
+.task-checkbox-error {
+  margin: 0;
+}

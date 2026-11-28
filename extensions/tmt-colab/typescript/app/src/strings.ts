@@ -1093,9 +1093,9 @@ export const text = {
     location: (ordinal: number) => `Checkbox ${ordinal + 1} on this page`,
     check: { title: 'Check saved checkbox?', save: 'Check and save' },
     uncheck: { title: 'Uncheck saved checkbox?', save: 'Uncheck and save' },
-    explanation: 'This updates the saved page and its Work progress.',
+    close: 'Close checkbox confirmation',
     stale:
-      'The page changed before the save. This checkbox was not saved. Close this dialog to see the latest page.',
+      'The page changed before the save. This checkbox was not saved. The page shows the latest saved state.',
   },
   editFailed:
     'The edit was not saved. Reopen the page to review the latest source before trying again.',

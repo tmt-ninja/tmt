@@ -16,7 +16,7 @@ export interface RendererHandlers {
     quote: QuoteSelector | null | undefined,
     rect: SelectionRect | null | undefined,
   ): void;
-  onTaskCheckbox?(source: string, ordinal: number): void;
+  onTaskCheckbox?: RendererOptions['onTaskCheckbox'];
   onAnnotate(): void;
   onToggleSelectionMode(): void;
   onKey(key: Parameters<NonNullable<RendererOptions['onKey']>>[0]): void;
@@ -217,7 +217,7 @@ export function usePageRenderer({
           : 0,
       viewportBottom: () => reserve.current,
       onTaskCheckbox: taskCheckboxes
-        ? (source, ordinal) => current.current.onTaskCheckbox?.(source, ordinal)
+        ? (source, ordinal, anchor) => current.current.onTaskCheckbox?.(source, ordinal, anchor)
         : undefined,
       onSelection: (_value, quote, rect) => current.current.onSelection(quote, rect),
       onAnchors: (ids, checked = false) => {

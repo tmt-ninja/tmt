@@ -1,8 +1,12 @@
-import { BrowserAction, BrowserDialog } from '@tmt/browser-ui/react';
-import { useRef, useState } from 'react';
+import { BrowserAction, BrowserIconAction } from '@tmt/browser-ui/react';
+import { X } from 'lucide-react';
+import { useId, useLayoutEffect, useRef, useState } from 'react';
+import type { SelectionRect } from './renderer.js';
 import { SaveRefused, saveMessage } from './save.js';
 import { text } from './strings.js';
 import type { PageBinding, PageView } from './transport.js';
+
+import './task-checkbox.css';
 
 const excluded =
   'head,script,style,template,noscript,tmt-thread-ref,[hidden],[data-colab-highlight],[data-colab-image]';
@@ -59,6 +63,7 @@ interface Proposal {
   target: NonNullable<ReturnType<typeof task>>;
   source: string;
   ordinal: number;
+  anchor: () => SelectionRect;
   revision?: string;
   error?: string;
 }
@@ -68,8 +73,54 @@ interface Proposal {
 export function useTaskCheckbox(view: PageView, binding?: PageBinding) {
   const [proposal, setProposal] = useState<Proposal>();
   const [busy, setBusy] = useState(false);
+  const panel = useRef<HTMLDivElement>(null);
+  const labelId = useId();
   const active = useRef<Proposal | undefined>(undefined);
   const writing = useRef(false);
+  const anchor = proposal?.anchor;
+  useLayoutEffect(() => {
+    const node = panel.current;
+    if (!node || !anchor) return;
+    const position = () => {
+      const gap = 8;
+      const { x, y, width, height } = anchor();
+      const { offsetWidth, offsetHeight } = node;
+      const right = x + width + gap;
+      const fitsBeside = right + offsetWidth <= window.innerWidth - gap;
+      const left = fitsBeside ? right : x;
+      const below = y + height + gap;
+      const top = fitsBeside
+        ? y
+        : below + offsetHeight <= window.innerHeight - gap
+          ? below
+          : y - offsetHeight - gap;
+      node.style.left = `${Math.max(gap, Math.min(left, window.innerWidth - offsetWidth - gap))}px`;
+      node.style.top = `${Math.max(gap, Math.min(top, window.innerHeight - offsetHeight - gap))}px`;
+    };
+    const outside = (event: PointerEvent) => {
+      if (event.isTrusted && !node.contains(event.target as Node) && !writing.current) {
+        active.current = undefined;
+        setProposal(undefined);
+      }
+    };
+    node.showPopover();
+    // A nomination can be forged. Move focus to the prompt so the reader's next
+    // Enter cannot be redirected into a save. Tab deliberately enters the action.
+    node.focus({ preventScroll: true });
+    position();
+    const size = new ResizeObserver(position);
+    size.observe(node);
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
+    window.addEventListener('pointerdown', outside, true);
+    return () => {
+      size.disconnect();
+      window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
+      window.removeEventListener('pointerdown', outside, true);
+      if (node.matches(':popover-open')) node.hidePopover();
+    };
+  }, [anchor]);
   const enabled =
     view.pageType !== 'blocks' &&
     !view.archived &&
@@ -77,11 +128,11 @@ export function useTaskCheckbox(view: PageView, binding?: PageBinding) {
     !!binding.metadata &&
     !!binding.metadataRevision;
 
-  function nominate(source: string, ordinal: number) {
+  function nominate(source: string, ordinal: number, anchor: Proposal['anchor']) {
     if (!enabled || source !== view.source || active.current) return;
     const target = task(source, ordinal);
     if (!target) return;
-    const next = { target, source, ordinal };
+    const next = { target, source, ordinal, anchor };
     active.current = next;
     setProposal(next);
     void binding!.metadataRevision!(view, 'conversion').then(
@@ -130,41 +181,52 @@ export function useTaskCheckbox(view: PageView, binding?: PageBinding) {
 
   const action = proposal?.target.checked ? t.check : t.uncheck;
   const dialog = proposal && (
-    <BrowserDialog
-      open
-      title={action.title}
-      onDismiss={dismiss}
-      actions={
-        <>
-          <BrowserAction
-            type="button"
-            variant="secondary"
-            label={proposal.error ? 'Close' : 'Cancel'}
-            disabled={busy}
-            onActivate={dismiss}
-          />
-          {!proposal.error && (
-            <BrowserAction
-              type="button"
-              variant="primary"
-              label={action.save}
-              disabled={!enabled || !proposal.revision}
-              busy={busy}
-              onActivate={(event) => {
-                if (event.isTrusted) void confirm();
-              }}
-            />
-          )}
-        </>
-      }
+    <div
+      className="task-checkbox-confirm"
+      ref={panel}
+      popover="manual"
+      tabIndex={-1}
+      role="dialog"
+      aria-label={action.title}
+      aria-describedby={labelId}
+      onKeyDown={(event) => {
+        if (event.isTrusted && event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          dismiss();
+        }
+      }}
     >
-      <p>
-        {proposal.target.label && <>“{proposal.target.label}” · </>}
-        {proposal.target.location}
+      <div className="task-checkbox-label" id={labelId}>
+        {proposal.target.label || proposal.target.location}
         {proposal.target.section && <> · {proposal.target.section}</>}
-      </p>
-      {proposal.error ? <p role="alert">{proposal.error}</p> : <p>{t.explanation}</p>}
-    </BrowserDialog>
+      </div>
+      {proposal.error ? (
+        <p className="task-checkbox-error" role="alert">
+          {proposal.error}
+        </p>
+      ) : (
+        <BrowserAction
+          type="button"
+          variant="primary"
+          presentation="compact"
+          label={action.save}
+          disabled={!enabled || !proposal.revision}
+          busy={busy}
+          onActivate={(event) => {
+            if (event.isTrusted) void confirm();
+          }}
+        />
+      )}
+      <BrowserIconAction
+        type="button"
+        variant="text"
+        label={t.close}
+        icon={<X aria-hidden="true" />}
+        disabled={busy}
+        onActivate={dismiss}
+      />
+    </div>
   );
   return { nominate: enabled ? nominate : undefined, dialog };
 }
