@@ -274,9 +274,18 @@ func TestCodexDeliveryStageGetsFreshDeadline(t *testing.T) {
 	awaitCodexFixture(t, connections, done)
 }
 
-func TestCodexOversizedReplyIsUncertain(t *testing.T) {
-	for _, mode := range []string{"single frame", "fragmented"} {
-		t.Run(mode, func(t *testing.T) {
+func TestCodexReplyLimitAndSingleFrameDivergence(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		size       int
+		fragmented bool
+		want       codexQueueOutcome
+	}{
+		{"single frame above native frame cap", codexFrameLimit + 1024, false, codexQueueAccepted},
+		{"fragmented at native message cap", codexResponseLimit, true, codexQueueAccepted},
+		{"fragmented above native message cap", codexResponseLimit + 1, true, codexQueueUncertain},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			endpoint, connections, done := codexFixture(t, "0.160.0", func(ctx context.Context, socket *websocket.Conn, queue testQueue) error {
 				reply, err := json.Marshal(map[string]any{"id": queue.ID, "result": map[string]any{"queuedSubmission": map[string]any{
 					"id": "provider-submission", "clientUserMessageId": queue.Params.Caller, "input": queue.Params.Input,
@@ -284,18 +293,20 @@ func TestCodexOversizedReplyIsUncertain(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				padding := strings.Repeat(" ", codexFrameLimit)
-				if mode == "single frame" {
-					_ = socket.Write(ctx, websocket.MessageText, append([]byte(padding), reply...))
+				body := append([]byte(strings.Repeat(" ", tc.size-len(reply))), reply...)
+				if !tc.fragmented {
+					_ = socket.Write(ctx, websocket.MessageText, body)
 				} else {
 					writer, err := socket.Writer(ctx, websocket.MessageText)
 					if err != nil {
 						return err
 					}
-					// Both data frames fit the Rust frame limit, but the
-					// Go library applies its bound to the entire reply.
-					if _, err := io.WriteString(writer, padding); err == nil {
-						_, _ = writer.Write(reply)
+					for len(body) > 0 {
+						size := min(len(body), codexFrameLimit)
+						if _, err := writer.Write(body[:size]); err != nil {
+							break
+						}
+						body = body[size:]
 					}
 					_ = writer.Close()
 				}
@@ -309,8 +320,8 @@ func TestCodexOversizedReplyIsUncertain(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := client.queue(t.Context(), request, time.Now().Add(time.Second)); got.outcome != codexQueueUncertain {
-				t.Fatalf("oversized reply = %+v", got)
+			if got := client.queue(t.Context(), request, time.Now().Add(time.Second)); got.outcome != tc.want {
+				t.Fatalf("reply = %+v, want %v", got, tc.want)
 			}
 			awaitCodexFixture(t, connections, done)
 		})

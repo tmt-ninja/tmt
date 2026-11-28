@@ -116,10 +116,9 @@ func connectCodex(ctx context.Context, endpoint codexEndpoint, deadline time.Tim
 		return nil, errCodexNotReady
 	}
 	// NOT PORTED (#6938): coder/websocket exposes a complete-message limit,
-	// not a per-frame limit. Cap the whole message at the Rust frame limit so
-	// no oversized frame is admitted. A fragmented reply above 256 KiB is
-	// refused here even when Rust would accept it below the 1 MiB message cap.
-	client.socket.SetReadLimit(codexFrameLimit)
+	// so Go accepts an individual inbound frame above Rust's 256 KiB frame
+	// cap. Both implementations enforce the 1 MiB message cap.
+	client.socket.SetReadLimit(codexResponseLimit)
 	id := launchGeneration()
 	reply, err := client.call(stage, id, map[string]any{"id": id, "method": "initialize", "params": map[string]any{
 		"clientInfo":   map[string]string{"name": "tmt", "version": version},
