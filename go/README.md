@@ -47,3 +47,14 @@ Before every push: `gofmt -l .` empty, `go vet ./...`, `env -u TMUX -u TMUX_PANE
 
 `internal/adapters/storage/schema/*.sql` are byte copies of
 `rust/crates/tmt-adapters/src/storage/schema`; `scripts/check-schema-copy.sh` fails on drift.
+
+## Parity target
+
+Parity tests (`go/test/parity`, opt-in) compare tmt-go with a native `tmt` built
+from this branch's own `rust/`, which tracks `main`: the lead merges `main` into
+`poc/go` at each milestone. Build it with
+`CARGO_TARGET_DIR=<private dir> cargo build -p tmt-cli --bin tmt` and run
+`TMT_GO_PARITY_NATIVE=<private dir>/debug/tmt go test ./test/parity`. An
+installed release is only a fallback. When a Rust or TypeScript test pins a
+command's output or behaviour, its assertion is ported 1:1 or run against tmt-go,
+and the mapping is listed in that owner's section of `PORTING.md`.
