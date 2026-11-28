@@ -135,6 +135,7 @@ var grammar = commandSpec{
 			{name: "templates", summary: "Show the default launch templates"},
 		}},
 		{name: "completion", summary: "Check shell completion setup", operands: []operandSpec{optional("shell")}},
+		{name: "storage", summary: "Show what local stores occupy on disk"},
 		{name: "init", summary: "Create workspace settings"},
 		{name: "config", summary: "View or modify settings", children: []commandSpec{
 			{name: "show", summary: "Show settings"},
