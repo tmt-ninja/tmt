@@ -79,7 +79,10 @@ fn upgrade_with_observations(
     mode: Option<OutputMode>,
     interrupt: Option<&tmt_adapters::interrupt::Interrupt>,
 ) -> Vec<Value> {
-    let (plan, live) = match plan_child(executable, runner, mode.is_some()) {
+    let approved_input = approved
+        .map(|plan| serde_json::to_vec(&plan.document()).expect("JSON plan"))
+        .unwrap_or_default();
+    let (plan, live) = match plan_child(executable, runner, mode.is_some(), &approved_input) {
         Ok(plan) => plan,
         Err(error) => return vec![phase_failure(error)],
     };
@@ -195,6 +198,7 @@ fn plan_child(
     executable: &Path,
     runner: &impl CommandRunner,
     observations: bool,
+    approved_input: &[u8],
 ) -> io::Result<(Plan, bool)> {
     if observations {
         let probe = invoke(
@@ -202,7 +206,7 @@ fn plan_child(
             runner,
             true,
             true,
-            &[],
+            approved_input,
             ChildWait {
                 budget: EXTENSION_BUDGET,
                 interrupt: None,
@@ -230,7 +234,14 @@ fn plan_child(
             }
         }
     }
-    let (bytes, failed) = child(executable, runner, true, &[], EXTENSION_BUDGET, None)?;
+    let (bytes, failed) = child(
+        executable,
+        runner,
+        true,
+        approved_input,
+        EXTENSION_BUDGET,
+        None,
+    )?;
     if failed {
         return Err(invalid_report());
     }

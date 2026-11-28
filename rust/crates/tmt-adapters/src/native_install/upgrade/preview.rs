@@ -237,6 +237,7 @@ pub fn upgrade_prepared(
         verifier,
         Acquisition {
             prepared: Some(prepared),
+            prefetched: None,
             selected: prepared.selected.as_ref(),
             allow_schema_ahead: prepared.allow_schema_ahead,
             deadline: Instant::now() + Duration::from_secs(60),

@@ -16,27 +16,72 @@ pub(crate) use protocol::{LIMIT, Plan, parse_results};
 use tmt_adapters::native_install::{self, Product};
 
 pub(crate) fn plan(prefix: &Path) -> Plan {
-    plan_with(prefix, true, |product, channel| {
-        native_install::latest_release_version(product, channel).map(|version| version.to_string())
+    let entries = setup::inventory(prefix);
+    let requests: Vec<(Product, tmt_core::native_install::Channel)> = entries
+        .iter()
+        .filter_map(|entry| match &entry.installation {
+            Installation::Managed(current) if current.state.pinned_version.is_none() => {
+                Some((entry.product, current.state.channel))
+            }
+            _ => None,
+        })
+        .collect();
+    let discovered = native_install::latest_release_versions(&requests);
+    let mut results = discovered.into_iter();
+    plan_entries(entries, true, |_, _| {
+        results
+            .next()
+            .unwrap_or_else(|| Err(io::Error::other("Missing discovery result.")))
+            .map(|version| version.to_string())
+    })
+}
+
+/// Re-verifies local inventory against an already-approved plan without repeating network discovery.
+pub(crate) fn plan_from_approved(prefix: &Path, approved: &Plan) -> Plan {
+    let entries = setup::inventory(prefix);
+    plan_entries(entries, true, |product, _| {
+        if let Some((_, _, selected)) = approved.pending.iter().find(|(p, _, _)| *p == product) {
+            return Ok(selected.clone());
+        }
+        if let Some(version) = approved
+            .products
+            .iter()
+            .find(|row| row["product"] == product.as_str() && row["status"] == "unchanged")
+            .and_then(|row| row["version"].as_str())
+        {
+            return Ok(version.to_owned());
+        }
+        Err(io::Error::other(
+            "Installation changed after approval; run tmt upgrade again.",
+        ))
     })
 }
 
 /// The installed extensions as they are, for a pinned CLI (#6137): no update discovery and no
 /// network. Each unpinned extension says it was not checked because the CLI is pinned.
 pub(crate) fn offline(prefix: &Path) -> Plan {
-    plan_with(prefix, false, |_, _| {
+    plan_entries(setup::inventory(prefix), false, |_, _| {
         unreachable!("an offline plan discovers nothing")
     })
 }
 
+#[cfg(test)]
 fn plan_with(
     prefix: &Path,
+    checked: bool,
+    discover: impl FnMut(Product, tmt_core::native_install::Channel) -> io::Result<String>,
+) -> Plan {
+    plan_entries(setup::inventory(prefix), checked, discover)
+}
+
+pub(super) fn plan_entries(
+    entries: Vec<setup::Entry>,
     checked: bool,
     mut discover: impl FnMut(Product, tmt_core::native_install::Channel) -> io::Result<String>,
 ) -> Plan {
     let mut outcomes = Vec::new();
     let mut pending = Vec::new();
-    for entry in setup::inventory(prefix) {
+    for entry in entries {
         let product = entry.product;
         let result: Result<Option<Value>, Failure> = (|| {
             let current = match &entry.installation {
@@ -94,7 +139,16 @@ pub(crate) fn execute(planning: bool, progress: bool, mode: OutputMode) -> io::R
                 let _ = tmt_cli_style::stream::stderr()
                     .write_all(crate::native_progress::child::CAPABILITY);
             }
-            return Ok((plan(current.prefix()).document(), 0));
+            let mut bytes = Vec::new();
+            let _ = io::stdin().take((LIMIT + 1) as u64).read_to_end(&mut bytes);
+            let planned = if !bytes.is_empty()
+                && let Some(approved) = Plan::parse(&bytes)
+            {
+                plan_from_approved(current.prefix(), &approved)
+            } else {
+                plan(current.prefix())
+            };
+            return Ok((planned.document(), 0));
         }
         let mut bytes = Vec::new();
         io::stdin()
@@ -110,12 +164,20 @@ pub(crate) fn execute(planning: bool, progress: bool, mode: OutputMode) -> io::R
                     1,
                 )
             })?;
+        let mut prefetched = prefetch_pending(current.prefix(), &plan.pending, &|| false);
         let products = settle(
             Vec::new(),
             plan.pending,
             |_| Ok(true),
             |product, previous, selected| {
-                apply_pending(product, current.prefix(), previous, selected, progress)
+                apply_pending_with(
+                    product,
+                    current.prefix(),
+                    previous,
+                    selected,
+                    prefetched.remove(product.as_str()),
+                    progress,
+                )
             },
         );
         let status = u8::from(products.iter().any(|product| product["status"] == "failed"));
@@ -130,11 +192,52 @@ pub(crate) fn execute(planning: bool, progress: bool, mode: OutputMode) -> io::R
     }
 }
 
-pub(super) fn apply_pending(
+pub(super) fn prefetch_pending(
+    prefix: &Path,
+    pending: &[(Product, String, String)],
+    checkpoint: &(impl Fn() -> bool + Sync),
+) -> std::collections::BTreeMap<&'static str, io::Result<native_install::PrefetchedRelease>> {
+    if pending.len() < 2 {
+        return std::collections::BTreeMap::new();
+    }
+    let mut requests = Vec::new();
+    for (product, previous, selected) in pending {
+        let Ok(current) = native_install::inspect_product_prefix(*product, prefix) else {
+            continue;
+        };
+        if current.state.version.to_string() != *previous
+            || current.state.pinned_version.is_some()
+            || matches!(
+                current.state.channel,
+                tmt_core::native_install::Channel::Pr(_)
+            )
+        {
+            continue;
+        }
+        requests.push(native_install::PrefetchRequest {
+            product: *product,
+            channel: current.state.channel,
+            version: selected.clone(),
+            target: current.target,
+        });
+    }
+    if requests.len() < 2 {
+        return std::collections::BTreeMap::new();
+    }
+    let results = native_install::prefetch_releases(&requests, checkpoint);
+    requests
+        .into_iter()
+        .zip(results)
+        .map(|(req, res)| (req.product.as_str(), res))
+        .collect()
+}
+
+pub(super) fn apply_pending_with(
     product: Product,
     prefix: &Path,
     previous: &str,
     selected: &str,
+    prefetched: Option<io::Result<native_install::PrefetchedRelease>>,
     progress: bool,
 ) -> Result<super::Outcome, Failure> {
     let sender = std::cell::RefCell::new(crate::native_progress::child::Sender::default());
@@ -143,15 +246,28 @@ pub(super) fn apply_pending(
             sender.borrow_mut().observe(product, event);
         }
     };
-    let outcome = super::list_upgrade::upgrade_at_observed(
-        product,
-        prefix,
-        None,
-        None,
-        false,
-        Some((previous, selected)),
-        &observe,
-    );
+    let outcome = match prefetched {
+        Some(Err(error)) => Err(failure("EXTENSION_UPGRADE_FAILED", error)),
+        Some(Ok(release)) => super::list_upgrade::upgrade_at_prefetched_observed(
+            product,
+            prefix,
+            None,
+            None,
+            false,
+            Some((previous, selected)),
+            Some(release),
+            &observe,
+        ),
+        None => super::list_upgrade::upgrade_at_observed(
+            product,
+            prefix,
+            None,
+            None,
+            false,
+            Some((previous, selected)),
+            &observe,
+        ),
+    };
     if progress {
         sender.borrow_mut().send(
             product,

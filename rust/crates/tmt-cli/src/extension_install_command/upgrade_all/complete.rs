@@ -14,8 +14,55 @@ pub(crate) struct Plan {
 
 impl Plan {
     pub(crate) fn read(prefix: &Path) -> Self {
-        Self::read_with(prefix, |product| {
-            native_install::latest_release_version(product, Channel::Alpha).map(|v| v.to_string())
+        let entries = setup::inventory(prefix);
+        let mut requests = Vec::new();
+        for entry in &entries {
+            match &entry.installation {
+                Installation::Managed(current) if current.state.pinned_version.is_none() => {
+                    requests.push((entry.product, current.state.channel));
+                }
+                Installation::Missing => {
+                    requests.push((entry.product, Channel::Alpha));
+                }
+                _ => {}
+            }
+        }
+        let discovered = native_install::latest_release_versions(&requests);
+        let mut results: std::collections::BTreeMap<&'static str, io::Result<String>> = requests
+            .into_iter()
+            .zip(discovered)
+            .map(|((product, _), res)| (product.as_str(), res.map(|v| v.to_string())))
+            .collect();
+        let installed = super::plan_entries(setup::inventory(prefix), true, |product, _| {
+            results
+                .remove(product.as_str())
+                .unwrap_or_else(|| Err(io::Error::other("Missing discovery result.")))
+        });
+        Self::finish_read(prefix, installed, |product| {
+            results
+                .remove(product.as_str())
+                .unwrap_or_else(|| Err(io::Error::other("Missing discovery result.")))
+        })
+    }
+
+    /// Re-verifies local inventory and provider scopes against an already-approved plan
+    /// without repeating network discovery.
+    pub(crate) fn read_from_approved(prefix: &Path, approved: &Self) -> Self {
+        let installed = super::plan_from_approved(prefix, &approved.installed);
+        Self::finish_read(prefix, installed, |product| {
+            approved
+                .missing
+                .iter()
+                .find(|row| {
+                    row["product"] == product.as_str()
+                        && row["action"] == "install"
+                        && row["status"] == "pending"
+                })
+                .and_then(|row| row["version"].as_str())
+                .map(ToOwned::to_owned)
+                .ok_or_else(|| {
+                    io::Error::other("Installation changed after approval; run tmt upgrade again.")
+                })
         })
     }
 
@@ -30,8 +77,17 @@ impl Plan {
         }
     }
 
-    fn read_with(prefix: &Path, mut discover: impl FnMut(Product) -> io::Result<String>) -> Self {
+    #[cfg(test)]
+    fn read_with(prefix: &Path, discover: impl FnMut(Product) -> io::Result<String>) -> Self {
         let installed = super::plan(prefix);
+        Self::finish_read(prefix, installed, discover)
+    }
+
+    fn finish_read(
+        prefix: &Path,
+        installed: super::Plan,
+        mut discover: impl FnMut(Product) -> io::Result<String>,
+    ) -> Self {
         let mut missing = Vec::new();
         for entry in setup::inventory(prefix) {
             let product = entry.product;
@@ -329,7 +385,7 @@ pub(crate) fn apply(
     prefix: &Path,
     plan: Plan,
     progress: bool,
-    checkpoint: &impl Fn() -> bool,
+    checkpoint: &(impl Fn() -> bool + Sync),
 ) -> Value {
     apply_with(prefix, plan, progress, checkpoint, setup::apply_at)
 }
@@ -338,7 +394,7 @@ fn apply_with(
     prefix: &Path,
     plan: Plan,
     progress: bool,
-    checkpoint: &impl Fn() -> bool,
+    checkpoint: &(impl Fn() -> bool + Sync),
     mut install: impl FnMut(
         Product,
         &Path,
@@ -355,13 +411,25 @@ fn apply_with(
     });
     // New scopes are checked and applied before any extension publication can add bundled skills.
     let (providers, mut interrupted) = providers::apply(prefix, &plan.providers, checkpoint);
+    let mut prefetched = if interrupted {
+        std::collections::BTreeMap::new()
+    } else {
+        super::prefetch_pending(prefix, &plan.installed.pending, checkpoint)
+    };
     for (product, previous, selected) in plan.installed.pending {
         interrupted |= checkpoint();
         if interrupted {
             products.push(skipped(product));
             continue;
         }
-        match super::apply_pending(product, prefix, &previous, &selected, progress) {
+        match super::apply_pending_with(
+            product,
+            prefix,
+            &previous,
+            &selected,
+            prefetched.remove(product.as_str()),
+            progress,
+        ) {
             Ok(Some((document, _))) => products.push(super::upgraded(product, document)),
             Ok(None) => unreachable!("consented upgrade"),
             Err(error) => {
@@ -479,7 +547,16 @@ pub(crate) fn execute(planning: bool, progress: bool, mode: OutputMode) -> io::R
             tmt_cli_style::stream::stderr()
                 .write_all(CAPABILITY)
                 .map_err(|e| failure("EXTENSION_UPGRADE_FAILED", e))?;
-            return Ok((Plan::read(current.prefix()).document(), 0));
+            let mut bytes = Vec::new();
+            let _ = io::stdin().take((LIMIT + 1) as u64).read_to_end(&mut bytes);
+            let planned = if !bytes.is_empty()
+                && let Some(approved) = Plan::parse(&bytes)
+            {
+                Plan::read_from_approved(current.prefix(), &approved)
+            } else {
+                Plan::read(current.prefix())
+            };
+            return Ok((planned.document(), 0));
         }
         let mut bytes = Vec::new();
         io::stdin()

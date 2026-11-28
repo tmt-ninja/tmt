@@ -7,9 +7,43 @@ use semver::Version;
 use std::{
     io,
     path::{Path, PathBuf},
+    sync::{
+        Mutex,
+        atomic::{AtomicUsize, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tmt_core::native_install::{Channel, PinAction, VersionError};
+
+/// Maximum concurrent release-discovery or archive-download workers sharing one HTTP client.
+pub const MAX_PARALLEL_ACQUISITION: usize = 4;
+
+/// A verified-descriptor downloaded release ready for ordered local verification and activation.
+pub struct PrefetchedRelease {
+    pub(super) product: Product,
+    pub(super) channel: Channel,
+    pub(super) target: String,
+    pub(super) release: release::DownloadedRelease,
+}
+
+impl PrefetchedRelease {
+    pub fn product(&self) -> Product {
+        self.product
+    }
+    pub fn version(&self) -> &Version {
+        &self.release.version
+    }
+    pub fn archive_bytes(&self) -> u64 {
+        self.release.archive.len() as u64
+    }
+}
+
+pub struct PrefetchRequest {
+    pub product: Product,
+    pub channel: Channel,
+    pub version: String,
+    pub target: String,
+}
 
 pub struct ReleaseInstallRequest<'a> {
     pub prefix: &'a Path,
@@ -89,6 +123,56 @@ pub fn install_missing_release_observed(
     )
 }
 
+/// Apply an already-downloaded missing extension release through the exact verification and
+/// atomic activation path without performing any network request.
+pub fn install_missing_release_prefetched_observed(
+    product: Product,
+    request: ReleaseInstallRequest<'_>,
+    prefetched: PrefetchedRelease,
+    verifier: Option<ReleaseVerifier<'_>>,
+    checkpoint: impl FnMut() -> io::Result<()>,
+    progress: super::ProgressObserver<'_>,
+) -> io::Result<InstallReport> {
+    if request.exact.is_none() {
+        return Err(io::Error::other(
+            "Missing-item installation requires an approved exact release.",
+        ));
+    }
+    if prefetched.product != product
+        || prefetched.channel != request.channel
+        || prefetched.target != request.target
+        || request.exact != Some(prefetched.release.version.to_string().as_str())
+    {
+        return Err(super::invalid(
+            "Prefetched release does not match the approved missing-item target.",
+        ));
+    }
+    let archive_bytes = prefetched.release.archive.len() as u64;
+    progress(super::ProgressEvent::Selected {
+        version: &prefetched.release.version.to_string(),
+        archive_bytes,
+    });
+    progress(super::ProgressEvent::Download {
+        received_bytes: archive_bytes,
+        total_bytes: Some(archive_bytes),
+    });
+    progress(super::ProgressEvent::Downloaded);
+    install_release_with_purpose(
+        product,
+        request,
+        verifier,
+        checkpoint,
+        |_, _, _, _| {
+            Err(super::invalid(
+                "Prefetched install cannot perform network IO.",
+            ))
+        },
+        progress,
+        InstallPurpose::ApprovedMissing,
+        Some(prefetched.release),
+    )
+}
+
 fn install_online(
     product: Product,
     request: ReleaseInstallRequest<'_>,
@@ -132,6 +216,7 @@ fn install_online(
         },
         progress,
         purpose,
+        None,
     )
 }
 
@@ -151,6 +236,159 @@ pub fn latest_release_version(product: Product, channel: Channel) -> io::Result<
         &mut |url, accept, limit, deadline| client.get(url, accept, limit, deadline),
     )
     .map(|(_, version)| version)
+}
+
+/// Bounded-parallel published-release discovery sharing one HTTP client across at most
+/// [`MAX_PARALLEL_ACQUISITION`] workers. Output order matches `requests` 1:1 and failures are
+/// isolated per product.
+pub fn latest_release_versions(requests: &[(Product, Channel)]) -> Vec<io::Result<Version>> {
+    if requests.is_empty() {
+        return Vec::new();
+    }
+    let client = crate::release_http::Https::new();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    latest_release_versions_with(requests, deadline, &|url, accept, limit, deadline| {
+        client.get(url, accept, limit, deadline)
+    })
+}
+
+pub(crate) fn latest_release_versions_with(
+    requests: &[(Product, Channel)],
+    deadline: Instant,
+    get: &(impl Fn(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> + Sync),
+) -> Vec<io::Result<Version>> {
+    let discover_one = |(product, channel): (Product, Channel)| -> io::Result<Version> {
+        if matches!(channel, Channel::Pr(_)) {
+            return Err(io::Error::other(super::pr_resolver::Unavailable(
+                "PR channels require target-aware authenticated acquisition; published-release discovery cannot select a PR candidate.",
+            )));
+        }
+        release::discover_latest(product, channel, deadline, &mut |url, accept, limit, dl| {
+            get(url, accept, limit, dl)
+        })
+        .map(|(_, version)| version)
+    };
+    if requests.len() <= 1 {
+        return requests.iter().copied().map(discover_one).collect();
+    }
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<Option<io::Result<Version>>>> =
+        Mutex::new((0..requests.len()).map(|_| None).collect());
+    let workers = MAX_PARALLEL_ACQUISITION.min(requests.len());
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(&request) = requests.get(index) else {
+                        break;
+                    };
+                    let outcome = discover_one(request);
+                    if let Ok(mut guard) = results.lock() {
+                        guard[index] = Some(outcome);
+                    }
+                }
+            });
+        }
+    });
+    results
+        .into_inner()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .into_iter()
+        .map(|slot| {
+            slot.unwrap_or_else(|| Err(io::Error::other("Discovery worker did not finish.")))
+        })
+        .collect()
+}
+
+/// Bounded-parallel archive and manifest pre-download sharing one HTTP client across at most
+/// [`MAX_PARALLEL_ACQUISITION`] workers. Verification and activation remain ordered per product.
+pub fn prefetch_releases(
+    requests: &[PrefetchRequest],
+    checkpoint: &(impl Fn() -> bool + Sync),
+) -> Vec<io::Result<PrefetchedRelease>> {
+    if requests.is_empty() {
+        return Vec::new();
+    }
+    let client = crate::release_http::Https::new();
+    let deadline = Instant::now() + Duration::from_secs(60);
+    prefetch_releases_with(
+        requests,
+        deadline,
+        checkpoint,
+        &|url, accept, limit, deadline| client.get(url, accept, limit, deadline),
+    )
+}
+
+pub(crate) fn prefetch_releases_with(
+    requests: &[PrefetchRequest],
+    deadline: Instant,
+    checkpoint: &(impl Fn() -> bool + Sync),
+    get: &(impl Fn(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response> + Sync),
+) -> Vec<io::Result<PrefetchedRelease>> {
+    let fetch_one = |request: &PrefetchRequest| -> io::Result<PrefetchedRelease> {
+        if checkpoint() {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "Extension update interrupted before activation.",
+            ));
+        }
+        if matches!(request.channel, Channel::Pr(_)) {
+            return Err(io::Error::other(super::pr_resolver::Unavailable(
+                "PR channels require authenticated acquisition; published-release prefetch cannot select a PR candidate.",
+            )));
+        }
+        let version = request
+            .version
+            .parse::<Version>()
+            .map_err(|_| io::Error::other(VersionError::InvalidSelection))?;
+        let downloaded = release::download_product_observed(
+            request.product,
+            request.channel,
+            Some(&version),
+            &request.target,
+            deadline,
+            |url, accept, limit, dl| get(url, accept, limit, dl),
+            &|_| {},
+        )?;
+        Ok(PrefetchedRelease {
+            product: request.product,
+            channel: request.channel,
+            target: request.target.clone(),
+            release: downloaded,
+        })
+    };
+    if requests.len() <= 1 {
+        return requests.iter().map(fetch_one).collect();
+    }
+    let next = AtomicUsize::new(0);
+    let results: Mutex<Vec<Option<io::Result<PrefetchedRelease>>>> =
+        Mutex::new((0..requests.len()).map(|_| None).collect());
+    let workers = MAX_PARALLEL_ACQUISITION.min(requests.len());
+    std::thread::scope(|scope| {
+        for _ in 0..workers {
+            scope.spawn(|| {
+                loop {
+                    let index = next.fetch_add(1, Ordering::Relaxed);
+                    let Some(request) = requests.get(index) else {
+                        break;
+                    };
+                    let outcome = fetch_one(request);
+                    if let Ok(mut guard) = results.lock() {
+                        guard[index] = Some(outcome);
+                    }
+                }
+            });
+        }
+    });
+    results
+        .into_inner()
+        .unwrap_or_else(|poison| poison.into_inner())
+        .into_iter()
+        .map(|slot| {
+            slot.unwrap_or_else(|| Err(io::Error::other("Download worker did not finish.")))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -181,9 +419,11 @@ fn install_release_with_observer(
         get,
         progress,
         InstallPurpose::Explicit,
+        None,
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn install_release_with_purpose(
     product: Product,
     request: ReleaseInstallRequest<'_>,
@@ -192,6 +432,7 @@ fn install_release_with_purpose(
     get: impl FnMut(&str, &str, usize, Instant) -> io::Result<crate::release_http::Response>,
     progress: super::ProgressObserver<'_>,
     purpose: InstallPurpose,
+    prefetched: Option<release::DownloadedRelease>,
 ) -> io::Result<InstallReport> {
     let ReleaseInstallRequest {
         prefix,
@@ -213,7 +454,9 @@ fn install_release_with_purpose(
     }
     checkpoint()?;
     let deadline = Instant::now() + Duration::from_secs(60);
-    let downloaded = if let Channel::Pr(pr) = channel {
+    let downloaded = if let Some(downloaded) = prefetched {
+        downloaded
+    } else if let Channel::Pr(pr) = channel {
         super::pr_resolver::download_current(
             super::pr_resolver::Request {
                 product,
@@ -327,6 +570,7 @@ mod tests {
                 },
                 &|_| {},
                 InstallPurpose::ApprovedMissing,
+                None,
             );
             let installed = super::super::inspect_product_prefix(product, &prefix).unwrap();
             assert!(installed.state.pinned_version.is_none());
@@ -835,5 +1079,178 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::Interrupted);
         assert!(!prefix.exists());
+    }
+
+    #[test]
+    fn parallel_discovery_and_prefetch_preserve_order_isolate_failures_and_respect_interrupts() {
+        let target = "aarch64-apple-darwin";
+        let products = [
+            (Product::Ops, "0.1.0-alpha.2"),
+            (Product::Remote, "0.1.0-alpha.3"),
+            (Product::Colab, "0.1.0-alpha.4"),
+            (Product::Digest, "0.1.0-alpha.5"),
+        ];
+        let mut routes = std::collections::BTreeMap::new();
+        for (idx, (product, version)) in products.into_iter().enumerate() {
+            let (fixture, manifest, archive, _) =
+                release::product_fixture(product, version, target, 100 + idx as u64);
+            routes.extend(release::indexed_routes(&fixture, &manifest, &archive));
+        }
+        // Remove Remote's channel pointer to verify per-product failure isolation.
+        let mut discovery_routes = routes.clone();
+        discovery_routes.retain(|url, _| !url.contains("/channels/remote/"));
+
+        let requests: Vec<(Product, Channel)> = products
+            .iter()
+            .map(|(product, _)| (*product, Channel::Alpha))
+            .collect();
+        let active = AtomicUsize::new(0);
+        let peak = AtomicUsize::new(0);
+        let versions = latest_release_versions_with(
+            &requests,
+            Instant::now() + Duration::from_secs(10),
+            &|url, _, _, _| {
+                let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(now, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(20));
+                let out = discovery_routes
+                    .get(url)
+                    .cloned()
+                    .map(Into::into)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing"));
+                active.fetch_sub(1, Ordering::SeqCst);
+                out
+            },
+        );
+        assert!(
+            peak.load(Ordering::SeqCst) >= 2,
+            "discovery ran concurrently"
+        );
+        assert!(peak.load(Ordering::SeqCst) <= MAX_PARALLEL_ACQUISITION);
+        assert_eq!(versions[0].as_ref().unwrap().to_string(), "0.1.0-alpha.2");
+        assert!(versions[1].is_err());
+        assert_eq!(versions[2].as_ref().unwrap().to_string(), "0.1.0-alpha.4");
+        assert_eq!(versions[3].as_ref().unwrap().to_string(), "0.1.0-alpha.5");
+
+        // Prefetch with one missing archive isolates failure and preserves order.
+        let mut fetch_routes = routes.clone();
+        fetch_routes.retain(|url, _| !(url.contains("colab") && url.ends_with(".tar.gz")));
+        let fetch_reqs: Vec<PrefetchRequest> = products
+            .iter()
+            .map(|(product, version)| PrefetchRequest {
+                product: *product,
+                channel: Channel::Alpha,
+                version: (*version).into(),
+                target: target.into(),
+            })
+            .collect();
+        let fetched = prefetch_releases_with(
+            &fetch_reqs,
+            Instant::now() + Duration::from_secs(10),
+            &|| false,
+            &|url, _, _, _| {
+                fetch_routes
+                    .get(url)
+                    .cloned()
+                    .map(Into::into)
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing archive"))
+            },
+        );
+        assert_eq!(fetched[0].as_ref().unwrap().product(), Product::Ops);
+        assert_eq!(fetched[1].as_ref().unwrap().product(), Product::Remote);
+        assert!(fetched[2].is_err());
+        assert_eq!(fetched[3].as_ref().unwrap().product(), Product::Digest);
+
+        // Interrupt stops prefetch cleanly without network IO.
+        let interrupted = prefetch_releases_with(
+            &fetch_reqs,
+            Instant::now() + Duration::from_secs(10),
+            &|| true,
+            &|_, _, _, _| panic!("interrupted prefetch must not perform network IO"),
+        );
+        assert!(interrupted.iter().all(|res| {
+            res.as_ref()
+                .is_err_and(|e| e.kind() == io::ErrorKind::Interrupted)
+        }));
+    }
+
+    #[test]
+    fn loopback_fixture_benchmark_serial_vs_parallel() {
+        let target = "aarch64-apple-darwin";
+        let products = [
+            (Product::Ops, "0.1.0-alpha.2"),
+            (Product::Remote, "0.1.0-alpha.3"),
+            (Product::Colab, "0.1.0-alpha.4"),
+            (Product::Digest, "0.1.0-alpha.5"),
+        ];
+        let mut routes = std::collections::BTreeMap::new();
+        for (idx, (product, version)) in products.into_iter().enumerate() {
+            let (fixture, manifest, archive, _) =
+                release::product_fixture(product, version, target, 200 + idx as u64);
+            routes.extend(release::indexed_routes(&fixture, &manifest, &archive));
+        }
+        let latency = Duration::from_millis(25);
+        let get = |url: &str, _: &str, _: usize, _: Instant| {
+            std::thread::sleep(latency);
+            routes
+                .get(url)
+                .cloned()
+                .map(Into::into)
+                .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "missing"))
+        };
+        let deadline = Instant::now() + Duration::from_secs(30);
+
+        // Before: serial discovery (twice, as plan_child previously re-ran --plan) + serial downloads.
+        let t_serial = Instant::now();
+        for _ in 0..2 {
+            for (product, _) in products {
+                let (_, v) = release::discover_latest(
+                    product,
+                    Channel::Alpha,
+                    deadline,
+                    &mut |u, a, l, d| get(u, a, l, d),
+                )
+                .unwrap();
+                assert!(!v.to_string().is_empty());
+            }
+        }
+        for (product, version) in products {
+            let v: Version = version.parse().unwrap();
+            let dl = release::download_product_observed(
+                product,
+                Channel::Alpha,
+                Some(&v),
+                target,
+                deadline,
+                |u, a, l, d| get(u, a, l, d),
+                &|_| {},
+            )
+            .unwrap();
+            assert_eq!(dl.version, v);
+        }
+        let serial_ms = t_serial.elapsed().as_millis();
+
+        // After: discover once in bounded parallel + bounded parallel pre-download.
+        let t_parallel = Instant::now();
+        let reqs: Vec<(Product, Channel)> =
+            products.iter().map(|(p, _)| (*p, Channel::Alpha)).collect();
+        let discovered = latest_release_versions_with(&reqs, deadline, &get);
+        assert!(discovered.iter().all(Result::is_ok));
+        let fetch_reqs: Vec<PrefetchRequest> = products
+            .iter()
+            .map(|(p, v)| PrefetchRequest {
+                product: *p,
+                channel: Channel::Alpha,
+                version: (*v).into(),
+                target: target.into(),
+            })
+            .collect();
+        let prefetched = prefetch_releases_with(&fetch_reqs, deadline, &|| false, &get);
+        assert!(prefetched.iter().all(Result::is_ok));
+        let parallel_ms = t_parallel.elapsed().as_millis();
+
+        eprintln!(
+            "6912-benchmark (4 extensions, 25ms/req): serial={serial_ms}ms parallel={parallel_ms}ms"
+        );
     }
 }

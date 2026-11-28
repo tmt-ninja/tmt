@@ -1,8 +1,8 @@
 //! Bounded HTTPS acquisition for the canonical native release service.
 
 use std::{
-    cell::Cell,
     io::{self, Read},
+    sync::atomic::{AtomicBool, Ordering},
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
@@ -84,7 +84,7 @@ impl From<Vec<u8>> for Response {
 pub(crate) struct Https {
     agent: Agent,
     token: Option<String>,
-    waited: Cell<bool>,
+    waited: AtomicBool,
     #[cfg(test)]
     wait: fn(Duration),
     #[cfg(test)]
@@ -115,7 +115,7 @@ impl Https {
         Self {
             agent: Agent::new_with_config(config),
             token: None,
-            waited: Cell::new(false),
+            waited: AtomicBool::new(false),
             #[cfg(test)]
             wait: std::thread::sleep,
             #[cfg(test)]
@@ -130,7 +130,7 @@ impl Https {
         Self {
             agent,
             token: None,
-            waited: Cell::new(false),
+            waited: AtomicBool::new(false),
             wait: std::thread::sleep,
             now: SystemTime::now,
             allow_loopback: true,
@@ -255,20 +255,19 @@ impl Https {
                     Duration::from_millis(50 + u64::from(uuid::Uuid::new_v4().as_bytes()[0]));
                 let wait = limit.delay.and_then(|delay| delay.checked_add(jitter));
                 let remaining = deadline.checked_duration_since(Instant::now());
-                let reason = if self.waited.get() {
-                    Some("the single retry was exhausted")
-                } else if wait
+                let reason = if wait
                     .zip(remaining)
                     .is_none_or(|(wait, remaining)| wait >= remaining)
                 {
                     Some("the required wait exceeds the remaining deadline")
+                } else if self.waited.swap(true, Ordering::AcqRel) {
+                    Some("the single retry was exhausted")
                 } else {
                     None
                 };
                 if let Some(reason) = reason {
                     return Err(limit.error(reason));
                 }
-                self.waited.set(true);
                 // Release the response before waiting. The caller's absolute
                 // deadline covers every request, redirect and this one wait.
                 drop(response);

@@ -270,3 +270,26 @@ fn missing_plan_uses_shared_inventory_and_a_foreign_command_never_becomes_a_new_
     );
     assert!(!prefix.join("lib").exists());
 }
+
+#[test]
+fn read_from_approved_reuses_targets_locally_and_detects_local_drift() {
+    let root = Directory::new();
+    let prefix = root.path.join("prefix");
+    let approved = Plan::read_with(&prefix, |_| Ok("0.1.0-alpha.2".into()));
+    let reverified = Plan::read_from_approved(&prefix, &approved);
+    assert!(approved.same_scope(&reverified));
+
+    // A foreign command appearing after approval must be detected locally as drift.
+    std::fs::create_dir_all(prefix.join("bin")).unwrap();
+    std::fs::write(prefix.join("bin/tmt-ops"), b"user command").unwrap();
+    let drifted = Plan::read_from_approved(&prefix, &approved);
+    assert!(!approved.same_scope(&drifted));
+    assert!(!drifted.missing.iter().any(|row| row["product"] == "ops"));
+    assert!(
+        drifted
+            .installed
+            .products
+            .iter()
+            .any(|row| row["product"] == "ops" && row["status"] == "failed")
+    );
+}

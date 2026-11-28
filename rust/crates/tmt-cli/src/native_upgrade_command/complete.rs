@@ -75,12 +75,13 @@ fn run_with_interrupt(
         } else {
             Duration::ZERO
         };
+    let input = serde_json::to_vec(&approved.document()).expect("plan JSON");
     let probe = extensions::invoke_complete(
         executable,
         runner,
         true,
         true,
-        &[],
+        &input,
         extensions::ChildWait { budget, interrupt },
         &mut |_| {},
     );
@@ -140,7 +141,6 @@ fn run_with_interrupt(
             );
         }
     }
-    let input = serde_json::to_vec(&approved.document()).expect("plan JSON");
     let mut decoder = crate::native_progress::child::Decoder::default();
     let mut presentations = BTreeMap::new();
     let mut observe =
