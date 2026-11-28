@@ -6,8 +6,8 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"time"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/orchestration"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 )
 
@@ -87,23 +87,20 @@ func (s *Storage) SyncReceiving(ctx context.Context, q core.DigestReceivingWrite
 }
 
 type digestCalendar struct {
-	configured string
-	location   *time.Location
+	configured *string
+	calendar   orchestration.Calendar
+	loadErr    error
 }
 
 func (s *Storage) loadDigestCalendar(ctx context.Context) (digestCalendar, error) {
 	var cal digestCalendar
-	err := s.db.QueryRowContext(ctx, "SELECT COALESCE((SELECT time_zone FROM orchestration_settings WHERE id=1),'')").Scan(&cal.configured)
-	if err != nil {
+	if err := s.db.QueryRowContext(ctx, "SELECT (SELECT time_zone FROM orchestration_settings WHERE id=1)").
+		Scan(&cal.configured); err != nil {
 		return cal, err
 	}
-	if cal.configured == "" {
-		cal.location = time.Local
-		// Go loads its implicit local zone lazily. Resolve it before a writer.
-		_, _ = time.Now().In(cal.location).Zone()
-	} else {
-		cal.location, _ = time.LoadLocation(cal.configured)
-	}
+	// Zone discovery and loading happen before the caller's writer. Only a
+	// published receiving policy needs the resolved calendar.
+	cal.calendar, cal.loadErr = orchestration.LoadCalendar(cal.configured)
 	return cal, nil
 }
 
@@ -121,219 +118,25 @@ func resolveDigestReceiving(r records, identity *core.Identity, cal digestCalend
 	if err != nil || policy.DigestRevision == 0 {
 		return digestReceiving{}, err
 	}
-	var configured string
-	if policy.TimeZone != nil {
-		configured = *policy.TimeZone
-	}
-	if cal.location == nil || cal.configured != configured {
+	if !equalOptionalText(policy.TimeZone, cal.configured) {
 		return digestReceiving{}, errors.New("receiving calendar selection changed; retry the operation")
 	}
-	base := policy.BaseReceiving[identity.ID]
-	resolved := digestReceiving{mode: base.Mode, intervalMs: base.IntervalMs, revision: policy.Revision, zone: cal.location.String(),
-		source: core.OrchSource{Kind: core.OrchSourceBase, IdentityID: &identity.ID, Revision: policy.DigestRevision}}
-	for _, plan := range policy.Plans {
-		if !plan.Enabled || !digestPlanMatches(plan, identity) {
-			continue
-		}
-		active, slot, next, err := digestPlanSlot(plan.Schedule, cal.location, now)
-		if err != nil {
-			return digestReceiving{}, err
-		}
-		resolved.consider(now, next)
-		if active {
-			source := core.OrchSource{Kind: core.OrchSourcePlan, PlanID: &plan.ID, Revision: plan.Revision, Slot: slot}
-			resolved.apply(plan.Fields, source)
-			source.Kind, source.IdentityID = core.OrchSourceMember, &identity.ID
-			resolved.apply(plan.Members[identity.ID], source)
-		}
+	if cal.loadErr != nil {
+		return digestReceiving{}, cal.loadErr
 	}
-	for _, focus := range policy.Focus {
-		resolved.consider(now, focus.StartMs)
-		resolved.consider(now, focus.EndMs)
-		if focus.StartMs <= now && now < focus.EndMs {
-			resolved.mode = core.OrchReceivingUrgent
-			resolved.source = core.OrchSource{Kind: core.OrchSourceFocus, IdentityID: &identity.ID, Revision: focus.Revision,
-				Slot: &core.OrchTimeSlot{StartMs: focus.StartMs, EndMs: focus.EndMs}, Defaulted: true}
-		}
+	effective, err := core.ResolveOrchEffective(policy, identity.ID, now, cal.calendar)
+	if err != nil {
+		return digestReceiving{}, err
 	}
-	if !policy.DigestEnabled {
-		resolved.mode = core.OrchReceivingDirect
-		resolved.source = core.OrchSource{Kind: core.OrchSourceBase, Revision: policy.DigestRevision}
-	}
-	return resolved, nil
+	return digestReceiving{
+		source: effective.Receiving.Source, mode: effective.Receiving.Value.Mode,
+		intervalMs: effective.Receiving.Value.IntervalMs, nextChange: effective.NextChangeAtMs,
+		revision: policy.Revision, zone: cal.calendar.Name(),
+	}, nil
 }
 
 func (d *digestReceiving) consider(now, when uint64) {
 	if when > now && (d.nextChange == nil || when < *d.nextChange) {
 		d.nextChange = &when
 	}
-}
-
-func (d *digestReceiving) apply(f core.OrchPolicyFields, source core.OrchSource) {
-	if f.Receiving != nil {
-		d.mode, d.intervalMs, d.source = f.Receiving.Mode, f.Receiving.IntervalMs, source
-		return
-	}
-	if f.State == nil {
-		return
-	}
-	source.Defaulted = true
-	d.source = source
-	switch *f.State {
-	case "awake":
-		d.mode = core.OrchReceivingDirect
-	case "low":
-		d.mode, d.intervalMs = core.OrchReceivingBatch, 1_800_000
-	case "focus":
-		d.mode = core.OrchReceivingUrgent
-	case "sleep":
-		d.mode = core.OrchReceivingHold
-	}
-}
-
-func digestPlanMatches(plan core.OrchPlan, identity *core.Identity) bool {
-	for _, target := range plan.Targets {
-		if target.Kind == "all" || target.Kind == "identity" && target.ID == identity.ID ||
-			target.Kind == "pattern" && matchDigestPattern([]rune(target.Pattern), []rune(identity.Name)) {
-			return true
-		}
-	}
-	return false
-}
-
-func matchDigestPattern(pattern, name []rune) bool {
-	i, j, star, retry := 0, 0, -1, 0
-	for j < len(name) {
-		switch {
-		case i < len(pattern) && (pattern[i] == '?' || pattern[i] == name[j]):
-			i++
-			j++
-		case i < len(pattern) && pattern[i] == '*':
-			star, retry = i, j
-			i++
-		case star >= 0:
-			retry++
-			j, i = retry, star+1
-		default:
-			return false
-		}
-	}
-	for i < len(pattern) && pattern[i] == '*' {
-		i++
-	}
-	return i == len(pattern)
-}
-
-func digestPlanSlot(schedule core.OrchPlanSchedule, location *time.Location, now uint64) (bool, *core.OrchTimeSlot, uint64, error) {
-	switch schedule.Kind {
-	case "always":
-		return true, nil, 0, nil
-	case "once":
-		switch {
-		case now < schedule.StartMs:
-			return false, nil, schedule.StartMs, nil
-		case now < schedule.EndMs:
-			return true, &core.OrchTimeSlot{StartMs: schedule.StartMs, EndMs: schedule.EndMs}, schedule.EndMs, nil
-		default:
-			return false, nil, 0, nil
-		}
-	}
-	start, end := time.Time{}, time.Time{}
-	var err error
-	if !schedule.AllDay {
-		start, err = time.Parse("15:04", schedule.Start)
-		if err != nil {
-			return false, nil, 0, errInvalidOrchRow
-		}
-		end, err = time.Parse("15:04", schedule.End)
-		if err != nil || start.Equal(end) {
-			return false, nil, 0, errInvalidOrchRow
-		}
-	}
-	var anchor time.Time
-	if schedule.Kind == "weekly" {
-		anchor, err = time.Parse(time.DateOnly, schedule.AnchorDate)
-		if err != nil || anchor.Weekday() != time.Monday || schedule.IntervalWeeks < 1 || schedule.IntervalWeeks > 2 {
-			return false, nil, 0, errInvalidOrchRow
-		}
-	} else if schedule.Kind != "daily" {
-		return false, nil, 0, errInvalidOrchRow
-	}
-	day := time.UnixMilli(int64(now)).In(location)
-	civil := time.Date(day.Year(), day.Month(), day.Day(), 0, 0, 0, 0, time.UTC)
-	startMinute, endMinute := start.Hour()*60+start.Minute(), end.Hour()*60+end.Minute()
-	next := digestReceiving{}
-	var slot *core.OrchTimeSlot
-	for offset := -1; offset <= 16; offset++ {
-		date := civil.AddDate(0, 0, offset)
-		if schedule.Kind == "weekly" {
-			weekday := (int(date.Weekday())+6)%7 + 1
-			monday := date.Unix() - int64(weekday-1)*86400
-			weeks := (monday - anchor.Unix()) / (7 * 86400)
-			if !slices.Contains(schedule.Weekdays, weekday) || weeks%int64(schedule.IntervalWeeks) != 0 {
-				continue
-			}
-		}
-		endDate := date
-		if schedule.AllDay || endMinute < startMinute {
-			endDate = date.AddDate(0, 0, 1)
-		}
-		from := digestCalendarBoundary(date, startMinute, location, false)
-		to := digestCalendarBoundary(endDate, endMinute, location, true)
-		if to <= from || to <= 0 {
-			continue
-		}
-		if from > 0 && from <= int64(now) && int64(now) < to {
-			slot = &core.OrchTimeSlot{StartMs: uint64(from), EndMs: uint64(to)}
-		}
-		if from > 0 {
-			next.consider(now, uint64(from))
-		}
-		next.consider(now, uint64(to))
-	}
-	if next.nextChange != nil {
-		return slot != nil, slot, *next.nextChange, nil
-	}
-	return slot != nil, slot, 0, nil
-}
-
-func digestCalendarBoundary(day time.Time, minute int, zone *time.Location, end bool) int64 {
-	label := day.Add(time.Duration(minute) * time.Minute)
-	guess := time.Date(label.Year(), label.Month(), label.Day(), label.Hour(), label.Minute(), 0, 0, zone)
-	_, before := guess.Add(-24 * time.Hour).Zone()
-	_, after := guess.Add(24 * time.Hour).Zone()
-	first := label.Add(-time.Duration(before) * time.Second)
-	second := label.Add(-time.Duration(after) * time.Second)
-	if before == after {
-		return first.UnixMilli()
-	}
-	firstMatches := first.In(zone).Format("2006-01-02T15:04") == label.Format("2006-01-02T15:04")
-	secondMatches := second.In(zone).Format("2006-01-02T15:04") == label.Format("2006-01-02T15:04")
-	switch {
-	case firstMatches && !secondMatches:
-		return first.UnixMilli()
-	case secondMatches && !firstMatches:
-		return second.UnixMilli()
-	case firstMatches && secondMatches:
-		if first.After(second) == end {
-			return first.UnixMilli()
-		}
-		return second.UnixMilli()
-	}
-	// A skipped wall time maps to the transition instant at the end of the gap.
-	if first.After(second) {
-		first, second = second, first
-	}
-	_, offset := first.In(zone).Zone()
-	low, high := first.Unix(), second.Unix()
-	for low < high {
-		mid := low + (high-low)/2
-		_, seen := time.Unix(mid, 0).In(zone).Zone()
-		if seen == offset {
-			low = mid + 1
-		} else {
-			high = mid
-		}
-	}
-	return low * 1000
 }

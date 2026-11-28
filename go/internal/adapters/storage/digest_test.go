@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tmt-ninja/tmt/go/internal/adapters/orchestration"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 )
 
@@ -275,20 +276,79 @@ func TestDigestReceivingSummaryFreezeAndWakeAdmission(t *testing.T) {
 }
 
 func TestDigestCalendarPinsDSTBoundaries(t *testing.T) {
-	zone, err := time.LoadLocation("America/New_York")
+	zone := "America/New_York"
+	calendar, err := orchestration.LoadCalendar(&zone)
 	if err != nil {
 		t.Fatal(err)
 	}
-	spring := time.Date(2026, 3, 8, 0, 0, 0, 0, time.UTC)
-	want := time.Date(2026, 3, 8, 7, 0, 0, 0, time.UTC).UnixMilli()
-	if got := digestCalendarBoundary(spring, 2*60+30, zone, false); got != want {
-		t.Fatalf("spring gap: %d want %d", got, want)
+	spring := int32(time.Date(2026, 3, 8, 0, 0, 0, 0, time.UTC).Unix() / 86400)
+	want := uint64(time.Date(2026, 3, 8, 7, 0, 0, 0, time.UTC).UnixMilli())
+	if got, err := calendar.Boundary(spring, 2*60+30, false); err != nil || got != want {
+		t.Fatalf("spring gap: %d, %v, want %d", got, err, want)
 	}
-	fall := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
-	first := digestCalendarBoundary(fall, 90, zone, false)
-	last := digestCalendarBoundary(fall, 90, zone, true)
-	if first != time.Date(2026, 11, 1, 5, 30, 0, 0, time.UTC).UnixMilli() || last-first != 3600000 {
-		t.Fatalf("fall fold: %d to %d", first, last)
+	fall := int32(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC).Unix() / 86400)
+	first, firstErr := calendar.Boundary(fall, 90, false)
+	last, lastErr := calendar.Boundary(fall, 90, true)
+	if firstErr != nil || lastErr != nil || first != uint64(time.Date(2026, 11, 1, 5, 30, 0, 0, time.UTC).UnixMilli()) ||
+		last-first != 3600000 {
+		t.Fatalf("fall fold: %d to %d, %v / %v", first, last, firstErr, lastErr)
+	}
+}
+
+func TestDigestReceivingUsesSharedPlanAndFencesCalendar(t *testing.T) {
+	parallelStorageFixture(t)
+	store := bindingFixture(t)
+	ctx := t.Context()
+	if _, err := store.db.ExecContext(ctx, `INSERT INTO orchestration_settings VALUES (1,42,'America/New_York');
+		INSERT INTO orchestration_plans(id,name,revision,priority,enabled,schedule,fields)
+		VALUES (?,'Daily hold',3,1,1,'{"kind":"daily","start":"02:30","end":"04:00"}',
+			'{"receiving":{"mode":"hold"}}');
+		INSERT INTO orchestration_plan_targets(plan_id,position,target) VALUES (?,0,'{"kind":"all"}')`, orchPlanID, orchPlanID); err != nil {
+		t.Fatal(err)
+	}
+	publication := core.DigestReceivingWrite{Enabled: true, Default: core.OrchReceiving{Mode: core.OrchReceivingAuto}}
+	if _, err := store.SyncReceiving(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	calendar, err := store.loadDigestCalendar(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := uint64(time.Date(2026, 3, 8, 7, 15, 0, 0, time.UTC).UnixMilli())
+	start := uint64(time.Date(2026, 3, 8, 7, 0, 0, 0, time.UTC).UnixMilli())
+	end := uint64(time.Date(2026, 3, 8, 8, 0, 0, 0, time.UTC).UnixMilli())
+	read := func() (digestReceiving, error) {
+		var value digestReceiving
+		err := store.transact(ctx, false, func(r records) error {
+			identity, err := r.Identities().FindByID(bindingOwnerID)
+			if err != nil {
+				return err
+			}
+			value, err = resolveDigestReceiving(r, identity, calendar, now)
+			return err
+		})
+		return value, err
+	}
+	value, err := read()
+	if err != nil || value.mode != core.OrchReceivingHold || value.revision != 42 || value.zone != "America/New_York" ||
+		value.source.Kind != core.OrchSourcePlan || value.source.PlanID == nil || *value.source.PlanID != orchPlanID ||
+		value.source.Slot == nil || *value.source.Slot != (core.OrchTimeSlot{StartMs: start, EndMs: end}) ||
+		value.nextChange == nil || *value.nextChange != end {
+		t.Fatalf("scheduled receiving = %+v, %v", value, err)
+	}
+	publication.Enabled, publication.ExpectedRevision = false, 1
+	if _, err := store.SyncReceiving(ctx, publication); err != nil {
+		t.Fatal(err)
+	}
+	value, err = read()
+	if err != nil || value.mode != core.OrchReceivingDirect || value.source.Kind != core.OrchSourceBase || value.source.Revision != 2 {
+		t.Fatalf("receiving with master switch off = %+v, %v", value, err)
+	}
+	if _, err := store.db.ExecContext(ctx, "UPDATE orchestration_settings SET time_zone='UTC' WHERE id=1"); err != nil {
+		t.Fatal(err)
+	}
+	if value, err := read(); err == nil || !strings.Contains(err.Error(), "calendar selection changed") || value.mode != "" {
+		t.Fatalf("stale calendar was used: %+v, %v", value, err)
 	}
 }
 

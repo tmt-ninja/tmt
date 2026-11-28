@@ -95,6 +95,13 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
     `TestOrchPolicySnapshotUsesNativeMemberCapAndFilterOrder` covers both
     boundaries, plan order, targets and member overrides.
 
+- [x] GO1-26: Resolve Digest receiving through the shared orchestration evaluator.
+  - Native `orchestration/calendar.rs::gap_clamps_and_fold_encloses_both_occurrences`
+    maps to `TestGapClampsAndFoldEnclosesBothOccurrences` in Go's shared calendar.
+    `TestDigestCalendarPinsDSTBoundaries` retains the storage boundary assertion,
+    and `TestDigestReceivingUsesSharedPlanAndFencesCalendar` verifies projected
+    receiving, exact source and slot, the master switch and stale-calendar refusal.
+
 ## go-2 (sys, process, tmux, host, drivers, channel)
 
 - [x] GO2-01: Native selected-process start reads on Darwin and Linux before the bounded ps fallback. Rust `process/process_info.rs::stopped_and_exited_owned_children_keep_batch_parity` → `TestNativeProcessStartsForLiveStoppedAndGone` and `TestNativeStartTokenMatchesTheBoundedPSFallback`; Linux stat parsing → `TestNativeLinuxStatKeepsTheStartFieldAfterComplexCommand`. Under concurrent test suites, repeated batched ps reads exhausted the swap budget, including the fresh post-swap check. Native reads preserve the persisted token and remove those subprocesses. Each focus ancestry proof also checks both required links from one snapshot (`TestProcessTreeProvesBothSegmentsFromOneSnapshot`), with fresh rechecks and deadlines intact.
