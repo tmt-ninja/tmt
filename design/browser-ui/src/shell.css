@@ -914,3 +914,127 @@ nav.tmt-ui-rail .tmt-ui-rail-group-action:disabled {
 [data-rail='collapsed']:not([data-topbar]) .tmt-ui-shell-bar .tmt-ui-header {
   padding-left: calc(var(--tmt-ui-control-size) + var(--tmt-ui-space-l));
 }
+
+/* BEGIN app shell */
+/* The slot animates; the main column takes its destination width once, before the shift. */
+@property --tmt-ui-rail-progress {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+@media (min-width: 901px) {
+  .tmt-ui-shell {
+    --tmt-ui-rail-pill-width: 48px;
+    --tmt-ui-rail-pill-radius: 14px;
+    --tmt-ui-rail-pill-height: auto;
+    --tmt-ui-rail-target: var(--tmt-ui-rail-width);
+    --tmt-ui-rail-progress: 1;
+    --tmt-ui-rail-space: calc(var(--tmt-ui-rail-width) * var(--tmt-ui-rail-progress));
+    grid-template-columns: var(--tmt-ui-rail-space) minmax(0, 1fr);
+    overflow-x: clip;
+  }
+  .tmt-ui-shell[data-rail='collapsed'] {
+    --tmt-ui-rail-target: 0px;
+    --tmt-ui-rail-progress: 0;
+  }
+  .tmt-ui-shell > .tmt-ui-shell-content > .tmt-ui-shell-main {
+    grid-column: 1 / -1;
+    width: calc(100% - var(--tmt-ui-rail-target));
+    margin-inline-start: var(--tmt-ui-rail-space);
+  }
+  .tmt-ui-shell > .tmt-ui-rail {
+    clip-path: inset(0 max(0px, var(--tmt-ui-rail-width) - var(--tmt-ui-rail-space)) 0 0);
+  }
+  .tmt-ui-shell > .tmt-ui-rail-edge {
+    display: none;
+  }
+  .tmt-ui-shell[data-rail-pill] .tmt-ui-shell-open {
+    display: none;
+  }
+  .tmt-ui-shell[data-rail-pill]:not([data-topbar]) .tmt-ui-shell-bar .tmt-ui-header {
+    padding-left: var(--tmt-ui-header-padding-inline);
+  }
+  .tmt-ui-shell[data-rail='collapsed'][data-rail-pill] > .tmt-ui-rail {
+    display: flex;
+    position: fixed;
+    inset: calc((100dvh + var(--tmt-ui-header-height)) / 2) auto auto 16px;
+    translate: 0 -50%;
+    z-index: 49;
+    width: min(var(--tmt-ui-rail-width), var(--tmt-ui-rail-pill-width) + var(--tmt-ui-rail-space));
+    height: auto;
+    max-height: calc(100dvh - var(--tmt-ui-header-height) - 32px);
+    padding: var(--tmt-ui-space-xs);
+    border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
+    border-radius: max(
+      var(--tmt-ui-radius-s),
+      var(--tmt-ui-rail-pill-radius) - var(--tmt-ui-rail-space)
+    );
+    scroll-padding-top: 0;
+    scrollbar-width: none;
+    clip-path: none;
+  }
+  [data-rail-pill] .tmt-ui-shell-brand {
+    position: static;
+    justify-content: center;
+    margin: 0;
+    height: auto;
+    padding: 0;
+  }
+  [data-rail-pill] .tmt-ui-shell-brand::after,
+  [data-rail-pill]
+    :is(.tmt-ui-shell-brand > :not(button), .tmt-ui-rail-sub, .tmt-ui-rail-search kbd) {
+    display: none;
+  }
+  [data-rail-pill] .tmt-ui-rail-label {
+    position: absolute;
+    clip-path: inset(50%);
+  }
+  [data-rail-pill] .tmt-ui-rail-search-section:not(:empty),
+  [data-rail-pill] .tmt-ui-rail-bottom {
+    padding-block: 0;
+    margin: 0;
+  }
+  [data-rail-pill] :is(.tmt-ui-rail-item, .tmt-ui-rail-search, .tmt-ui-rail-collapse) {
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    min-height: 34px;
+    padding: 0;
+    margin: 0 auto;
+    border-radius: 9px;
+  }
+  [data-rail-pill] .tmt-ui-rail-item[data-module-current] {
+    background: var(--tmt-ui-surface-selection);
+  }
+  [data-rail-pill] .tmt-ui-rail-item > .tmt-ui-attention-dot {
+    position: absolute;
+    inset: var(--tmt-ui-space-xs) var(--tmt-ui-space-xs) auto auto;
+  }
+}
+@media (min-width: 901px) and (prefers-reduced-motion: no-preference) {
+  .tmt-ui-shell[data-rail-motion] {
+    transition: --tmt-ui-rail-progress var(--tmt-ui-motion-base) var(--tmt-ui-motion-ease-out);
+  }
+  .tmt-ui-shell[data-rail-motion] > .tmt-ui-rail {
+    transition: display var(--tmt-ui-motion-base) allow-discrete;
+  }
+  [data-rail-motion][data-rail-pill] > .tmt-ui-rail {
+    height: calc(
+      var(--tmt-ui-rail-pill-height) +
+        (100dvh - var(--tmt-ui-header-height) - 32px - var(--tmt-ui-rail-pill-height)) *
+        var(--tmt-ui-rail-progress)
+    );
+    justify-content: center;
+  }
+  [data-rail-from-pill] > .tmt-ui-rail {
+    --pill-left: calc(1 - var(--tmt-ui-rail-progress));
+    --pill-side: calc((100dvh - var(--tmt-ui-header-height) - var(--tmt-ui-rail-pill-height)) / 2);
+    clip-path: inset(
+      calc((var(--pill-side) + var(--tmt-ui-header-height)) * var(--pill-left))
+        calc((var(--tmt-ui-rail-width) - var(--tmt-ui-rail-pill-width) - 16px) * var(--pill-left))
+        calc(var(--pill-side) * var(--pill-left)) calc(16px * var(--pill-left)) round
+        calc(var(--tmt-ui-radius-l) * var(--pill-left))
+    );
+  }
+}
+/* END app shell */

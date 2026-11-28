@@ -153,11 +153,14 @@ Thin notice/action borders use the accepted 1px browser metric; field/header
 borders remain 1px. This supersedes earlier shadow and opacity proposals only.
 Input autocomplete remains a host-owned listbox. No native select or new font loading enters this leaf.
 
-The shell keeps its full 232px rail on wide screens, ignoring older collapse preferences.
-There is no collapse toggle. The rail owns one scroll column; only its brand stays sticky,
-with a rule while content scrolls underneath. Settings follows navigation in normal flow:
-at the bottom when content fits, reachable by scrolling when it does not. The phone
-menu and drawer retain their behavior and the same single scroll owner.
+The wide shell remembers whether the rail is expanded. The full rail is 232px wide and owns
+one scroll column. Its brand stays sticky, and Settings follows navigation in normal flow.
+The collapsed rail reuses the same controls as an icon pill when the host's
+`data-shell-content-column` leaves a gutter for the pill and 16px on each side.
+The pill sits below the sticky bar and leaves the content column in place. When the gutter is
+too narrow or the host has no column marker, the bar's first button expands the rail.
+Toggling the rail shifts the content with the shared motion token and respects reduced motion.
+The phone menu and drawer keep their own behavior and scroll owner.
 The shell and heading metrics follow the concept website: 232px rail, 45px module
 rows, 33px sub-items and a 45px brand mark. Body and display text use
 `Inter, -apple-system, system-ui, "Segoe UI", sans-serif`, without bundled fonts or

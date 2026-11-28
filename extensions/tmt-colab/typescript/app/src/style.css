@@ -670,11 +670,6 @@ body:has(.needs-you-header-menu):not(:has(.tmt-ui-shell)) {
     display: none;
   }
 }
-@media (min-width: 901px) {
-  .tmt-ui-shell:has(.structured-page-stage) .tmt-ui-topbar-navigation {
-    padding-inline-start: var(--colab-block-inset);
-  }
-}
 @media (max-width: 640px) {
   .structured-annotation-markers {
     inset-inline-start: auto;
@@ -2934,10 +2929,13 @@ p.question-history,
       max(0px, (100% - var(--tmt-ui-header-padding-inline) - var(--colab-lane) - 92px - 960px) / 2)
   );
 }
-/* The bar's start matches the block column's handle room only beside the side menu; collapsed, » and
-   the way back lead the bar as in the mockup (view B). */
-.tmt-ui-shell[data-rail='collapsed']:has(.structured-page-stage) .tmt-ui-topbar-navigation {
-  padding-inline-start: 0;
+/* The shared shell moves the destination layout. Interpolating the outline tracks while
+   swapping their order can momentarily give the block column the outline's narrow track. */
+.tmt-ui-shell[data-rail-motion] .structured-layout[data-outline],
+.tmt-ui-shell[data-rail-motion]
+  .workspace:has(.structured-layout[data-outline])
+  > .page-mobile-title {
+  transition: none;
 }
 .html-outline:has(> .page-outline[data-strip]) {
   inset: 0 var(--colab-lane) 0 auto;

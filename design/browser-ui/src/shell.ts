@@ -539,7 +539,10 @@ export function mountShell(
   const menu = document.createElement('nav');
   menu.className = 'tmt-ui-module-menu';
   root.prepend(open, rail);
-  const bar = root.querySelector(':scope > .tmt-ui-shell-content > .tmt-ui-shell-bar')!;
+  const bar = root.querySelector<HTMLElement>(
+    ':scope > .tmt-ui-shell-content > .tmt-ui-shell-bar',
+  )!;
+  const shellContent = bar.parentElement!;
   const railSearch = document.createElement('div');
   railSearch.className = 'tmt-ui-rail-search-section';
   // While the side menu is collapsed, the bar's controls reach the rail's places (#6833).
@@ -606,7 +609,6 @@ export function mountShell(
   const syncOpen = () => {
     const expand = wide.matches && rail$.get();
     open.setAttribute('aria-label', expand ? 'Expand side menu' : 'Open navigation');
-    // The rail's own button collapses it, or keeps open the rail floating over a collapsed page.
     const collapseLabel = expand ? 'Expand side menu' : 'Collapse side menu';
     collapse.setAttribute('aria-label', collapseLabel);
     collapse.title = hint(collapseLabel);
@@ -639,21 +641,94 @@ export function mountShell(
     if (shown) document.addEventListener('pointermove', away);
     else document.removeEventListener('pointermove', away);
   };
-  // `collapsed` only where the rail is a column: a phone's drawer is the same rail, never collapsed.
+  const wideRail = () => wide.matches && rail$.get();
+  const pillWidth = () =>
+    Number.parseFloat(win.getComputedStyle(root).getPropertyValue('--tmt-ui-rail-pill-width'));
+  const pill = () => root.hasAttribute('data-rail-pill');
+  const activeToggle = () => (wideRail() && !pill() ? open : collapse);
+  // A host can identify its content column. Without a measured gutter the bar keeps its opener.
+  // Compare positions relative to main so the animated column shift cannot change the fit.
+  let main: HTMLElement | null = null;
+  let column: HTMLElement | null = null;
+  const syncPill = () => {
+    const focused = document.activeElement;
+    const wasPill = pill();
+    const gutter =
+      main && column?.getClientRects().length
+        ? column.getBoundingClientRect().left - main.getBoundingClientRect().left
+        : 0;
+    const width = pillWidth();
+    const need = width + 32;
+    const show = wideRail() && gutter >= need;
+    root.toggleAttribute('data-rail-pill', show);
+    rail.inert = wideRail() && !show && Number.isFinite(width);
+    if (show !== wasPill && (focused === open || rail.contains(focused))) {
+      activeToggle().focus({ preventScroll: true });
+    }
+  };
+  const geometry = new ResizeObserver(syncPill);
+  geometry.observe(root);
+  const findColumn = () => {
+    const shown = shellContent.querySelector<HTMLElement>(':scope > .tmt-ui-shell-main');
+    if (main !== shown) {
+      if (main) geometry.unobserve(main);
+      main = shown;
+      if (main) geometry.observe(main);
+    }
+    const next = main?.querySelector<HTMLElement>('[data-shell-content-column]') ?? null;
+    if (column === next) return;
+    if (column) geometry.unobserve(column);
+    column = next;
+    if (column) geometry.observe(column);
+    syncPill();
+  };
+  const content = new MutationObserver(findColumn);
+  content.observe(shellContent, {
+    childList: true,
+    subtree: true,
+    attributeFilter: ['data-shell-content-column'],
+  });
+  findColumn();
+
+  // Apply the stored layout before enabling motion. A user's toggle animates between two layouts;
+  // the main column uses its final width throughout the shift.
   const applyRail = () => {
-    const collapsed = rail$.get() && wide.matches;
-    root.dataset.rail = collapsed ? 'collapsed' : 'expanded';
-    if (!collapsed) setPeek(false);
+    root.dataset.rail = wideRail() ? 'collapsed' : 'expanded';
+    if (!wideRail()) setPeek(false);
     syncOpen();
+    syncPill();
   };
   const stopRail = rail$.subscribe(applyRail);
-  wide.addEventListener('change', applyRail);
-  /** Collapses or expands the side menu, keeping focus on the control that stays drawn. */
+  const stopMotion = () => {
+    root.removeAttribute('data-rail-motion');
+    root.removeAttribute('data-rail-from-pill');
+    root.style.removeProperty('--tmt-ui-rail-pill-height');
+  };
+  const onWidth = () => {
+    stopMotion();
+    applyRail();
+  };
+  const completeMotion = (event: TransitionEvent) => {
+    if (event.target === root && event.propertyName === '--tmt-ui-rail-progress') stopMotion();
+  };
+  root.addEventListener('transitionend', completeMotion);
+  wide.addEventListener('change', onWidth);
+  const animate = win.matchMedia('(prefers-reduced-motion: no-preference)');
   const toggleRail = (next: boolean, keyboard: boolean) => {
     const hadFocus = rail.contains(document.activeElement) || open === document.activeElement;
+    const measurePill = () => {
+      root.style.removeProperty('--tmt-ui-rail-pill-height');
+      root.style.setProperty('--tmt-ui-rail-pill-height', `${rail.offsetHeight}px`);
+    };
+    const moving = animate.matches && Number.isFinite(pillWidth());
+    root.toggleAttribute('data-rail-motion', moving);
+    const fromPill = moving && !next && pill();
+    if (fromPill) measurePill();
+    root.toggleAttribute('data-rail-from-pill', fromPill);
     rail$.set(next);
+    if (moving && pill()) measurePill();
     if (!hadFocus && !keyboard) return;
-    (next ? open : collapse).focus({ focusVisible: keyboard } as FocusOptions);
+    activeToggle().focus({ focusVisible: keyboard } as FocusOptions);
   };
   collapse.onclick = (event) => toggleRail(!rail$.get(), event.detail === 0);
   const shortcut = (event: KeyboardEvent) => {
@@ -672,13 +747,13 @@ export function mountShell(
     toggleRail(!rail$.get(), true);
   };
   document.addEventListener('keydown', shortcut);
-  // A pointer at the window's left edge floats the collapsed rail over the page until it leaves;
-  // focus inside it keeps it, and Escape or a choice closes it.
+  // Authored Shell stages keep the existing edge peek. The app replaces it with the pill and
+  // a top-bar fallback, which do not cover the content.
   const edge = document.createElement('div');
   edge.className = 'tmt-ui-rail-edge';
   edge.setAttribute('aria-hidden', 'true');
   edge.addEventListener('pointerenter', (event) => {
-    if (event.pointerType !== 'touch' && root.dataset.rail === 'collapsed') setPeek(true);
+    if (event.pointerType !== 'touch' && wideRail() && !Number.isFinite(pillWidth())) setPeek(true);
   });
   rail.addEventListener('focusout', (event) => {
     if ('railPeek' in root.dataset && !rail.contains(event.relatedTarget as Node | null))
@@ -704,7 +779,9 @@ export function mountShell(
     }
   };
   const showTip = (anchor: HTMLElement) => {
-    const text = anchor.dataset.note;
+    const text =
+      anchor.dataset.note ??
+      (pill() ? anchor.querySelector('.tmt-ui-rail-label')?.textContent : undefined);
     if (!text || root.dataset.drawer === 'open') return hideTip();
     release();
     const scope = layerHost?.root;
@@ -741,7 +818,9 @@ export function mountShell(
   // keeps working, and the tip follows the pointer or keyboard focus, never a press or a focus
   // the shell restores.
   const noted = (target: EventTarget | null) =>
-    target instanceof Element ? target.closest<HTMLElement>('[data-note]') : null;
+    target instanceof Element
+      ? target.closest<HTMLElement>('[data-note], .tmt-ui-rail-item, .tmt-ui-rail-search')
+      : null;
   rail.addEventListener('pointerover', (event) => {
     const anchor = noted(event.target);
     if (anchor && anchor !== tipAnchor && anchor !== pressed) showTip(anchor);
@@ -1354,13 +1433,18 @@ export function mountShell(
       document.removeEventListener('keydown', close);
       document.removeEventListener('keydown', shortcut);
       document.removeEventListener('pointerdown', outside);
-      wide.removeEventListener('change', applyRail);
+      root.removeEventListener('transitionend', completeMotion);
+      wide.removeEventListener('change', onWidth);
       stopRail();
       goToMenu.dispose();
       goTo.remove();
-      edge.remove();
-      delete root.dataset.rail;
       setPeek(false);
+      edge.remove();
+      content.disconnect();
+      geometry.disconnect();
+      stopMotion();
+      root.removeAttribute('data-rail-pill');
+      delete root.dataset.rail;
       hideTip();
       open.remove();
       tip.remove();
