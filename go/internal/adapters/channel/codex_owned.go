@@ -215,6 +215,9 @@ func createCodexGeneration(root home.Root, generation string) (*codexGenerationF
 	}
 	if err := parent.root.Mkdir(generation, 0700); err != nil {
 		parent.close()
+		if errors.Is(err, fs.ErrExist) {
+			return nil, errors.Join(errCodexCleanup, err)
+		}
 		return nil, err
 	}
 	dir, err := openPrivateChannelChild(parent.root, generation, false)

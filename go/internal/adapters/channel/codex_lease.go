@@ -25,42 +25,56 @@ type codexEnrollment struct {
 	build    string
 }
 
-// NOT PORTED (#6938): supervisor control with EOF cleanup on launcher death.
-// codexLease is adapter-internal until the supervisor owns the app-server.
+// codexLease tracks the original endpoint and immutable foreground candidate.
 type codexLease struct {
-	root     home.Root
-	record   codexRecord
-	server   *ownedCodexServer
-	observer runtime.Observer
-	command  ports.ProcessSpec
-	cwd      string
-	build    string
+	root            home.Root
+	record          codexRecord
+	server          *ownedCodexServer
+	endpoint        codexEndpoint
+	endpointProcess processRecord
+	observer        runtime.Observer
+	command         ports.ProcessSpec
+	cwd             string
+	build           string
 }
 
 func startCodexLease(ctx context.Context, runner ports.Process, req codexEnrollment) (*codexLease, error) {
+	ctx, cancel := context.WithTimeout(ctx, codexStartupBudget)
+	defer cancel()
+	record, observer, err := beginCodexLaunch(ctx, runner, req)
+	if err != nil {
+		return nil, err
+	}
+	return startCodexFromRecord(ctx, req.root, record, req.plan, req.build, observer)
+}
+
+func beginCodexLaunch(ctx context.Context, runner ports.Process, req codexEnrollment) (codexRecord, runtime.Observer, error) {
+	observer := runtime.Observer{Process: runner}
 	state, pane := core.EvaluateBinding(req.identity, &req.binding, req.probe)
 	if state != core.BindingActive || pane == nil || pane.Incarnation == nil || req.binding.PaneIncarnation == nil ||
 		*pane.Incarnation != *req.binding.PaneIncarnation {
-		return nil, ErrEnrollment
+		return codexRecord{}, observer, ErrEnrollment
 	}
-	ctx, cancel := context.WithTimeout(ctx, codexStartupBudget)
-	defer cancel()
 	if err := PreflightCodex(ctx, runner, req.root, req.plan.selected.Path); err != nil {
-		return nil, err
-	}
-	cwd, err := filepath.EvalSymlinks(req.plan.cwd)
-	if err != nil || !validLaunchPath(cwd) {
-		return nil, ErrEnrollment
+		return codexRecord{}, observer, err
 	}
 	record := newCodexRecord(req.identity, req.binding, req.owner)
-	observer := runtime.Observer{Process: runner}
-	if err := beginCodexRecord(ctx, req.root, observer, record); err != nil {
-		return nil, err
+	return record, observer, beginCodexRecord(ctx, req.root, observer, record)
+}
+
+func startCodexFromRecord(ctx context.Context, root home.Root, record codexRecord, plan CodexPlan, build string, observer runtime.Observer) (*codexLease, error) {
+	l := &codexLease{root: root, record: record, observer: observer, build: build}
+	var err error
+	l.cwd, err = filepath.EvalSymlinks(plan.cwd)
+	if err == nil && !validLaunchPath(l.cwd) {
+		err = ErrEnrollment
 	}
-	l := &codexLease{root: req.root, record: record, observer: observer, cwd: cwd, build: req.build}
-	l.server, err = startOwnedCodex(ctx, req.root, record.Generation, req.plan, observer)
 	if err == nil {
-		err = l.prepare(ctx, req.plan)
+		l.server, err = startOwnedCodex(ctx, root, record.Generation, plan, observer)
+	}
+	if err == nil {
+		l.endpoint, l.endpointProcess = l.server.endpoint, l.server.process
+		err = l.prepare(ctx, plan)
 	}
 	if err == nil {
 		return l, nil
@@ -73,9 +87,9 @@ func startCodexLease(ctx context.Context, runner ports.Process, req codexEnrollm
 			return nil, errors.Join(err, cleanupErr)
 		}
 	}
-	cleanup, cancelCleanup := context.WithTimeout(context.WithoutCancel(ctx), lockWait)
-	defer cancelCleanup()
-	return nil, errors.Join(err, retireCodexRecord(cleanup, l.root, l.record))
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), lockWait)
+	defer cancel()
+	return nil, errors.Join(err, retireCodexRecord(cleanup, root, record))
 }
 
 func (l *codexLease) prepare(ctx context.Context, plan CodexPlan) error {
@@ -95,20 +109,20 @@ func (l *codexLease) prepare(ctx context.Context, plan CodexPlan) error {
 			return ErrEnrollment
 		}
 	}
-	command, err := plan.remoteForeground(l.server.endpoint.address, l.server.endpoint.token)
+	command, err := plan.remoteForeground(l.endpoint.address, l.endpoint.token)
 	if err != nil {
 		return err
 	}
 	err = withCodexRecord(ctx, l.root, l.record, func(dir *channelDir, record *codexRecord) error {
 		if record.Fresh != nil || record.Ready != nil || record.Foreground.Process != nil ||
 			processState(ctx, l.observer, record.LaunchOwner) != runtime.Alive ||
-			processState(ctx, l.observer, l.server.process) != runtime.Alive {
+			processState(ctx, l.observer, l.endpointProcess) != runtime.Alive {
 			return ErrEnrollmentChanged
 		}
 		if plan.resume != "" {
-			record.Ready = &codexReady{Server: l.server.process, Port: l.server.endpoint.address.Port(), Thread: plan.resume}
+			record.Ready = &codexReady{Server: l.endpointProcess, Port: l.endpoint.address.Port(), Thread: plan.resume}
 		} else {
-			record.Fresh = &codexFresh{Server: l.server.process, Port: l.server.endpoint.address.Port(), CWD: l.cwd}
+			record.Fresh = &codexFresh{Server: l.endpointProcess, Port: l.endpoint.address.Port(), CWD: l.cwd}
 		}
 		return dir.writeCodex(*record)
 	})
@@ -119,11 +133,11 @@ func (l *codexLease) prepare(ctx context.Context, plan CodexPlan) error {
 }
 
 func (l *codexLease) connect(ctx context.Context) (*codexClient, error) {
-	if processState(ctx, l.observer, l.server.process) != runtime.Alive {
+	if processState(ctx, l.observer, l.endpointProcess) != runtime.Alive {
 		return nil, ErrEnrollment
 	}
 	deadline, _ := ctx.Deadline()
-	return connectCodex(ctx, l.server.endpoint, deadline, l.build)
+	return connectCodex(ctx, l.endpoint, deadline, l.build)
 }
 
 // foregroundStarted persists the original child before discovering the one
@@ -159,7 +173,7 @@ func (l *codexLease) foregroundStarted(ctx context.Context, foreground core.Proc
 			record.Foreground.Process == nil || *record.Foreground.Process != child ||
 			processState(ctx, l.observer, record.LaunchOwner) != runtime.Alive ||
 			processState(ctx, l.observer, child) != runtime.Alive ||
-			processState(ctx, l.observer, l.server.process) != runtime.Alive {
+			processState(ctx, l.observer, l.endpointProcess) != runtime.Alive {
 			return ErrEnrollmentChanged
 		}
 		record.Fresh.Thread = &thread
@@ -219,7 +233,7 @@ func (l *codexLease) foregroundAdmitted(ctx context.Context, identity core.Ident
 			!l.ownsEndpoint(*record) || record.Foreground.Process == nil || *record.Foreground.Process != child ||
 			processState(ctx, l.observer, record.LaunchOwner) != runtime.Alive ||
 			processState(ctx, l.observer, child) != runtime.Alive ||
-			processState(ctx, l.observer, l.server.process) != runtime.Alive {
+			processState(ctx, l.observer, l.endpointProcess) != runtime.Alive {
 			return ErrEnrollmentChanged
 		}
 		if record.Ready != nil {
@@ -239,9 +253,9 @@ func (l *codexLease) foregroundAdmitted(ctx context.Context, identity core.Ident
 
 func (l *codexLease) ownsEndpoint(record codexRecord) bool {
 	if fresh := record.Fresh; fresh != nil {
-		return fresh.CWD == l.cwd && fresh.Server == l.server.process && fresh.Port == l.server.endpoint.address.Port()
+		return fresh.CWD == l.cwd && fresh.Server == l.endpointProcess && fresh.Port == l.endpoint.address.Port()
 	}
-	return record.Ready != nil && record.Ready.Server == l.server.process && record.Ready.Port == l.server.endpoint.address.Port()
+	return record.Ready != nil && record.Ready.Server == l.endpointProcess && record.Ready.Port == l.endpoint.address.Port()
 }
 
 // withdraw follows a confirmed foreground wait or a proven no-spawn. It

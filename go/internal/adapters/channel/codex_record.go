@@ -117,6 +117,10 @@ func (r codexRecord) sameLease(other codexRecord) bool {
 	return r.BindingID == other.BindingID && r.Generation == other.Generation && r.LaunchOwner == other.LaunchOwner
 }
 
+func sameCodexLaunch(a, b codexRecord) bool {
+	return a.sameLease(b) && a.Attribution != nil && b.Attribution != nil && *a.Attribution == *b.Attribution
+}
+
 func (r codexRecord) endedFor(ctx context.Context, observer runtime.Observer, incoming codexRecord) bool {
 	if processState(ctx, observer, r.LaunchOwner) != runtime.Gone {
 		return false
@@ -237,8 +241,7 @@ func withCodexRecord(ctx context.Context, root home.Root, lease codexRecord, cha
 	if err != nil {
 		return err
 	}
-	if current == nil || !current.sameLease(lease) ||
-		current.Attribution == nil || lease.Attribution == nil || *current.Attribution != *lease.Attribution {
+	if current == nil || !sameCodexLaunch(*current, lease) {
 		return ErrEnrollmentChanged
 	}
 	if err := ctx.Err(); err != nil {
