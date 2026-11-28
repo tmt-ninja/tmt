@@ -197,7 +197,7 @@ fn digest_frame_timing() {
                 (0..100)
                     .map(|i| {
                         measure(&mut app, &mut terminal, |app, _| {
-                            key(app, KeyCode::Char(if i % 2 == 0 { '1' } else { '3' }))
+                            key(app, KeyCode::Char(if i % 2 == 0 { '1' } else { '2' }))
                         })
                     })
                     .collect(),

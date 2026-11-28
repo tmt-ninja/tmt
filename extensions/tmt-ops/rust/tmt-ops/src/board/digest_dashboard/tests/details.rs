@@ -33,7 +33,7 @@ fn key(app: &mut App, code: KeyCode) -> Effect {
 
 fn digest() -> App {
     let mut app = valued_board();
-    press(&mut app, '3');
+    press(&mut app, '2');
     select_worker(&mut app);
     app
 }
@@ -105,7 +105,7 @@ fn the_key_is_offered_only_on_the_digest_tab() {
     paint(&mut app, 160, 44);
     assert!(!app.bindings().contains_key("]"));
     key(&mut app, KeyCode::Char(']'));
-    press(&mut app, '3');
+    press(&mut app, '2');
     assert!(app.bindings().contains_key("]"));
 }
 
@@ -117,7 +117,7 @@ fn the_all_rows_delivery_counts_modes_and_names_the_switch() {
         serde_json::json!({"enabled":true,"default":"auto","text":"Digest: on (auto)"});
     let mut app = valued_board();
     app.labels = crate::labels::Supplied::from_document("digest", &document, false);
-    press(&mut app, '3');
+    press(&mut app, '2');
     app.workspace.selected = Some(crate::board::workspace::OpsTarget::DigestAll);
     app.workspace_reconcile();
     let lines = super::super::details::delivery(&app, 121_000, app.selected_row());
