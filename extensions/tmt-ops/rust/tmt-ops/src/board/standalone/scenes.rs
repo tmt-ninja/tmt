@@ -544,6 +544,7 @@ fn run_window_is_centered_and_escape_leaves_the_run_stoppable() {
         .collect();
     assert!(text.contains("worker · /work/core-ops-spinner"));
     assert!(text.contains("Stop"));
+    assert!(text.contains("^C stop · Esc hide, keeps running"));
 
     assert_eq!(press(&mut app, KeyCode::Esc), Effect::None);
     assert!(!app.standalone.shown());
@@ -622,6 +623,23 @@ fn run_result_hints_shorten_from_the_left_and_share_the_button_row() {
     assert!(row(footer).contains("e edit · Esc close"));
     assert!(!row(footer).contains("↑↓ scroll"));
     assert!(row(footer - 1).contains("lines · showing"));
+
+    let app = capture_talk_run("talk-run-failed-stderr", crate::look::Look::default(), 100);
+    screen
+        .draw(|frame| app.standalone.render(frame, &app, frame.area()))
+        .unwrap();
+    let hits = app.standalone.hits.borrow();
+    let buffer = screen.backend().buffer();
+    let footer: String = (0..100)
+        .map(|x| buffer[(x, hits.buttons[0].unwrap().y)].symbol())
+        .collect();
+    assert!(footer.contains("s send · Esc close"));
+    assert!(!footer.contains("e edit"));
+    let (x, y) = (hits.content.x, hits.content.y);
+    let track = app.look().role(tmt_cli_style::Role::Track).bg;
+    assert_eq!(buffer[(x, y)].symbol(), " ");
+    assert_eq!(Some(buffer[(x, y)].bg), track);
+    assert_eq!(buffer[(x + 1, y)].symbol(), "/");
 }
 
 #[test]

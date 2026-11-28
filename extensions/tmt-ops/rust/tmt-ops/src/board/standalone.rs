@@ -165,6 +165,7 @@ enum OutputScroll {
 }
 
 const MAX_COMMAND: usize = tmt_pty_protocol::COMMAND_LIMIT;
+const OUTPUT_LEFT_PADDING: u16 = 1;
 const COMMAND_FIELD: &[FieldKind] = &[FieldKind::Text];
 const LEGACY_OUTPUT: &str = "Live output needs a newer tmt.";
 
@@ -650,7 +651,7 @@ impl Controller {
                     Button::primary("Hide"),
                     Button::secondary("Stop").enabled(!stopping),
                 ],
-                "ctrl-c stop · Esc hide, keeps running",
+                "^C stop · Esc hide, keeps running",
                 &[][..],
             ),
             Some(Page::Finished { result, keeping }) => {
@@ -778,11 +779,6 @@ impl Controller {
             hits.content.height += area.position.height;
         }
         if finished {
-            let hints = if self.run_recipient.is_some() {
-                "s send · k keep · r run again · e edit · Esc close"
-            } else {
-                "k keep · r run again · e edit · Esc close"
-            };
             let button_end = hits
                 .buttons
                 .iter()
@@ -795,7 +791,7 @@ impl Controller {
                 .right()
                 .saturating_sub(button_end)
                 .saturating_sub(2);
-            if let Some(hint) = result_hints_that_fit(hints, available) {
+            if let Some(hint) = result_hints_that_fit(self.run_recipient.is_some(), available) {
                 strip::paint_right(
                     frame.buffer_mut(),
                     area.footer,
@@ -979,7 +975,11 @@ impl Controller {
                 })
                 .patch(look.role(Role::Track));
             frame.buffer_mut().set_style(rect, style);
-            strip::paint_left(frame.buffer_mut(), rect, Line::styled(&row.text, style));
+            strip::paint_left(
+                frame.buffer_mut(),
+                output_text_area(rect),
+                Line::styled(&row.text, style),
+            );
         }
         if rows.is_empty() && content.height > 0 {
             let style = look.role(Role::Muted).patch(look.role(Role::Track));
@@ -988,7 +988,11 @@ impl Controller {
                 ..content
             };
             frame.buffer_mut().set_style(rect, style);
-            strip::paint_left(frame.buffer_mut(), rect, Line::styled("No output.", style));
+            strip::paint_left(
+                frame.buffer_mut(),
+                output_text_area(rect),
+                Line::styled("No output.", style),
+            );
         }
         let shown = rows.len().min(start + content.height as usize);
         let units = if rows.len() == 1 { "line" } else { "lines" };
@@ -1055,19 +1059,39 @@ impl Controller {
     }
 }
 
-fn result_hints_that_fit(mut hints: &str, width: u16) -> Option<&str> {
+fn result_hints_that_fit(talk: bool, width: u16) -> Option<&'static str> {
+    if talk {
+        return [
+            "s send · k keep · r run again · e edit · Esc close",
+            "s send · Esc close",
+            "s send",
+        ]
+        .into_iter()
+        .find(|hint| hint.width() <= usize::from(width));
+    }
+    let mut hints = "k keep · r run again · e edit · Esc close";
     while hints.width() > usize::from(width) {
         hints = hints.split_once(" · ")?.1;
     }
     Some(hints)
 }
 
+fn output_text_area(area: Rect) -> Rect {
+    let left = OUTPUT_LEFT_PADDING.min(area.width);
+    Rect {
+        x: area.x + left,
+        width: area.width - left,
+        ..area
+    }
+}
+
 fn wrapped_rows(lines: &[OutputLine], width: u16) -> Vec<OutputLine> {
+    let text_width = width.saturating_sub(OUTPUT_LEFT_PADDING).max(1);
     lines
         .iter()
         .flat_map(|line| {
             let shown = line.labelled();
-            let rows = tmt_tui::text::lines(&shown, width.max(1), tmt_tui::style::TextFlow::Wrap);
+            let rows = tmt_tui::text::lines(&shown, text_width, tmt_tui::style::TextFlow::Wrap);
             rows.into_iter().map(|text| OutputLine {
                 text,
                 stderr: line.stderr,
