@@ -37,41 +37,57 @@ type readinessObserver interface {
 func checkInitialIdle(ctx context.Context, payload []byte, startupInput bool, identity core.Identity,
 	binding core.Binding, probe core.EndpointProbe, observer readinessObserver, hookPID int, reportedPID string, hasReportedPID bool,
 ) (bool, error) {
-	session := startupSession(payload)
-	if !startupInput || session == "" || binding.Session.RuntimeState != "running" ||
-		binding.Session.ProviderSessionID == nil || *binding.Session.ProviderSessionID != session {
+	event := decodeStartup(payload)
+	if !startupInput || !event.idle || binding.Session.RuntimeState != "running" ||
+		binding.Session.ProviderSessionID == nil || *binding.Session.ProviderSessionID != event.session {
 		return false, nil
 	}
+	expected := recordedIncarnation(binding.Session.Runtime)
+	if !expected.Valid() {
+		return false, nil
+	}
+	main, err := proveStartup(ctx, identity, binding, probe, recordedIncarnation(binding.Session.LaunchOwner),
+		observer, hookPID, reportedPID, hasReportedPID)
+	return err == nil && main == expected, err
+}
+
+func proveStartup(ctx context.Context, identity core.Identity, binding core.Binding, probe core.EndpointProbe,
+	owner runtime.Incarnation, observer readinessObserver, hookPID int, reportedPID string, hasReportedPID bool,
+) (runtime.Incarnation, error) {
 	owned, pane := core.EvaluateBinding(identity, &binding, probe)
 	if owned != core.BindingActive || pane.Incarnation == nil || binding.PaneIncarnation == nil ||
-		*pane.Incarnation != *binding.PaneIncarnation || binding.PanePID > math.MaxInt32 {
-		return false, nil
+		*pane.Incarnation != *binding.PaneIncarnation || binding.PanePID > math.MaxInt32 || !owner.Valid() {
+		return runtime.Incarnation{}, nil
 	}
-	process := recordedIncarnation(binding.Session.Runtime)
-	owner := recordedIncarnation(binding.Session.LaunchOwner)
-	if !process.Valid() || !owner.Valid() {
-		return false, nil
+	main, err := observer.MainInPane(ctx, hookPID, int(binding.PanePID), "claude")
+	if err != nil || !main.Valid() {
+		return runtime.Incarnation{}, err
 	}
 	if hasReportedPID {
 		pid, err := strconv.ParseUint(reportedPID, 10, 31)
-		if err != nil || pid != uint64(process.PID) {
-			return false, nil
+		if err != nil || pid != uint64(main.PID) {
+			return runtime.Incarnation{}, nil
 		}
 	}
-	main, err := observer.MainInPane(ctx, hookPID, int(binding.PanePID), "claude")
-	if err != nil || main != process {
-		return false, err
-	}
 	liveOwner, err := observer.Observe(ctx, owner.PID)
-	if err != nil {
-		return false, err
+	if err != nil || liveOwner.Match(owner) != runtime.Alive {
+		return runtime.Incarnation{}, err
 	}
-	return ctx.Err() == nil && liveOwner.Match(owner) == runtime.Alive, nil
+	if err := ctx.Err(); err != nil {
+		return runtime.Incarnation{}, err
+	}
+	return main, nil
 }
 
-func startupSession(input []byte) string {
+type startup struct {
+	session    string
+	transition string
+	idle       bool
+}
+
+func decodeStartup(input []byte) startup {
 	if len(input) > hookInputLimit || !utf8.Valid(input) {
-		return ""
+		return startup{}
 	}
 	var event struct {
 		Name    string          `json:"hook_event_name"`
@@ -80,12 +96,20 @@ func startupSession(input []byte) string {
 		Prompt  json.RawMessage `json:"prompt_id"`
 		Agent   json.RawMessage `json:"agent_id"`
 	}
-	if json.Unmarshal(input, &event) != nil || event.Name != "SessionStart" ||
-		(event.Source != "startup" && event.Source != "resume") || event.Prompt != nil || event.Agent != nil ||
+	if json.Unmarshal(input, &event) != nil || event.Name != "SessionStart" || event.Agent != nil ||
 		len(event.Session) > 256 || strings.TrimSpace(event.Session) == "" || strings.ContainsFunc(event.Session, unicode.IsControl) {
-		return ""
+		return startup{}
 	}
-	return event.Session
+	var transition string
+	switch event.Source {
+	case "startup":
+		transition = "started"
+	case "resume":
+		transition = "resumed"
+	default:
+		return startup{}
+	}
+	return startup{session: event.Session, transition: transition, idle: event.Prompt == nil}
 }
 
 func recordedIncarnation(value *core.ProcessIncarnation) runtime.Incarnation {

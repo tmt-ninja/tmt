@@ -1,0 +1,94 @@
+//go:build darwin || linux
+
+package claude
+
+import (
+	"context"
+	"errors"
+	"os"
+
+	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
+	"github.com/tmt-ninja/tmt/go/internal/core"
+)
+
+// StartupCapture holds the binding and launch captured by the caller. Owner
+// comes from the stored launch intent or the admitted binding. StartupInput
+// comes from the invocation's captured interactive, empty-prompt selection.
+type StartupCapture struct {
+	Identity     core.Identity
+	Binding      core.Binding
+	Probe        core.EndpointProbe
+	Owner        core.ProcessIncarnation
+	StartupInput bool
+	ObservedAtMs uint64
+}
+
+// LaunchActivityObservation is the verified startup evidence handed to the
+// storage writer. This adapter-local shape matches the proposed binding port.
+type LaunchActivityObservation struct {
+	ExpectedBinding core.Binding
+	Owner           core.ProcessIncarnation
+	Runtime         core.ProcessIncarnation
+	ProviderSession string
+	Transition      string
+	InitialIdle     bool
+	ObservedAtMs    uint64
+}
+
+// LaunchActivityWriter compares the captured binding, incarnation and launch
+// fence in one storage write. A stale comparison returns false. An early
+// observation can only stage an existing intent. A replay must preserve newer activity.
+type LaunchActivityWriter interface {
+	ObserveLaunchActivity(context.Context, LaunchActivityObservation) (bool, error)
+}
+
+// AdmitStartup verifies a Claude callback and sends one observation to the
+// binding CAS. A staged observation does not yet establish deliverability.
+func AdmitStartup(ctx context.Context, payload []byte, capture StartupCapture, observer runtime.Observer, writer LaunchActivityWriter) (bool, error) {
+	reportedPID, present := os.LookupEnv("CLAUDE_PID")
+	return admitStartup(ctx, payload, capture, observer, writer, os.Getpid(), reportedPID, present)
+}
+
+func admitStartup(ctx context.Context, payload []byte, capture StartupCapture, observer readinessObserver,
+	writer LaunchActivityWriter, hookPID int, reportedPID string, hasReportedPID bool,
+) (bool, error) {
+	event := decodeStartup(payload)
+	const maxObservedAt = 9007199254740991
+	if event.session == "" || capture.ObservedAtMs == 0 || capture.ObservedAtMs > maxObservedAt {
+		return false, nil
+	}
+	binding := capture.Binding
+	recorded := binding.Session
+	switch recorded.RuntimeState {
+	case "running":
+		if recorded.LaunchOwner == nil || *recorded.LaunchOwner != capture.Owner ||
+			recorded.ProviderSessionID == nil || *recorded.ProviderSessionID != event.session ||
+			!recordedIncarnation(recorded.Runtime).Valid() {
+			return false, nil
+		}
+	case "unknown", "ended":
+		// The writer must still find and compare the exact existing launch intent.
+	default:
+		return false, nil
+	}
+	main, err := proveStartup(ctx, capture.Identity, binding, capture.Probe, recordedIncarnation(&capture.Owner),
+		observer, hookPID, reportedPID, hasReportedPID)
+	if err != nil || !main.Valid() {
+		return false, err
+	}
+	if recorded.RuntimeState == "running" && main != recordedIncarnation(recorded.Runtime) {
+		return false, nil
+	}
+	if writer == nil {
+		return false, errors.New("Claude startup requires a binding activity writer")
+	}
+	if err := ctx.Err(); err != nil {
+		return false, err
+	}
+	return writer.ObserveLaunchActivity(ctx, LaunchActivityObservation{
+		ExpectedBinding: binding, Owner: capture.Owner,
+		Runtime:         core.ProcessIncarnation{PID: uint64(main.PID), StartIdentity: main.Start},
+		ProviderSession: event.session, Transition: event.transition,
+		InitialIdle: capture.StartupInput && event.idle, ObservedAtMs: capture.ObservedAtMs,
+	})
+}
