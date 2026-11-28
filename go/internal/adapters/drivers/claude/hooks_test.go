@@ -80,3 +80,55 @@ func TestLifecycleHooksRefuseUnsupportedSettings(t *testing.T) {
 		}
 	}
 }
+
+func TestClaudeLaunchesAddNoPluginDirAndKeepTheUsersOwn(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		resume string
+		extra  []string
+	}{
+		{name: "fresh"},
+		{name: "explicit plugin", extra: []string{"--plugin-dir", "/user/plugin"}},
+		{name: "resume with explicit plugin", resume: "11111111-1111-4111-8111-111111111111", extra: []string{"--plugin-dir", "/user/plugin"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			settingsDir := filepath.Join(dir, ".claude")
+			t.Setenv("CLAUDE_CONFIG_DIR", settingsDir)
+			if err := os.Mkdir(settingsDir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			globalSettings := filepath.Join(settingsDir, "settings.json")
+			if err := os.WriteFile(globalSettings, []byte("{}"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			launcher := filepath.Join(dir, flavor.Binary)
+			if err := os.WriteFile(launcher, []byte("#!/bin/sh\nexit 0\n"), 0700); err != nil {
+				t.Fatal(err)
+			}
+			driver := Driver{Executable: "/bin/sh", HookExecutable: launcher}
+			command, err := driver.LaunchCommand(ports.AgentLaunch{HomeDir: dir, Resume: tc.resume, Extra: tc.extra})
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := tc.extra
+			if tc.resume != "" {
+				expected = append([]string{"--resume", tc.resume}, expected...)
+			}
+			if len(command.Args) != len(expected)+2 || !slices.Equal(command.Args[:len(expected)], expected) ||
+				command.Args[len(expected)] != "--settings" {
+				t.Fatalf("prepared argv = %q, want %q followed by inline settings", command.Args, expected)
+			}
+			var settings struct{ Hooks map[string][]hookGroup }
+			if err := json.Unmarshal([]byte(command.Args[len(expected)+1]), &settings); err != nil || len(settings.Hooks["Stop"]) == 0 {
+				t.Fatalf("prepared Stop hook = %v, err = %v", settings.Hooks["Stop"], err)
+			}
+			if got, err := os.ReadFile(globalSettings); err != nil || string(got) != "{}" {
+				t.Fatalf("provider settings = %q, %v", got, err)
+			}
+			if _, err := os.Lstat(filepath.Join(dir, "provider-plugins")); !os.IsNotExist(err) {
+				t.Fatalf("provider-plugins must be absent, stat error = %v", err)
+			}
+		})
+	}
+}
