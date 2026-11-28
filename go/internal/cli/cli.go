@@ -48,6 +48,7 @@ type application struct {
 }
 
 func (app application) run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	// NOT PORTED (CLI-43): External commands and help-tail rewriting.
 	invocation, failure := parse(args)
 	if failure != nil {
 		return publish(stdout, stderr, failure, invocation.json)
@@ -127,7 +128,10 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 	case "__hook":
 		return publish(stdout, stderr, app.runHook(ctx, root, invocation), invocation.json)
 	}
-	// NOT PORTED (#6938): compose the remaining commands over storage and host ports.
+	// NOT PORTED (CLI-01, CLI-02, CLI-03, CLI-04, CLI-06, CLI-07, CLI-24,
+	// CLI-30, CLI-31, CLI-32, CLI-33, CLI-34, CLI-35, CLI-36, CLI-37, CLI-38,
+	// CLI-39, CLI-41, CLI-42, CLI-47, CLI-48, CLI-49):
+	// Remaining public commands and internal entry points.
 	failure := &output.Failure{
 		Code: "NOT_PORTED", Message: fmt.Sprintf("Command '%s' is not yet ported.", strings.Join(invocation.path, " ")), Status: 2,
 	}

@@ -40,11 +40,11 @@ func (b bindingCLI) bindCommand(ctx context.Context, inv invocation) output.Repo
 		ref, callerPID, rawName = claim.pane, claim.serverPID, inv.operands[0]
 	} else {
 		if inv.has("expect") || inv.has("identity") {
-			// NOT PORTED (#6938): discovery-digest guarded add.
+			// NOT PORTED (CLI-05): Discovery-guarded add.
 			return bindingUnavailable("--expect/--identity")
 		}
 		if len(inv.operands) < 2 {
-			// NOT PORTED (#6938): selecting the tmux marked pane.
+			// NOT PORTED (CLI-06): Exact marked-pane selection.
 			return bindingUnavailable("marked pane selection")
 		}
 		target := inv.operands[0]
@@ -135,7 +135,7 @@ func (b bindingCLI) bind(ctx context.Context, ref ports.PaneRef, callerPID uint6
 		return bindingEntry{}, bindingUnverified()
 	}
 	if pane.Marker != nil {
-		// NOT PORTED (#6938): reclaiming orphaned and legacy pane metadata.
+		// NOT PORTED (CLI-09): Reclaiming orphaned and legacy pane metadata.
 		return bindingEntry{}, bindingUnverified()
 	}
 	if existing.binding != nil {

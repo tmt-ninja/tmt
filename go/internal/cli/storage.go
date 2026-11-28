@@ -150,6 +150,7 @@ func storageSize(bytes, walBytes uint64) string {
 	return size + " and a " + clistyle.FormatBytes(walBytes) + " log"
 }
 
+// NOT PORTED (CLI-46): Native maintenance guidance after retained-cleanup approval.
 func runStorage(ctx context.Context, root home.Root) output.Report {
 	f, err := storage.InspectFootprint(ctx, root)
 	if err != nil {

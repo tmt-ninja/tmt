@@ -42,7 +42,7 @@ func (app application) prepareTalk(ctx context.Context, root home.Root, inv invo
 	}
 	for _, option := range []string{"remote", "room", "passthrough", "expect-name"} {
 		if inv.has(option) {
-			// NOT PORTED (#6938): nonlocal routing, passthrough and delivery policy.
+			// NOT PORTED (CLI-15, CLI-16, CLI-17, CLI-18): Remote and room routes, passthrough and name pinning.
 			return plan, &output.Failure{Code: "NOT_PORTED", Message: fmt.Sprintf("Talk option '--%s' is not yet ported.", option), Status: 2}
 		}
 	}
@@ -260,7 +260,7 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 	}
 	if recipient == nil {
 		if directPane {
-			// NOT PORTED (#6938): direct pane delivery and live driver routing.
+			// NOT PORTED (CLI-14): Direct-pane delivery with verified driver routing.
 			return &output.Failure{Code: "NOT_PORTED", Message: "Talk to a direct pane is not yet ported.", Status: 2}
 		}
 		return identityMissing(plan.target)

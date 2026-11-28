@@ -70,7 +70,7 @@ func (s callerSelector) observe(ctx context.Context) (callerClaim, core.Endpoint
 	tmux, _ := s.lookup("TMUX")
 	pane, _ := s.lookup("TMUX_PANE")
 	if tmux == "" && pane == "" {
-		// NOT PORTED (#6938): bounded tmux caller discovery by process ancestry.
+		// NOT PORTED (CLI-08): Bounded tmux caller discovery by process ancestry.
 		return callerClaim{}, core.EndpointProbe{}, identityRequired()
 	}
 	claim, ok := parseCallerClaim(tmux, pane)

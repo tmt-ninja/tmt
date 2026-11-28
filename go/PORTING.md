@@ -44,6 +44,56 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 
 ## go-3 (cli, output)
 
+- [ ] `CLI-01` Implement `resume` and `run --resume` with a verified remembered session, plus preset inspection, forget, retry, move, fresh start and driver switching.
+- [ ] `CLI-02` Implement `send-now` with authorization, a claim on the original queued attempt and verified delivery settlement.
+- [ ] `CLI-03` Implement `focus`, `focus --client` and `focus --into` with verified client and pane evidence.
+- [ ] `CLI-04` Implement `discover` with bounded candidate evidence, classification and discovery digests.
+- [ ] `CLI-05` Implement discovery-guarded `add --expect` and `--identity` against fresh evidence.
+- [ ] `CLI-06` Implement `marked` with a frozen mark and an exact binding check.
+- [ ] `CLI-07` Implement interactive `attach` and `--detach-others` through the verified built-in terminal stream.
+- [ ] `CLI-08` Implement caller discovery from tmux process ancestry when environment claims are unavailable.
+- [ ] `CLI-09` Reconcile orphaned and legacy pane metadata during binding.
+- [ ] `CLI-10` Project remembered sessions and provider activity in `ls` and reconcile binding presence.
+- [ ] `CLI-11` Implement `ls --room` membership filtering.
+- [ ] `CLI-12` Implement `ls --detected` with host and socket selection.
+- [ ] `CLI-13` Implement bounded `whoami --context` output.
+- [ ] `CLI-14` Implement direct-pane `talk` with verified driver routing.
+- [ ] `CLI-15` Implement `talk --remote` through Remote delivery.
+- [ ] `CLI-16` Implement `talk --room` and its membership rules.
+- [ ] `CLI-17` Implement `talk --passthrough` through guarded raw paste.
+- [ ] `CLI-18` Implement `talk --expect-name` with exact identity pinning.
+- [ ] `CLI-19` Send best-effort reply notifications after durable acceptance.
+- [ ] `CLI-20` Deliver the retained Digest checklist from ordinary idle `check`.
+- [ ] `CLI-21` Implement `x flow` with content-free exchange counts.
+- [ ] `CLI-22` Implement bounded `x listen` with incoming attention and room filtering.
+- [ ] `CLI-23` Compose launch enrollment and guarded channel routing, including `run --channel` and remembered channel choice.
+- [ ] `CLI-24` Implement `channel inspect` and `channel recover`.
+- [ ] `CLI-25` Launch through built-in and approved external hosts.
+- [ ] `CLI-26` Support bare provider launches, automatic names and remembered or configured launch selection.
+- [ ] `CLI-27` Launch arbitrary foreground programs and remaining managed drivers.
+- [ ] `CLI-28` Map foreground termination to the native signal-specific exit status.
+- [ ] `CLI-29` Complete lifecycle callback activity, provider context and Digest continuation.
+- [ ] `CLI-30` Compose `api` over its stdio server and typed operations.
+- [ ] `CLI-31` Compose `mcp` with a pinned saved identity and canonical exchange and dispatch owners.
+- [ ] `CLI-32` Compose `room` administration, membership and delivery commands.
+- [ ] `CLI-33` Compose `orch` jobs, plans, previews, lead and route mutations, retained talks and focus with go-4.
+- [ ] `CLI-34` Compose `workspace` save, inspect, listing, restore and removal with go-4.
+- [ ] `CLI-35` Compose `tick` runs, status and timer controls.
+- [ ] `CLI-36` Compose `setup` with go-4.
+- [ ] `CLI-37` Compose `install` with managed skill ownership, approved provider integrations and the Herdr back key.
+- [ ] `CLI-38` Compose `upgrade` and its update alias with version selection, preview and consent.
+- [ ] `CLI-39` Compose `uninstall` with go-4.
+- [ ] `CLI-40` Implement official extension receipt inventory and release checking for `extension ls --prefix` and `--check`.
+- [ ] `CLI-41` Compose consented `extension install`, `upgrade`, `rm` and hook management.
+- [ ] `CLI-42` Compose driver approval, removal and registry verification for `driver ls` and host routing.
+- [ ] `CLI-43` Compose external command dispatch, help-tail rewriting and dynamic completion.
+- [ ] `CLI-44` Complete native launch templates for supported hosts.
+- [ ] `CLI-45` Match native `learn` quick start, guide bytes and reference topics once go-4 lands the assets.
+- [ ] `CLI-46` Complete `storage` with native maintenance guidance after retained-cleanup approval.
+- [ ] `CLI-47` Compose internal worker commands for the channel server, PTY server, reply notices and request observation.
+- [ ] `CLI-48` Compose internal managed-installation setup, refresh, upgrade and database maintenance commands.
+- [ ] `CLI-49` Compose internal allowance, consumption, flush and Digest callbacks.
+
 ## go-4 (install, extensions, api, mcp, digest, tick)
 
 - [ ] Finish local API v1 operation admission, response parity, lazy schema fencing,

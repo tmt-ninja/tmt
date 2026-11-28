@@ -35,7 +35,7 @@ func (app application) runRequest(ctx context.Context, root home.Root, inv invoc
 
 	case "inbox", "answer", "x":
 		if command == "x" && len(inv.path) == 2 && (inv.path[1] == "flow" || inv.path[1] == "listen") {
-			// NOT PORTED (#6938): content-free flow and inbox listen are outside the initial service.
+			// NOT PORTED (CLI-21, CLI-22): Content-free flow and inbox listening.
 			return &output.Failure{Code: "NOT_PORTED", Message: fmt.Sprintf("Command 'x %s' is not yet ported.", inv.path[1]), Status: 2}
 		}
 		selected, failure = app.caller.selectIdentity(ctx, inv)

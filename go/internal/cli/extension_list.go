@@ -82,7 +82,7 @@ func (r extensionListReport) Human(w io.Writer) error {
 
 func listExtensions(inv invocation, searchPath string) output.Report {
 	if inv.has("check") || inv.has("prefix") {
-		// NOT PORTED (#6938): official release checking and receipt-based prefix inventory.
+		// NOT PORTED (CLI-40): Official release checking and receipt-based prefix inventory.
 		return bindingUnavailable("extension ls --check/--prefix")
 	}
 	shadowed, err := extensionShadows(searchPath)

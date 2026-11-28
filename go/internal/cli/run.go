@@ -27,15 +27,15 @@ type runPlan struct {
 
 func prepareRun(root home.Root, inv invocation) (runPlan, *output.Failure) {
 	if inv.has("resume") || inv.has("channel") {
-		// NOT PORTED (#6938): remembered session resume and channel enrollment.
+		// NOT PORTED (CLI-01, CLI-23): Remembered-session resume and channel enrollment.
 		return runPlan{}, bindingUnavailable("--resume/--channel")
 	}
 	if host := inv.options["host"]; host != "" && host != "tmux" {
-		// NOT PORTED (#6938): built-in and external launch hosts.
+		// NOT PORTED (CLI-25): Built-in and external launch hosts.
 		return runPlan{}, bindingFailure("HOST_NOT_AVAILABLE", "The requested launch host is not available in tmt-go.", 3)
 	}
 	if len(inv.operands) < 2 {
-		// NOT PORTED (#6938): unnamed and remembered/configured launch selection.
+		// NOT PORTED (CLI-26): Bare provider and remembered launch selection.
 		return runPlan{}, bindingUnavailable("run without an explicit agent command")
 	}
 	name, err := core.ValidateName(inv.operands[0])
@@ -55,7 +55,7 @@ func prepareRun(root home.Root, inv invocation) (runPlan, *output.Failure) {
 	case "gemini":
 		driver = gemini.Driver{Executable: executable}
 	default:
-		// NOT PORTED (#6938): arbitrary foreground programs and other managed drivers.
+		// NOT PORTED (CLI-27): Arbitrary foreground programs and other managed drivers.
 		return runPlan{}, bindingUnavailable("run with an unported agent or plain program")
 	}
 	dir, err := os.Getwd()
@@ -81,7 +81,7 @@ func (app application) runProvider(ctx context.Context, root home.Root, inv invo
 		return publish(stdout, stderr, failure, false)
 	}
 	if app.launch == nil {
-		// NOT PORTED (#6938): foreground launch and runtime admission.
+		// Production supplies the foreground launcher at startup.
 		return publish(stdout, stderr, bindingUnavailable("foreground runtime admission"), false)
 	}
 

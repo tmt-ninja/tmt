@@ -148,6 +148,6 @@ func foregroundExit(err error) int {
 	if errors.As(err, &exit) && exit.ExitCode() >= 0 {
 		return exit.ExitCode()
 	}
-	// NOT PORTED (#6938): signal-specific foreground exit status.
+	// NOT PORTED (CLI-28): Signal-specific foreground exit status.
 	return 1
 }

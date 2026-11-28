@@ -82,7 +82,7 @@ func checkDriverInventory(root home.Root) *output.Failure {
 		return invalid("The driver registry uses an unsupported version.")
 	}
 	if len(doc.Drivers) != 0 {
-		// NOT PORTED (#6938): external approval verification and driver registry admission.
+		// NOT PORTED (CLI-42): External approval verification and driver registry admission.
 		return bindingUnavailable("external driver approvals")
 	}
 	return nil
@@ -116,6 +116,7 @@ func builtinHost(name, command string) builtinHostDocument {
 	}}
 }
 
+// NOT PORTED (CLI-44): Remaining native host launch templates.
 func listHostTemplates(root home.Root, lookup func(string) (string, bool)) output.Report {
 	if failure := checkDriverInventory(root); failure != nil {
 		return failure

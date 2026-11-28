@@ -89,7 +89,7 @@ func (b bindingCLI) presence(ctx context.Context, entry bindingEntry) bindingPre
 	default:
 		row.presence = "unknown"
 	}
-	// NOT PORTED (#6938): session preferences, provider activity, and presence reconciliation on list.
+	// NOT PORTED (CLI-10): Remembered sessions, provider activity and presence reconciliation.
 	return row
 }
 
@@ -120,7 +120,7 @@ func (p bindingPresence) listed() bindingListDocument {
 
 func (b bindingCLI) whoami(ctx context.Context, inv invocation) output.Report {
 	if inv.has("context") {
-		// NOT PORTED (#6938): bounded caller context projection.
+		// NOT PORTED (CLI-13): Bounded caller context.
 		return bindingUnavailable("--context")
 	}
 	claim, failure := b.callerClaim()
@@ -195,11 +195,12 @@ func (b bindingCLI) whoami(ctx context.Context, inv invocation) output.Report {
 func (b bindingCLI) list(ctx context.Context, inv invocation) output.Report {
 	for _, option := range []string{"room", "detected"} {
 		if inv.has(option) {
-			// NOT PORTED (#6938): room-scoped lists and the detected-agent projection.
+			// NOT PORTED (CLI-11, CLI-12): Room-scoped lists and detected-agent projection.
 			return bindingUnavailable("--" + option)
 		}
 	}
 	if inv.has("host") && inv.options["host"] != "tmux" {
+		// NOT PORTED (CLI-12): Discovery on non-tmux hosts.
 		return bindingUnavailable("--host " + inv.options["host"])
 	}
 	if len(inv.operands) > 0 {

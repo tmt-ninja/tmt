@@ -44,7 +44,7 @@ func (hookReport) HumanStream() output.Stream { return output.Stdout }
 func (hookReport) ExitStatus() int            { return 0 }
 
 func (app application) runHook(ctx context.Context, root home.Root, inv invocation) output.Report {
-	// NOT PORTED (#6938): turn activity, provider context and Digest continuation.
+	// NOT PORTED (CLI-29): Turn activity, provider context and Digest continuation.
 	if len(inv.operands) != 1 || inv.operands[0] != "claude" || inv.has("activity-only") || app.caller.lookup == nil {
 		return hookReport{}
 	}

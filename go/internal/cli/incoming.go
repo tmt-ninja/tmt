@@ -271,7 +271,7 @@ func (app application) answer(ctx context.Context, me, from *core.Identity, id *
 	if err != nil {
 		return responseServiceFailure(err)
 	}
-	// NOT PORTED (#6938): best-effort reply notifications after acceptance.
+	// NOT PORTED (CLI-19): Best-effort reply notifications after acceptance.
 	var sender *partyDocument
 	if from != nil {
 		sender = &partyDocument{IdentityID: from.ID, Name: &from.Name, CanonicalName: &from.CanonicalName}

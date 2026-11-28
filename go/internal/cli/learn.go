@@ -84,6 +84,7 @@ func writeLearn(w io.Writer, inv invocation) error {
 	return err
 }
 
+// NOT PORTED (CLI-45): Native quick start and bundled reference parity.
 const learnQuickStart = `TMT — collaborate with terminal agents through durable exchanges.
 
 The Go preview is a standalone runtime and requires no Node.js or daemon.

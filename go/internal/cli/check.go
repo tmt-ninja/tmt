@@ -153,7 +153,7 @@ func (app application) check(ctx context.Context, root home.Root, inv invocation
 		}
 		identity = fresh
 	}
-	// NOT PORTED (#6938): ordinary check's idle Digest checklist handoff.
+	// NOT PORTED (CLI-20): Idle Digest checklist handoff.
 	return app.captureCheck(ctx, target, pane, *lines, identity)
 }
 

@@ -215,6 +215,7 @@ func writeCompletionScript(w io.Writer, shell string) error {
 	return err
 }
 
+// NOT PORTED (CLI-43): Dynamic completion for external commands.
 func writeCompletionCandidates(w io.Writer, words []string) error {
 	current := ""
 	command := &grammar
