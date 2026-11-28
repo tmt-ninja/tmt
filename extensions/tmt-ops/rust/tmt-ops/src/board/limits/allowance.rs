@@ -183,6 +183,51 @@ pub fn project(left: f64, resets_in_ms: u64, now_ms: u64, rate: Option<f64>) -> 
     }
 }
 
+/// Spend supplied by the usage owner. An incomplete amount is evidence
+/// for Details, but does not establish a budget balance or a rate.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum QuotedSpend {
+    Complete(u64),
+    Incomplete {
+        usd_micros: Option<u64>,
+        reason: String,
+    },
+}
+
+/// Actual bounds and priced amounts for one provider on this machine.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BudgetQuote {
+    pub from_ms: u64,
+    pub to_ms: u64,
+    pub spend: QuotedSpend,
+    /// Owner-reported USD micros per hour over 3 h, 6 h and 24 h.
+    pub pace_per_hour: [QuotedSpend; 3],
+    /// A separate owner-provided token projection, if the contract supplies it.
+    pub token_pace_per_hour: Option<QuotedSpend>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct BudgetForecast {
+    pub left_usd_micros: Option<u64>,
+    pub need_usd_micros_per_hour: Option<f64>,
+    /// `Outcome::Lasts` is in USD micros on these lines.
+    pub lines: [Outcome; 5],
+}
+
+pub(crate) fn budget_forecast(
+    _limit_usd_micros: u64,
+    _period_start_ms: u64,
+    _period_end_ms: u64,
+    _now_ms: u64,
+    _quote: Option<&BudgetQuote>,
+) -> BudgetForecast {
+    BudgetForecast {
+        left_usd_micros: None,
+        need_usd_micros_per_hour: None,
+        lines: [Outcome::Unknown; 5],
+    }
+}
+
 /// A weekly window as of now, with its projection lines.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Weekly {

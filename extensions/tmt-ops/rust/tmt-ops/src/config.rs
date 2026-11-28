@@ -1054,6 +1054,20 @@ fn invalid(message: impl Into<String>) -> SquadError {
     SquadError::new("SQUAD_CONFIG_INVALID", message)
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BudgetPeriod {
+    Week,
+    Month,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AllowanceBudget {
+    pub name: String,
+    pub provider: String,
+    pub limit_usd_micros: u64,
+    pub period: BudgetPeriod,
+}
+
 #[derive(Clone)]
 pub struct Config {
     path: PathBuf,
@@ -1128,6 +1142,10 @@ impl Config {
         config.tabs()?;
         config.links()?;
         Ok(config)
+    }
+
+    pub(crate) fn allowance_budgets(&self) -> Result<Vec<AllowanceBudget>, SquadError> {
+        Ok(Vec::new())
     }
 
     pub fn path(&self) -> &Path {
@@ -2538,6 +2556,70 @@ fn empty_table_without_comments(item: &Item) -> bool {
 mod tests {
     use super::*;
     use crate::{split::Split, test_support::Scratch};
+
+    #[test]
+    fn allowance_budgets_are_opt_in_and_validated() {
+        let (_scratch, path) = temp("allowance-budgets");
+        let empty = Config::read(path.clone()).unwrap();
+        assert!(empty.allowance_budgets().unwrap().is_empty());
+        let valid = r#"
+[[board.allowance.budgets]]
+name = "Claude work"
+provider = "claude"
+limit = 500
+period = "month"
+
+[[board.allowance.budgets]]
+name = "Codex week"
+provider = "codex"
+limit = 12.50
+period = "week"
+"#;
+        fs::write(&path, valid).unwrap();
+        assert_eq!(
+            Config::read(path.clone())
+                .unwrap()
+                .allowance_budgets()
+                .unwrap(),
+            [
+                AllowanceBudget {
+                    name: "Claude work".into(),
+                    provider: "claude".into(),
+                    limit_usd_micros: 500_000_000,
+                    period: BudgetPeriod::Month,
+                },
+                AllowanceBudget {
+                    name: "Codex week".into(),
+                    provider: "codex".into(),
+                    limit_usd_micros: 12_500_000,
+                    period: BudgetPeriod::Week,
+                },
+            ]
+        );
+        for (from, to, field) in [
+            ("Claude work", " ", "name"),
+            (
+                "provider = \"claude\"",
+                "provider = \"Claude Pro\"",
+                "provider",
+            ),
+            ("limit = 500", "limit = -1", "limit"),
+            ("limit = 500", "limit = nan", "limit"),
+            ("period = \"month\"", "period = \"year\"", "period"),
+            (
+                "period = \"month\"",
+                "scope = \"test\"\nperiod = \"month\"",
+                "scope",
+            ),
+        ] {
+            fs::write(&path, valid.replacen(from, to, 1)).unwrap();
+            let error = Config::read(path.clone())
+                .and_then(|config| config.allowance_budgets())
+                .unwrap_err();
+            assert_eq!(error.code, "SQUAD_CONFIG_INVALID");
+            assert!(error.message.contains(field), "{error:?}");
+        }
+    }
 
     #[test]
     fn link_handlers_are_explicit_validated_run_bindings() {
