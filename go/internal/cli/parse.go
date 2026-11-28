@@ -266,6 +266,10 @@ func commandConstraints(parsed invocation) (required []string, conflicts, requir
 
 func validateOperands(parsed invocation) string {
 	switch parsed.path[0] {
+	case "completion", "__completion-script":
+		if len(parsed.operands) == 1 && !slices.Contains(completionShells, parsed.operands[0]) {
+			return fmt.Sprintf("Invalid value '%s' for '<shell>'.", parsed.operands[0])
+		}
 	case "identity":
 		if parsed.has("expect-name") && (len(parsed.operands) != 1 || !core.IsCanonicalIdentityID(parsed.operands[0])) {
 			return "--expect-name needs the identity's UUID."

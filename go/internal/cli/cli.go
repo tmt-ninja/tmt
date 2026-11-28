@@ -58,6 +58,10 @@ func (app application) run(ctx context.Context, args []string, stdout, stderr io
 		err = renderHelp(stdout, invocation.path)
 	case invocation.version:
 		_, err = fmt.Fprintf(stdout, "tmt-go %s\n", Version)
+	case invocation.path[0] == "__completion-script":
+		err = writeCompletionScript(stdout, invocation.operands[0])
+	case invocation.path[0] == "__complete":
+		err = writeCompletionCandidates(stdout, invocation.operands)
 	default:
 		return app.execute(ctx, invocation, stdout, stderr)
 	}
@@ -80,6 +84,8 @@ func (app application) execute(ctx context.Context, invocation invocation, stdou
 		return publish(stdout, stderr, failure, invocation.json)
 	}
 	switch invocation.path[0] {
+	case "completion":
+		return publish(stdout, stderr, inspectCompletion(invocation, os.LookupEnv), invocation.json)
 	case "init":
 		return publish(stdout, stderr, initializeWorkspace(root), invocation.json)
 	case "config":

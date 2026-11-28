@@ -123,6 +123,7 @@ var grammar = commandSpec{
 	name: "tmt-go", summary: "TMT native alpha: collaborate with terminal agents through durable exchanges",
 	children: []commandSpec{
 		{name: "help", summary: "Show help for a command", trailing: true, humanOnly: true, operands: []operandSpec{optional("command-path")}},
+		{name: "completion", summary: "Check shell completion setup", operands: []operandSpec{optional("shell")}},
 		{name: "init", summary: "Create workspace settings"},
 		{name: "config", summary: "View or modify settings", children: []commandSpec{
 			{name: "show", summary: "Show settings"},
@@ -204,7 +205,7 @@ func init() {
 	grammar.children = append(grammar.children, commandSpec{name: "upgrade", visibleAlias: "update"})
 	registerPublicHelpTopics(&grammar)
 	for _, name := range []string{
-		"team", "__allowance", "__channel-server", "__complete", "__completion-script",
+		"team", "__allowance", "__channel-server",
 		"__consumption-sample", "__flush", "__native-compact-database",
 		"__native-install", "__native-refresh-integrations", "__native-refresh-skills",
 		"__native-rename-database", "__native-schema", "__native-upgrade-extensions",
@@ -212,6 +213,10 @@ func init() {
 	} {
 		grammar.children = append(grammar.children, commandSpec{name: name, hidden: true})
 	}
+	grammar.children = append(grammar.children,
+		commandSpec{name: "__completion-script", summary: "Internal shell completion script", hidden: true, humanOnly: true, operands: []operandSpec{required("shell")}},
+		commandSpec{name: "__complete", summary: "Internal shell completion context", hidden: true, humanOnly: true, trailing: true},
+	)
 	grammar.children = append(grammar.children, commandSpec{
 		name: "__hook", hidden: true, summary: "Internal bounded provider lifecycle callback",
 		operands: []operandSpec{required("provider")}, options: []string{"activity-only"},
