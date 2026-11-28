@@ -123,6 +123,7 @@ var grammar = commandSpec{
 	name: "tmt-go", summary: "TMT native alpha: collaborate with terminal agents through durable exchanges",
 	children: []commandSpec{
 		{name: "help", summary: "Show help for a command", trailing: true, humanOnly: true, operands: []operandSpec{optional("command-path")}},
+		{name: "init", summary: "Create workspace settings"},
 		{name: "config", summary: "View or modify settings", children: []commandSpec{
 			{name: "show", summary: "Show settings"},
 			{name: "set", summary: "Set a setting", options: []string{"global"}, operands: []operandSpec{required("key"), required("value")}},
