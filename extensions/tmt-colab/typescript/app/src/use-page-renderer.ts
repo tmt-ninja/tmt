@@ -88,6 +88,11 @@ export function usePageRenderer({
   workBundle?: RendererOptions['workBundle'];
 }) {
   const taskCheckboxes = !!handlers.onTaskCheckbox;
+  // Admission can temporarily disappear on reconnect. Keep the admitted frame drawn while the
+  // checkbox interaction follows the connection.
+  useEffect(() => {
+    renderer.current?.setTaskCheckboxes(taskCheckboxes);
+  }, [renderer, taskCheckboxes]);
   const [resolved, setResolved] = useState<string[]>([]);
   const [anchorsChecked, setAnchorsChecked] = useState(false);
   // Until the frame reports what its page paints, the cards keep the app theme.
@@ -216,9 +221,9 @@ export function usePageRenderer({
               ?.offsetHeight ?? 0)
           : 0,
       viewportBottom: () => reserve.current,
-      onTaskCheckbox: taskCheckboxes
-        ? (source, ordinal, anchor) => current.current.onTaskCheckbox?.(source, ordinal, anchor)
-        : undefined,
+      taskCheckboxes: !!current.current.onTaskCheckbox,
+      onTaskCheckbox: (source, ordinal, anchor) =>
+        current.current.onTaskCheckbox?.(source, ordinal, anchor),
       onSelection: (_value, quote, rect) => current.current.onSelection(quote, rect),
       onAnchors: (ids, checked = false) => {
         setResolved(ids);
@@ -236,6 +241,7 @@ export function usePageRenderer({
         if (controller.signal.aborted) handle.destroy();
         else {
           renderer.current = handle;
+          handle.setTaskCheckboxes(!!current.current.onTaskCheckbox);
           handle.images(imageInput.current);
           setRendererMounts((count) => count + 1);
         }
@@ -261,7 +267,6 @@ export function usePageRenderer({
     remounts,
     view.layout,
     view.pageType,
-    taskCheckboxes,
     pageView,
     workBundle,
     endedError,

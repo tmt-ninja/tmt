@@ -276,6 +276,7 @@ export async function mountRenderer(
     onAttachmentDownload?(reference: string): void;
     /** An admitted `data:` image download request; the parent still confirms before saving. */
     onImageDownload?(image: ImageDownload): void;
+    taskCheckboxes?: boolean;
     onTaskCheckbox?(source: string, ordinal: number, anchor: () => SelectionRect): void;
     onSelection?(text: string, selector?: QuoteSelector | null, rect?: SelectionRect | null): void;
     onAnnotate?(): void;
@@ -326,6 +327,8 @@ export async function mountRenderer(
   resize(): void;
   /** Paint `theme` instead of the app's (`options.theme`); absent follows the app again. */
   setTheme(theme?: Theme): void;
+  /** Update the checkbox interaction as admission changes, preserving the mounted frame. */
+  setTaskCheckboxes(enabled: boolean): void;
   editLocks(locks: RenderEditLock[]): void;
   highlight(
     anchors: { id: string; selector: QuoteSelector; ordinal: number }[],
@@ -439,6 +442,15 @@ export async function mountRenderer(
       type: 'colab.render.images',
       renderId: snapshot.renderId,
       requestId: current,
+    });
+  };
+  let taskCheckboxes = options.taskCheckboxes === true;
+  const sendTaskCheckboxes = () => {
+    if (stopped || !ready || !options.onTaskCheckbox) return;
+    channel.port1.postMessage({
+      type: 'colab.render.task-checkboxes',
+      renderId: snapshot.renderId,
+      enabled: taskCheckboxes,
     });
   };
   let chosenTheme = options.theme;
@@ -671,6 +683,7 @@ export async function mountRenderer(
     const value = data as Record<string, unknown>;
     if (
       ready &&
+      taskCheckboxes &&
       options.onTaskCheckbox &&
       !pendingUpdate &&
       Object.keys(value).length === 5 &&
@@ -903,6 +916,7 @@ export async function mountRenderer(
     if (!settled) settleTimer = setTimeout(settle, SETTLE_GRACE_MS);
     // A choice can change between source init and the bound acknowledgement.
     sendTheme();
+    sendTaskCheckboxes();
     queueViewport();
     images(imageInput);
     const sourceElements = [
@@ -1829,7 +1843,7 @@ export async function mountRenderer(
         type: 'colab.render.bind',
         ...snapshot,
         theme: frameTheme(),
-        ...(options.onTaskCheckbox ? { taskCheckboxes: true } : {}),
+        ...(taskCheckboxes ? { taskCheckboxes: true } : {}),
         ...(options.layout ? { layout: options.layout } : {}),
         ...(boundRuntime ? { runtime: boundRuntime } : {}),
         ...(bundle && ds ? { ds: { script: ds.script, style: ds.style } } : {}),
@@ -1996,6 +2010,11 @@ export async function mountRenderer(
     setTheme: (theme?: Theme) => {
       chosenTheme = theme;
       sendTheme();
+    },
+    setTaskCheckboxes: (enabled: boolean) => {
+      if (taskCheckboxes === enabled) return;
+      taskCheckboxes = enabled;
+      sendTaskCheckboxes();
     },
     snapshot,
     update,
