@@ -28,6 +28,8 @@ const (
 	lockPoll    = 10 * time.Millisecond
 )
 
+var errNoChannelDirectory = errors.New("channel directory has not been created")
+
 type processRecord struct {
 	PID   uint64 `json:"pid"`
 	Start string `json:"start"`
@@ -74,6 +76,9 @@ func openChannelDir(root home.Root, create bool) (*channelDir, error) {
 		}
 	}
 	info, err := base.Lstat(channelDirectory)
+	if !create && errors.Is(err, fs.ErrNotExist) {
+		return nil, errNoChannelDirectory
+	}
 	if err != nil {
 		return nil, err
 	}

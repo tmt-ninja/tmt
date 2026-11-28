@@ -48,14 +48,11 @@ func EnrollClaude(ctx context.Context, runner ports.Process, in ClaudeEnrollment
 		*pane.Incarnation != *in.Binding.PaneIncarnation {
 		return nil, fmt.Errorf("%w: binding or pane is unverified", ErrEnrollment)
 	}
-	server := in.Binding.Server
+	paneAddress := recordedPane(in.Binding)
 	record := claudeRecord{
 		Version: 1, BindingID: string(in.Binding.ID), IdentityID: string(in.Identity.ID), Generation: launchGeneration(),
 		LaunchOwner: storedProcess(in.LaunchOwner),
-		Pane: &paneRecord{
-			Host: server.Host, ServerID: server.ID, SocketPath: server.Socket, ServerPID: server.PID,
-			ServerStartTime: server.StartTime, PaneID: in.Binding.PaneID, PanePID: in.Binding.PanePID,
-		},
+		Pane:        &paneAddress,
 	}
 	if record.IdentityID == "" || !record.valid(record.BindingID) || !record.LaunchOwner.incarnation().Valid() {
 		return nil, ErrEnrollment
@@ -122,10 +119,12 @@ func (l *ClaudeLease) Withdraw(ctx context.Context) error {
 		if record.Claude != nil && processState(ctx, l.observer, *record.Claude) != runtime.Gone {
 			return ErrOccupied
 		}
-		// NOT PORTED (#6938): socket cleanup arrives with the Claude listener.
-		// Keep evidence when a socket entry exists until its owner is verified.
-		if _, err := dir.root.Lstat(record.BindingID + ".sock"); !errors.Is(err, fs.ErrNotExist) {
-			return ErrOccupied
+		if err := checkSocket(dir, record.BindingID); err == nil {
+			if err := dir.root.Remove(record.BindingID + ".sock"); err != nil {
+				return err
+			}
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
 		}
 		return dir.root.Remove(record.BindingID + ".json")
 	})
@@ -217,4 +216,12 @@ func launchGeneration() string {
 	raw[6] = raw[6]&15 | 64
 	raw[8] = raw[8]&63 | 128
 	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[:4], raw[4:6], raw[6:8], raw[8:10], raw[10:])
+}
+
+func recordedPane(binding core.Binding) paneRecord {
+	server := binding.Server
+	return paneRecord{
+		Host: server.Host, ServerID: server.ID, SocketPath: server.Socket, ServerPID: server.PID,
+		ServerStartTime: server.StartTime, PaneID: binding.PaneID, PanePID: binding.PanePID,
+	}
 }

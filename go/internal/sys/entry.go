@@ -33,3 +33,9 @@ func OpenEntryNoFollow(dir *os.File, name string, flags int, perm os.FileMode) (
 	}
 	return os.NewFile(uintptr(fd), name), nil
 }
+
+// SocketConnectionRefused distinguishes an explicit Unix connection refusal
+// from errors that grant no evidence about the listener.
+func SocketConnectionRefused(err error) bool {
+	return errors.Is(err, unix.ECONNREFUSED)
+}
