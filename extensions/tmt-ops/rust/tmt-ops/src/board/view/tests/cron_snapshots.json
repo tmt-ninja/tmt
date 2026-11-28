@@ -26,7 +26,7 @@
       "                                                                           │",
       "                                                                           │",
       "                                                                           │   ⏎ to message alpha · @ mention an agent · # reference work or a checklist item",
-      " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ alpha                                            ⏎ send  Alt+⏎ new line  @ mention",
+      " 1–3 / 3 rows  ·  0 more ↓                               1 squad · 1 agent │ alpha                                                    @ mention    ^L checklist",
       " ↑↓←→ move  ⏎ talk  l label  n new  r rename  m move  x close  / search  ? help  q quit"
     ],
     "hits": "[Hit { y: 11, x: 0, width: 75, row: 0 }, Hit { y: 12, x: 0, width: 75, row: 1 }, Hit { y: 13, x: 0, width: 75, row: 2 }]"
@@ -58,7 +58,7 @@
       "",
       "",
       "   ⏎ to message alpha · @ mention an agent · # reference work or a checklist item",
-      " alpha                                                            ⏎ send  Alt+⏎ new line  @ mention",
+      " alpha                                                                    @ mention    ^L checklist",
       " ↑↓←→ move  ⏎ talk  l label  n new  r rename  m move  x close  / search  ? help  q quit"
     ],
     "hits": "[Hit { y: 10, x: 0, width: 100, row: 2 }]"
@@ -90,7 +90,7 @@
       "",
       "",
       "   ⏎ to message alpha · @ mention an agent · # reference work or checklist",
-      " alpha                                        ⏎ send  Alt+⏎ new line  @ mention",
+      " alpha                                                @ mention    ^L checklist",
       " ↑↓←→ move  ⏎ talk  n new  r rename  m move  x close  / search  ? help  q quit"
     ],
     "hits": "[Hit { y: 10, x: 0, width: 80, row: 2 }]"

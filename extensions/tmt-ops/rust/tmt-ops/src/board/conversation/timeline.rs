@@ -142,7 +142,7 @@ impl<'a> Paint<'a> {
         muted: bool,
         anchor: String,
     ) {
-        self.header_with_mark(sender, recipient, stamp, muted, false, anchor);
+        self.header_with_mark(sender, recipient, stamp, muted, None, anchor);
     }
 
     fn header_with_mark(
@@ -151,29 +151,39 @@ impl<'a> Paint<'a> {
         recipient: &str,
         stamp: &str,
         muted: bool,
-        marked: bool,
+        mark: Option<crate::board::kept_replies::KeepReplyMark>,
         anchor: String,
     ) {
+        use crate::board::kept_replies::KeepReplyMark;
+        let show_mark = matches!(
+            mark,
+            Some(KeepReplyMark::Pending | KeepReplyMark::Kept | KeepReplyMark::NotKept)
+        );
         let mut line = exchange_view::header(
             sender,
             recipient,
             stamp,
             self.read_only,
-            if marked {
+            if show_mark {
                 self.width.saturating_sub(2)
             } else {
                 self.width
             },
             self.look,
         );
-        if marked {
+        if show_mark {
             let at = usize::from(
                 line.spans
                     .first()
                     .is_some_and(|span| span.content.as_ref() == " "),
             );
+            let role = if matches!(mark, Some(KeepReplyMark::NotKept)) {
+                Role::Dim
+            } else {
+                Role::Accent
+            };
             line.spans
-                .insert(at, Span::styled("⚑ ", self.look.role(Role::Accent)));
+                .insert(at, Span::styled("⚑ ", self.look.role(role)));
         }
         if muted {
             mute(&mut line, self.look);
@@ -187,56 +197,12 @@ impl<'a> Paint<'a> {
         );
     }
     fn fence_strip(&mut self, fence: markdown::Fence) {
-        use crate::board::member_links::{FenceKey, Link, Target};
-        use unicode_width::UnicodeWidthStr;
-
-        let Some(text) = fence.body else { return };
         let width = self.width.saturating_sub(exchange_view::BODY_INDENT).max(1);
-        let key = FenceKey::next();
-        let code = self
-            .look
-            .role(Role::Code)
-            .patch(self.look.role(Role::Track));
-        let keycap = code.patch(self.look.role(Role::Keycap));
-        let copy = if width >= 8 { "  ⎘ copy" } else { "⎘" };
-        let copy_width = copy.width();
-        let run = fence
-            .command
-            .filter(|_| width >= copy_width + "▶ Run…  ".width());
-        let run_width = run.as_ref().map_or(0, |_| "▶ Run…  ".width());
-        let left = width - copy_width - run_width;
-        let language = if !fence.language.is_empty() && fence.language.width() + 1 < left {
-            format!(" {}", fence.language)
-        } else {
-            String::new()
+        let Some((spans, links)) =
+            build_fence_strip(fence, width, exchange_view::BODY_INDENT, self.look)
+        else {
+            return;
         };
-        let mut spans = vec![
-            Span::styled(language.clone(), code.patch(self.look.role(Role::Dim))),
-            Span::styled(" ".repeat(left - language.width()), code),
-        ];
-        let mut links = Vec::new();
-        if let Some(command) = run {
-            spans.push(Span::styled("▶ Run…", keycap));
-            spans.push(Span::styled("  ", code));
-            links.push(Link {
-                column: exchange_view::BODY_INDENT + left,
-                width: "▶ Run…".width(),
-                target: Target::FenceRun { key, command },
-                occurrence: 0,
-                source: None,
-            });
-        }
-        spans.push(Span::styled(copy, keycap));
-        links.push(Link {
-            column: exchange_view::BODY_INDENT + left + run_width,
-            width: copy_width,
-            target: Target::FenceCopy {
-                key,
-                text: Arc::from(text),
-            },
-            occurrence: 0,
-            source: None,
-        });
         self.line(
             exchange_view::body(Line::from(spans), self.look),
             links,
@@ -562,7 +528,9 @@ impl Session {
                             } else {
                                 exchange_view::Sender::Agent(&sender)
                             };
-                            let marked = own && self.request_keep_reply_marked(&input.request);
+                            let mark = own
+                                .then(|| self.request_keep_reply_mark(&input.request))
+                                .flatten();
                             paint.header_with_mark(
                                 who,
                                 &context.name,
@@ -573,7 +541,7 @@ impl Session {
                                     model::Kind::Input(input) => self.input_time(&input.request), _ => None,
                                 })),
                                 !own,
-                                marked,
+                                mark,
                                 format!("input {}", entry.id),
                             );
                         }
@@ -833,25 +801,35 @@ impl Session {
             committed::Block::Failure(_) => None,
         }
     }
-    fn request_keep_reply_marked(&self, request: &str) -> bool {
+    fn request_keep_reply_mark(
+        &self,
+        request: &str,
+    ) -> Option<crate::board::kept_replies::KeepReplyMark> {
         if let Some(send) = self.sent.iter().find(|send| send.request == request) {
-            return send
-                .keep_reply
-                .is_some_and(crate::board::kept_replies::KeepReplyMark::active_mark);
+            return send.keep_reply;
         }
         self.outgoing
             .iter()
             .any(|entry| entry.request() == Some(request) && entry.keep_reply())
+            .then_some(crate::board::kept_replies::KeepReplyMark::Pending)
     }
 
     fn timeline_local(&self, paint: &mut Paint<'_>, entry: &outgoing::Entry) {
         let context = &self.transcript_context;
+        let mark = entry
+            .request()
+            .and_then(|request| self.request_keep_reply_mark(request))
+            .or_else(|| {
+                entry
+                    .keep_reply()
+                    .then_some(crate::board::kept_replies::KeepReplyMark::Pending)
+            });
         paint.header_with_mark(
             exchange_view::Sender::You(&context.reader),
             &context.name,
             &entry_stamp("", Some(entry.started_ms)),
             false,
-            entry.keep_reply(),
+            mark,
             format!("local send {}", entry.sequence()),
         );
         paint.body(
@@ -929,6 +907,62 @@ impl Session {
             .filter_map(|send| send.capture.as_ref())
             .find(|capture| capture.response_id() == Some(response))
     }
+}
+
+pub(in crate::board) fn build_fence_strip(
+    fence: markdown::Fence,
+    body_width: usize,
+    column_offset: usize,
+    look: Look,
+) -> Option<(Vec<Span<'static>>, Vec<crate::board::member_links::Link>)> {
+    use crate::board::member_links::{FenceKey, Link, Target};
+    use unicode_width::UnicodeWidthStr;
+
+    let text = fence.body?;
+    let body_width = body_width.max(1);
+    let key = FenceKey::next();
+    let code = look.role(Role::Code).patch(look.role(Role::Track));
+    let keycap = code.patch(look.role(Role::Keycap));
+    let copy = if body_width >= 8 { "  ⎘ copy" } else { "⎘" };
+    let copy_width = copy.width();
+    let run = fence
+        .command
+        .filter(|_| body_width >= copy_width + "▶ Run…  ".width());
+    let run_width = run.as_ref().map_or(0, |_| "▶ Run…  ".width());
+    let left = body_width - copy_width - run_width;
+    let language = if !fence.language.is_empty() && fence.language.width() + 1 < left {
+        format!(" {}", fence.language)
+    } else {
+        String::new()
+    };
+    let mut spans = vec![
+        Span::styled(language.clone(), code.patch(look.role(Role::Dim))),
+        Span::styled(" ".repeat(left - language.width()), code),
+    ];
+    let mut links = Vec::new();
+    if let Some(command) = run {
+        spans.push(Span::styled("▶ Run…", keycap));
+        spans.push(Span::styled("  ", code));
+        links.push(Link {
+            column: column_offset + left,
+            width: "▶ Run…".width(),
+            target: Target::FenceRun { key, command },
+            occurrence: 0,
+            source: None,
+        });
+    }
+    spans.push(Span::styled(copy, keycap));
+    links.push(Link {
+        column: column_offset + left + run_width,
+        width: copy_width,
+        target: Target::FenceCopy {
+            key,
+            text: Arc::from(text),
+        },
+        occurrence: 0,
+        source: None,
+    });
+    Some((spans, links))
 }
 
 #[cfg(test)]

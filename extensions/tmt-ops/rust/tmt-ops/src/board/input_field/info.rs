@@ -3,19 +3,15 @@ use super::*;
 use crate::board::{inventory::ContextUsage, unread::Count};
 use ratatui::text::Span;
 use tmt_cli_style::theme::screen::{self, ChipKind, ChipState};
-use unicode_width::UnicodeWidthStr;
 
 pub(in crate::board) struct Info<'a> {
     pub name: &'a str,
+    pub focused: bool,
     pub shell: bool,
-    /// The new-line key the board names, the same source as the footer caption.
-    pub newline: crate::board::app::NewlineKey,
     pub checklist: bool,
-    pub checklist_reference: bool,
     pub keep_reply: bool,
     pub keep_reply_key: Option<String>,
     pub unread: Option<Count>,
-    pub open: Option<usize>,
     pub context: Option<ContextUsage>,
 }
 /// Where the info line answers a click: the send hint, and the unread count when something is unread.
@@ -25,16 +21,26 @@ pub(in crate::board) struct Hits {
 }
 impl Info<'_> {
     fn left(&self, window: bool, words: bool, look: Look) -> Line<'static> {
+        use ratatui::style::Modifier;
+        let name_style = look
+            .role(if self.focused { Role::Text } else { Role::Dim })
+            .add_modifier(Modifier::BOLD);
+        let text_role = if self.focused { Role::Muted } else { Role::Dim };
         let mut spans = vec![Span::styled(
             crate::board::notes::single_line(self.name),
-            look.role(Role::Muted),
+            name_style,
         )];
         if let Some(unread) = self.unread {
             spans.push(Span::raw("  "));
-            spans.push(
+            spans.push(if self.focused {
                 crate::board::state_cell::unread_mark(unread, look)
-                    .unwrap_or_else(|| Span::styled("●", look.role(Role::Muted))),
-            );
+                    .unwrap_or_else(|| Span::styled("●", look.role(Role::Muted)))
+            } else {
+                Span::styled(
+                    if unread.total > 0 { "●" } else { "○" },
+                    look.role(Role::Dim),
+                )
+            });
             spans.push(Span::styled(
                 format!(
                     " {}{}{}",
@@ -42,22 +48,17 @@ impl Info<'_> {
                     if unread.more { "+" } else { "" },
                     if words { " unread" } else { "" }
                 ),
-                look.role(Role::Muted),
+                look.role(text_role),
             ));
         }
         if self.shell {
-            spans.push(Span::styled(" · Run command", look.role(Role::Waiting)));
-        }
-        if let Some(count) = self.open {
-            spans.push(Span::styled(" · ", look.role(Role::Muted)));
-            spans.push(if count > 0 {
-                crate::board::state_cell::mark(Some("waiting"), look)
-            } else {
-                Span::styled("◆", look.role(Role::Muted))
-            });
             spans.push(Span::styled(
-                format!(" {count}{}", if words { " open request" } else { "" }),
-                look.role(Role::Muted),
+                " · Run command",
+                look.role(if self.focused {
+                    Role::Waiting
+                } else {
+                    Role::Dim
+                }),
             ));
         }
         if let Some(context) = self.context {
@@ -77,17 +78,70 @@ impl Info<'_> {
             } else {
                 format!(" · ctx {used_label}")
             };
-            spans.push(Span::styled(text, look.role(Role::Muted)));
-        }
-        if self.keep_reply {
-            spans.push(Span::raw("  "));
-            spans.push(Span::styled(
-                if words { " ⚑ keep reply " } else { " ⚑ " },
-                screen::chip(&look.theme, ChipKind::Primary, ChipState::Hot, look.depth),
-            ));
+            spans.push(Span::styled(text, look.role(text_role)));
         }
         Line::from(spans)
     }
+
+    fn hints(&self, words: bool, gap: &str, look: Look) -> Line<'static> {
+        let mut items: Vec<(String, String, Role)> = Vec::new();
+        if let Some(key) = self.keep_reply_key.as_deref() {
+            let (label, role) = if self.keep_reply {
+                (" ⚑ keeping reply", Role::Waiting)
+            } else {
+                (" keep reply", Role::Muted)
+            };
+            items.push((
+                key.to_owned(),
+                if words {
+                    label.to_owned()
+                } else if self.keep_reply {
+                    " ⚑".to_owned()
+                } else {
+                    String::new()
+                },
+                role,
+            ));
+        }
+        items.push((
+            crate::board::mentions::PRIMARY_TRIGGER.to_owned(),
+            if words {
+                " mention".to_owned()
+            } else {
+                String::new()
+            },
+            Role::Muted,
+        ));
+        if self.checklist {
+            items.push((
+                "^L".to_owned(),
+                if words {
+                    " checklist".to_owned()
+                } else {
+                    String::new()
+                },
+                Role::Muted,
+            ));
+        }
+        let mut spans = Vec::new();
+        for (index, (key, label, label_role)) in items.into_iter().enumerate() {
+            if index > 0 {
+                spans.push(Span::raw(gap.to_owned()));
+            }
+            let key_style = look.role(if self.focused {
+                Role::Accent
+            } else {
+                Role::Dim
+            });
+            let label_style = look.role(if self.focused { label_role } else { Role::Dim });
+            spans.push(Span::styled(key, key_style));
+            if !label.is_empty() {
+                spans.push(Span::styled(label, label_style));
+            }
+        }
+        Line::from(spans)
+    }
+
     pub(in crate::board) fn paint(
         &self,
         buffer: &mut Buffer,
@@ -103,82 +157,41 @@ impl Info<'_> {
             return none;
         }
         let line = Rect::new(area.x, area.bottom() - 1, area.width, 1);
-        let newline = self.newline.glyph();
-        let full = format!(
-            "⏎ send  {newline} new line  {} mention{}",
-            crate::board::mentions::PRIMARY_TRIGGER,
-            if self.checklist { "  ^L checklist" } else { "" },
-        );
-        let shortened = format!(
-            "⏎ send  {newline} new line  {} mention  ^L",
-            crate::board::mentions::PRIMARY_TRIGGER,
-        );
-        let keys = format!(
-            "⏎  {newline}  {}{}",
-            crate::board::mentions::PRIMARY_TRIGGER,
-            if self.checklist { "  ^L" } else { "" },
-        );
-        let (full, shortened, keys) = (full.as_str(), shortened.as_str(), keys.as_str());
         let full_left = self.left(true, true, look);
-        let (left, right) = if full_left.width() + full.width() + 2 <= usize::from(line.width) {
-            (full_left, full)
-        } else if self.checklist && full_left.width() + shortened.width() < usize::from(line.width)
-        {
-            (full_left, shortened)
-        } else if full_left.width() + keys.width() + 2 <= usize::from(line.width) {
-            (full_left, keys)
-        } else {
-            let used = self.left(false, true, look);
-            let left = if used.width() + keys.width() + 2 <= usize::from(line.width) {
-                used
+        let full_hints_wide = self.hints(true, "    ", look);
+        let full_hints = self.hints(true, "  ", look);
+        let keys_hints = self.hints(false, "  ", look);
+        let (left, right) =
+            if full_left.width() + full_hints_wide.width() + 2 <= usize::from(line.width) {
+                (full_left, full_hints_wide)
+            } else if full_left.width() + full_hints.width() + 2 <= usize::from(line.width) {
+                (full_left, full_hints)
+            } else if full_left.width() + keys_hints.width() + 2 <= usize::from(line.width) {
+                (full_left, keys_hints)
             } else {
-                self.left(false, false, look)
-            };
-            (
-                left,
-                if keys.width() + 2 <= usize::from(line.width) {
-                    keys
-                } else if self.checklist && "⏎  ^L".width() <= usize::from(line.width) {
-                    "⏎  ^L"
-                } else if self.checklist && "^L".width() <= usize::from(line.width) {
-                    "^L"
+                let used = self.left(false, true, look);
+                let left = if used.width() + keys_hints.width() + 2 <= usize::from(line.width) {
+                    used
                 } else {
-                    "⏎"
-                },
-            )
-        };
-        let with_reference = format!("{right}  # item");
-        let right = if self.checklist_reference
-            && left.width() + with_reference.width() + 2 <= usize::from(line.width)
-        {
-            &with_reference
-        } else {
-            right
-        };
-        let with_keep = self.keep_reply_key.as_deref().and_then(|k| {
-            let candidate = if right == with_reference {
-                format!(
-                    "{right_base}  {k} keep  # item",
-                    right_base = right.strip_suffix("  # item").unwrap_or(right)
-                )
-            } else if right == full {
-                format!("{right}  {k} keep")
-            } else {
-                return None;
+                    self.left(false, false, look)
+                };
+                let right = if keys_hints.width() + 2 <= usize::from(line.width) {
+                    keys_hints
+                } else {
+                    Line::styled(
+                        crate::board::mentions::PRIMARY_TRIGGER,
+                        look.role(if self.focused {
+                            Role::Accent
+                        } else {
+                            Role::Dim
+                        }),
+                    )
+                };
+                (left, right)
             };
-            (left.width() + candidate.width() + 2 <= usize::from(line.width)).then_some(candidate)
-        });
-        let right = with_keep.as_deref().unwrap_or(right);
         let width = right.width().min(usize::from(line.width)) as u16;
         let right_area = Rect::new(line.right() - width, line.y, width, 1);
-        // The short Checklist label needs only one separator cell, so it fits
-        // three cells beyond the original full hint without clipping the left side.
-        let gap = if self.checklist && right == shortened {
-            1
-        } else {
-            2
-        };
-        let left_area = Rect::new(line.x, line.y, line.width.saturating_sub(width + gap), 1);
+        let left_area = Rect::new(line.x, line.y, line.width.saturating_sub(width + 2), 1);
         let unread = self
             .unread
             .is_some_and(|count| count.total > 0)
@@ -191,26 +204,14 @@ impl Info<'_> {
             })
             .filter(|rect| !rect.is_empty());
         strip::paint_left(buffer, left_area, left);
-        if let Some(rect) = unread.filter(|_| hover) {
+        if let Some(rect) = unread.filter(|_| hover && self.focused) {
             let style = screen::chip(&look.theme, ChipKind::Secondary, ChipState::Hot, look.depth);
             for x in rect.x..rect.right() {
                 buffer[(x, rect.y)].set_style(style);
             }
         }
-        strip::paint_left(
-            buffer,
-            right_area,
-            Line::styled(right, look.role(Role::Muted)),
-        );
-        let send = right.split("  ").next().unwrap_or_default();
-        Hits {
-            send: (send.starts_with('⏎') && send.width() <= usize::from(right_area.width))
-                .then_some(Rect {
-                    width: send.width() as u16,
-                    ..right_area
-                }),
-            unread,
-        }
+        strip::paint_left(buffer, right_area, right);
+        Hits { send: None, unread }
     }
 }
 
@@ -219,66 +220,127 @@ mod tests {
     use super::*;
 
     #[test]
-    fn focused_checklist_hint_preserves_words_then_falls_back_in_five_steps() {
-        for newline in [
-            crate::board::app::NewlineKey::Alt,
-            crate::board::app::NewlineKey::Shift,
-        ] {
-            let info = Info {
-                name: "worker",
-                shell: false,
-                checklist: true,
-                checklist_reference: true,
-                keep_reply: false,
-                keep_reply_key: None,
-                newline,
-                unread: Some(Count::default()),
-                open: Some(0),
-                context: None,
-            };
-            let glyph = newline.glyph();
-            let full = format!("⏎ send  {glyph} new line  @ mention  ^L checklist");
-            let short = format!("⏎ send  {glyph} new line  @ mention  ^L");
-            let keys = format!("⏎  {glyph}  @  ^L");
-            let left = info.left(true, true, Look::default()).width();
-            let original = format!("⏎ send  {glyph} new line  @ mention");
-            assert_eq!(left + 1 + short.width(), left + 2 + original.width() + 3);
-            let with_reference = format!("{full}  # item");
-            for (width, hint) in [
-                (left + 2 + with_reference.width(), with_reference.as_str()),
-                (left + 2 + full.width(), full.as_str()),
-                (left + 1 + short.width(), short.as_str()),
-                (30, keys.as_str()),
-                (5, "⏎  ^L"),
-                (2, "^L"),
-            ] {
-                let area = Rect::new(0, 0, width as u16, 2);
-                let mut buffer = Buffer::empty(area);
-                info.paint(&mut buffer, area, Look::default(), false);
-                let row: String = buffer.content[width..]
-                    .iter()
-                    .map(|cell| cell.symbol())
-                    .collect();
-                assert!(
-                    row.trim_end().ends_with(hint),
-                    "width={width}, expected {hint:?}, got {row:?}"
-                );
-            }
-        }
+    fn composer_footer_keeps_three_hints_with_accent_keys_and_dims_unfocused() {
+        let look = Look::default();
+        let focused = Info {
+            name: "worker",
+            focused: true,
+            shell: false,
+            checklist: true,
+            keep_reply: false,
+            keep_reply_key: Some("^T".into()),
+            unread: Some(Count::default()),
+            context: None,
+        };
+        let area = Rect::new(0, 0, 100, 2);
+        let mut buffer = Buffer::empty(area);
+        focused.paint(&mut buffer, area, look, false);
+        let row: String = buffer.content[100..]
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            row.trim_end()
+                .ends_with("^T keep reply    @ mention    ^L checklist"),
+            "{row:?}"
+        );
+        assert!(!row.contains("open request"), "{row:?}");
+        assert!(!row.contains("⏎ send"), "{row:?}");
+        assert!(!row.contains("new line"), "{row:?}");
+        assert!(!row.contains("# item"), "{row:?}");
+
+        let cell_at = |text: &str, needle: &str| {
+            let byte = text.find(needle).unwrap();
+            text[..byte].chars().count()
+        };
+        let t_col = cell_at(&row, "^T");
+        assert_eq!(
+            buffer.content[100 + t_col].fg,
+            look.role(Role::Accent).fg.unwrap()
+        );
+        assert_eq!(buffer.content[100 + t_col].bg, ratatui::style::Color::Reset);
+
+        // Active keep_reply renders `^T` (Accent) + ` ⚑ keeping reply` (Waiting).
+        let active = Info {
+            keep_reply: true,
+            ..focused
+        };
+        let mut active_buf = Buffer::empty(area);
+        active.paint(&mut active_buf, area, look, false);
+        let active_row: String = active_buf.content[100..]
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        assert!(
+            active_row
+                .trim_end()
+                .ends_with("^T ⚑ keeping reply    @ mention    ^L checklist"),
+            "{active_row:?}"
+        );
+        let flag_col = cell_at(&active_row, "⚑ keeping reply");
+        assert_eq!(
+            active_buf.content[100 + flag_col].fg,
+            look.role(Role::Waiting).fg.unwrap()
+        );
+
+        // Unfocused dims the entire row.
+        let unfocused = Info {
+            focused: false,
+            ..active
+        };
+        let mut dim_buf = Buffer::empty(area);
+        unfocused.paint(&mut dim_buf, area, look, false);
+        let dim_row: String = dim_buf.content[100..]
+            .iter()
+            .map(|cell| cell.symbol())
+            .collect();
+        let dim_t = cell_at(&dim_row, "^T");
+        assert_eq!(
+            dim_buf.content[100 + dim_t].fg,
+            look.role(Role::Dim).fg.unwrap()
+        );
+
+        // At 80 cols with context, 4-space group gap fits; at 60 cols with context, it falls back to keys.
+        let with_ctx = Info {
+            focused: true,
+            keep_reply: false,
+            unread: None,
+            context: Some(ContextUsage {
+                used_tokens: 12_000,
+                window_tokens: Some(200_000),
+                observed_at_ms: 123,
+            }),
+            ..unfocused
+        };
+        let render_row = |width: u16| -> String {
+            let area = Rect::new(0, 0, width, 2);
+            let mut buf = Buffer::empty(area);
+            with_ctx.paint(&mut buf, area, look, false);
+            buf.content[usize::from(width)..]
+                .iter()
+                .map(|c| c.symbol())
+                .collect()
+        };
+        let row80 = render_row(80);
+        assert!(
+            row80.contains("^T keep reply    @ mention    ^L checklist"),
+            "{row80:?}"
+        );
+        let row60 = render_row(60);
+        assert!(row60.ends_with("^T  @  ^L"), "{row60:?}");
     }
+
     #[test]
     fn context_keeps_known_zero_and_omits_an_unknown_window_and_observation() {
         let look = Look::default();
         let mut info = Info {
             name: "worker",
+            focused: true,
             shell: false,
             checklist: false,
-            checklist_reference: false,
             keep_reply: false,
             keep_reply_key: None,
-            newline: crate::board::app::NewlineKey::Alt,
             unread: Some(Count::default()),
-            open: Some(0),
             context: None,
         };
         assert!(!info.left(true, true, look).to_string().contains("ctx"));
@@ -298,8 +360,7 @@ mod tests {
         );
         let mut buffer = Buffer::empty(Rect::new(0, 0, 40, 4));
         let area = buffer.area;
-        let hit = info.paint(&mut buffer, area, look, false).send.unwrap();
-        assert_eq!(hit.y, 3);
+        info.paint(&mut buffer, area, look, false);
         let row: String = buffer
             .content
             .chunks(40)
@@ -308,84 +369,6 @@ mod tests {
             .iter()
             .map(|c| c.symbol())
             .collect();
-        assert!(row.contains("Alt+⏎") && row.contains("@"));
-    }
-
-    #[test]
-    fn the_primary_mention_hint_keeps_worded_actions_at_eighty_columns() {
-        use crate::board::app::NewlineKey;
-        for key in [NewlineKey::Alt, NewlineKey::Shift] {
-            let info = Info {
-                name: "worker-1",
-                shell: false,
-                checklist: false,
-                checklist_reference: false,
-                keep_reply: false,
-                keep_reply_key: None,
-                newline: key,
-                unread: Some(Count::default()),
-                open: Some(0),
-                context: None,
-            };
-            let mut buffer = Buffer::empty(Rect::new(0, 0, 80, 2));
-            let area = buffer.area;
-            info.paint(&mut buffer, area, Look::default(), false);
-            let row: String = buffer.content[80..]
-                .iter()
-                .map(|cell| cell.symbol())
-                .collect();
-            assert!(row.contains("⏎ send"), "{row}");
-            assert!(row.contains(&format!("{} new line", key.glyph())), "{row}");
-            assert!(row.contains("@ mention"), "{row}");
-            assert!(
-                !row.contains("tmt/"),
-                "the secondary trigger belongs in Help: {row}"
-            );
-        }
-    }
-
-    #[test]
-    fn the_new_line_key_follows_the_one_capability_source_at_every_width() {
-        use crate::board::app::NewlineKey;
-        let look = Look::default();
-        for (key, named) in [(NewlineKey::Alt, "Alt+⏎"), (NewlineKey::Shift, "Shift+⏎")] {
-            let info = Info {
-                name: "worker",
-                shell: false,
-                checklist: false,
-                checklist_reference: false,
-                keep_reply: false,
-                keep_reply_key: None,
-                newline: key,
-                unread: Some(Count::default()),
-                open: Some(0),
-                context: None,
-            };
-            assert_eq!(key.glyph(), named);
-            assert!(key.hint().starts_with(&named.replace('⏎', "Enter")));
-            for width in [160, 100, 60, 40, 20] {
-                let mut buffer = Buffer::empty(Rect::new(0, 0, width, 2));
-                let area = buffer.area;
-                let hit = info.paint(&mut buffer, area, look, false).send.unwrap();
-                let row: String = buffer
-                    .content
-                    .chunks(usize::from(width))
-                    .nth(1)
-                    .unwrap()
-                    .iter()
-                    .map(|cell| cell.symbol())
-                    .collect();
-                assert!(hit.width >= 1, "{width}: the send hit survives");
-                if width >= 100 {
-                    assert!(row.contains(&format!("{named} new line")), "{width}: {row}");
-                }
-                let other = if key == NewlineKey::Alt {
-                    "Shift+⏎"
-                } else {
-                    "Alt+⏎"
-                };
-                assert!(!row.contains(other), "{width}: {row}");
-            }
-        }
+        assert!(row.contains('@'), "{row:?}");
     }
 }

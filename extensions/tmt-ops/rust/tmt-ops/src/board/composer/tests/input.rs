@@ -148,7 +148,7 @@ fn context_comes_from_the_acquired_running_recipient_and_preserves_unknown_windo
 }
 
 #[test]
-fn info_line_uses_the_acquired_open_request_count_without_showing_a_target_picker() {
+fn info_line_omits_open_request_count_without_showing_a_target_picker() {
     let _no_io = crate::runner::forbid_commands();
     let mut app = crate::board::app::workspace::tests::board();
     let selected = app.workspace.selected.clone().unwrap();
@@ -168,36 +168,12 @@ fn info_line_uses_the_acquired_open_request_count_without_showing_a_target_picke
     let buffer = draw(&mut app, 160, 36);
     let band = app.input_band.get().unwrap();
     let info = band_text(&buffer, Rect::new(band.x, band.bottom() - 1, band.width, 1));
-    assert!(info.contains("◆ 2 open request"), "{info}");
+    assert!(!info.contains("open request"), "{info}");
     assert!(!info.contains("older") && !info.contains("newer"));
     assert!(
         app.input.is_none(),
         "painting counts does not start or send a message"
     );
-}
-
-#[test]
-fn the_info_line_and_footer_name_the_same_new_line_key() {
-    let _no_io = crate::runner::forbid_commands();
-    for (enhanced, named) in [(false, "Alt+⏎"), (true, "Shift+⏎")] {
-        for width in [160, 100] {
-            let mut app = crate::board::app::workspace::tests::board();
-            app.keyboard_enhanced = enhanced;
-            let idle = draw(&mut app, width, 36);
-            let band = app.input_band.get().expect("an admitted idle composer");
-            let info = Rect::new(band.x, band.bottom() - 1, band.width, 1);
-            let line = band_text(&idle, info);
-            assert!(
-                line.contains(&format!("{named} new line")),
-                "{enhanced} {width}: {line}"
-            );
-            assert_eq!(
-                app.newline_hint().replace("Enter", "⏎"),
-                format!("{named} new line"),
-                "the footer caption is the same key"
-            );
-        }
-    }
 }
 
 #[test]

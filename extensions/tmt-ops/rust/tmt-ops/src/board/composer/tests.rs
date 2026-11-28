@@ -402,44 +402,6 @@ fn clicking_idle_composer_focuses_and_send_keeps_an_empty_editor_ready() {
 }
 
 #[test]
-fn boxed_send_is_clickable_only_on_its_current_whole_uuid_fenced_button() {
-    use ratatui::crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-    for width in [160, 100, 60] {
-        let mut app = crate::board::app::workspace::tests::board();
-        draw(&mut app, width, 18);
-        assert!(app.composer.send_hit.borrow().is_none());
-        app.key(ratatui::crossterm::event::KeyEvent::new(
-            ratatui::crossterm::event::KeyCode::Enter,
-            KeyModifiers::NONE,
-        ));
-        app.paste("explicit button text");
-        let buffer = draw(&mut app, width, 18);
-        let hit = app.composer.send_hit.borrow().clone().unwrap();
-        let label: String = (hit.area.x..hit.area.right())
-            .map(|x| buffer[(x, hit.area.y)].symbol())
-            .collect();
-        assert!(matches!(label.as_str(), "⏎ send" | "⏎"), "{width}: {label}");
-        let click = MouseEvent {
-            kind: MouseEventKind::Down(MouseButton::Left),
-            column: hit.area.x,
-            row: hit.area.y,
-            modifiers: KeyModifiers::NONE,
-        };
-        assert!(
-            matches!(app.mouse(click, std::time::Instant::now()), crate::board::app::Effect::Act(crate::board::app::Request::Chat { text, .. }) if text == "explicit button text")
-        );
-        app.in_flight = 1;
-        draw(&mut app, width, 18);
-        assert!(
-            app.composer.send_hit.borrow().is_none(),
-            "in-flight button has no authority"
-        );
-        app.invalidate_frame_geometry();
-        assert!(app.composer.send_hit.borrow().is_none());
-    }
-}
-
-#[test]
 fn low_composer_keeps_a_bordered_editable_row_and_clipped_buttons_have_no_hit() {
     use ratatui::{Terminal, backend::TestBackend, layout::Rect};
     for width in [1, 2, 3, 10, 14, 15, 16, 20] {
@@ -1328,9 +1290,7 @@ fn blocking_owner_preserves_focused_composer_paint() {
     app.help = true;
     draw(&mut app, 160, 36);
     assert!(app.composer_projection().unwrap().focused);
-    assert!(
-        app.composer.send_hit.borrow().is_some() && !app.composer.paste_hits.borrow().is_empty()
-    );
+    assert!(!app.composer.paste_hits.borrow().is_empty());
     assert!(app.input_viewport.get().is_some());
 }
 

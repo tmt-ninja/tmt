@@ -64,9 +64,10 @@ pub(super) fn render_header(
     };
     let mut status = status;
     if kept_count > 0 {
+        status.spans.push(Span::styled(" · ", look.role(Role::Dim)));
         status.spans.push(Span::styled(
-            format!(" · ⚑ {kept_count} kept"),
-            look.role(Role::Accent),
+            format!("⚑ {kept_count} kept"),
+            look.role(Role::Waiting),
         ));
     }
     let name = super::super::notes::single_line(name);

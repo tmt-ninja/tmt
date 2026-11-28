@@ -94,10 +94,7 @@ def fresh_text(text, after=0):
 def composer_ready():
     # The info line is identical in read and edit mode. The terminal cursor,
     # published by the actual editor, proves focus rather than a stale label.
-    # The line names the key the terminal actually delivers (kitty enhancement
-    # reports Shift+Enter distinctly; otherwise Alt+Enter is the portable key).
-    key = "Shift+⏎" if spec["enhanced"] else "Alt+⏎"
-    return screen.cursor_visible and screen.contains(key + " new line")
+    return screen.cursor_visible and screen.contains("@ mention")
 
 
 def api(operation, values):
