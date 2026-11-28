@@ -1,3 +1,4 @@
-// Package tui is reserved for phase 3 (tmt-tui leaf), see #6938.
-// Owner: tmt-go-lead.
+// Package tui ports rust/crates/tmt-tui: the application-neutral terminal
+// presentation leaf (geometry, paint, text, style, key input, app loop). It
+// acquires no clock, persistence or provider data. Owner: core-agy.
 package tui
