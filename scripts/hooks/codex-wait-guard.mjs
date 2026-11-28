@@ -8,15 +8,7 @@
 //    script, or one of its worktrees) is allowed with no log line, so a global
 //    wiring is inert elsewhere.
 // 2. `TMT_WAIT_HOOK=off` allows, logged as `off` (the per-seat group switch).
-// 3. A call that names the key cache is denied in every mode: its input, or a
-//    script it runs, contains the cache directory's name (`tmt-codex-wait-guard-`),
-//    resolves to it through a path or symlink, or is a glob (braces expanded) whose
-//    literal prefix is inside the cache, or is the temporary directory or one of
-//    its ancestors with the rest of the pattern able to match the way down to the
-//    cache's name. A glob under any other directory is not a cache read. This
-//    hook's own source is the one script exempt; Codex seats cannot edit this hook
-//    or its test with apply_patch.
-// 4. A short exact allowlist of calls that cannot wait skips the model, logged as
+// 3. A short exact allowlist of calls that cannot wait skips the model, logged as
 //    `skip`: `apply_patch`, and a Bash command that is one simple command (no
 //    unquoted `; & | < > ( ) $` backtick, backslash or newline) running `rg`,
 //    `grep`, `ls`, `cat`, `head`, `wc` or `pwd`, `git status|diff|log|show`, or
@@ -35,7 +27,7 @@
 //    trailing redirections and a trailing `&`, and an optional leading plain
 //    `PATH=` assignment (#6532). A copy elsewhere, or anything
 //    chained or wrapped around it, goes on to the checks below; a `;`/`&&`
-//    chain that ends with it is judged without that last segment (see 5). tmt-infra-lead's
+//    chain that ends with it is judged without that last segment (see 4). tmt-infra-lead's
 //    host-health gate is a `skip` (reason `host-health`) on the same terms, with
 //    exactly `--gate` and nothing else: its one ~60 s call takes both readings and
 //    is a sanctioned wait. The pin is its content, not its path: any script whose
@@ -52,13 +44,13 @@
 //    [run] test` runs whatever the package's `test` script is, so this skip
 //    trusts the repository's reviewed package.json scripts in the call's
 //    worktree, and nothing outside it.
-// 5. A `;` or `&&` chain whose last segment starts this repository's ci-wake.sh
-//    (the check above) is sent to the judge, if it gets there (see 6), without
+// 4. A `;` or `&&` chain whose last segment starts this repository's ci-wake.sh
+//    (the check above) is sent to the judge, if it gets there (see 5), without
 //    that segment, and the judge is told the call then starts it; only scripts
 //    the rest runs are read. Nothing left is a `skip` (reason `ci-wake`). A
 //    ci-wake.sh that is not last, or any chain with a loop keyword or
 //    parentheses, is sent whole.
-// 6. A Bash command with no wait primitive is a `skip` (reason `no-wait`), with no model
+// 5. A Bash command with no wait primitive is a `skip` (reason `no-wait`), with no model
 //    call: no `sleep`, `wait`, `while`/`until` loop, `watch` or `--watch`, `tail -f`,
 //    `timeout`, `retry`, `nohup` or background `&` (see waitPrimitive). Quoted text is data,
 //    except code handed to a shell or an interpreter. Scripts the call runs are read for
@@ -66,10 +58,10 @@
 //    not one) in their first 8 KiB: in the worktree, and outside it when the seat's
 //    uid owns them; only a script the hook cannot read (missing, or not permitted) counts by
 //    its command line. Starting ci-wake.sh anywhere in the command is never a primitive.
-// 7. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
-//    a forced `verdict` tool call, JUDGE_MS in total including the key read). A
+// 6. Every other call is judged by Anthropic's Messages API (`claude-haiku-5-5`,
+//    a forced `verdict` tool call, JUDGE_MS in total including the token read). A
 //    timeout, a network or HTTP error, a refusal, an unparsable or truncated answer or a
-//    missing key allows (fail open), logged with that reason. A deny is printed and
+//    missing token allows (fail open), logged with that reason. A deny is printed and
 //    logged as `enforced: true`; with ENFORCE false (shadow mode) it is only logged, as
 //    `enforced: false`.
 //
@@ -84,14 +76,13 @@
 // credentials in URLs, and `sk-`, `ghp_`, `github_pat_`, `xox?-` and `AKIA`
 // token shapes), and the input is cut to INPUT_CHARS.
 //
-// The key: the macOS Keychain item `tmt-codex-hook-anthropic` (`security
-// find-generic-password -s … -w`; Ben creates it once with `security
-// add-generic-password -a "$USER" -s tmt-codex-hook-anthropic -w`) is cached, by
-// Ben's 11-03 decision, at $TMPDIR/tmt-codex-wait-guard-<uid>/key (directory
-// 0700, file 0600, written atomically), so it is gone after a reboot. A missing
-// or unreadable cache reads the Keychain once; a 401 or 403 drops the cache and
-// re-reads the Keychain once. The key is never printed or logged, and only this
-// hook reads it.
+// The token: Ben's `ant` CLI login (`ant auth login`, an OAuth profile with the
+// `user:inference` scope). Each judged call runs `ant auth print-credentials
+// --access-token` (about 10 ms; `ant` refreshes an expired or near-expiry token
+// itself and owns its storage) within the judge's deadline, and sends the token as
+// `Authorization: Bearer`. A missing `ant`, a logged-out profile or a failed refresh
+// gives no token and fails open (#6943). The token is held in memory only: it is
+// never printed, logged, cached or written, and `ant`'s stderr is discarded.
 //
 // The log: one JSONL line per call inside the repository, at
 // ${XDG_STATE_HOME:-~/.local/state}/tmt/codex-wait-guard-YYYY-MM.jsonl (one file
@@ -107,7 +98,7 @@
 // when it starts; the AGENTS rule and scripts/ci-wake.sh stay the primary fix.
 //
 // TMT_WAIT_GUARD_URL (the Messages endpoint, honored only on a loopback host,
-// since the key goes with it; any other host fails open without a request),
+// since the token goes with it; any other host fails open without a request),
 // TMT_WAIT_GUARD_LOG_DIR (the log directory) and TMT_WAIT_GUARD_NOW (the clock
 // for `stats`) exist for isolated tests.
 import { execFile, execFileSync } from 'node:child_process';
@@ -116,17 +107,13 @@ import {
   appendFileSync,
   chmodSync,
   closeSync,
-  lstatSync,
   mkdirSync,
   openSync,
   readdirSync,
   readFileSync,
   readSync,
   realpathSync,
-  renameSync,
   statSync,
-  unlinkSync,
-  writeFileSync,
 } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -142,7 +129,6 @@ const MODEL = 'claude-haiku-5-5';
 /** About twice the measured judge p95 (1.6 s, 11-03), under Codex's 5 s hook timeout. */
 const JUDGE_MS = 3_500;
 const WHOAMI_MS = 500;
-const KEY_MS = 500;
 const INPUT_CHARS = 8_000;
 const SCRIPT_BYTES = 8_192;
 const SCRIPTS = 4;
@@ -150,12 +136,10 @@ const SCRIPTS = 4;
 const PRICE = { input: 0.1, output: 0.5 };
 const BUDGET_USD_PER_MONTH = 200;
 const JUDGE_URL = 'https://api.anthropic.com/v1/messages';
-const KEYCHAIN_ITEM = 'tmt-codex-hook-anthropic';
-const CACHE_PREFIX = 'tmt-codex-wait-guard-';
 /** The reviewed content of tmt-infra-lead's host-health gate, at any path; any other content is judged (#6003). */
 const HOST_HEALTH_SHA256 = 'c46ddc1a37174c254f07e28e0f5a31affb399d7720fd1692d62c6f59aec5e909';
 
-/** The judge endpoint. The test override is honored only on loopback, since the key goes with it. */
+/** The judge endpoint. The test override is honored only on loopback, since the token goes with it. */
 function judgeUrl() {
   const override = process.env.TMT_WAIT_GUARD_URL;
   if (!override) return JUDGE_URL;
@@ -869,195 +853,25 @@ function readScripts(cwd, command, { anywhere = false } = {}) {
   return scripts;
 }
 
-function cacheDir() {
-  return path.join(os.tmpdir(), `${CACHE_PREFIX}${process.getuid()}`);
+/** The `ant` login's access token, or null when `ant` is missing, logged out or cannot refresh. */
+function accessToken(deadline) {
+  return new Promise((resolve) => {
+    execFile(
+      'ant',
+      ['auth', 'print-credentials', '--access-token'],
+      { encoding: 'utf8', timeout: Math.max(1, deadline - Date.now()) },
+      (error, stdout) => resolve(error ? null : stdout.trim() || null)
+    );
+  });
 }
 
-function strings(value) {
-  if (typeof value === 'string') return [value];
-  if (value && typeof value === 'object') return Object.values(value).flatMap(strings);
-  return [];
-}
-
-/** `a/{b,c}/d` as `a/b/d` and `a/c/d`, expanding every brace group. */
-function expandBraces(word) {
-  const match = /\{([^{}]*,[^{}]*)\}/.exec(word);
-  if (!match) return [word];
-  const head = word.slice(0, match.index);
-  const tail = word.slice(match.index + match[0].length);
-  return match[1].split(',').flatMap((choice) => expandBraces(head + choice + tail));
-}
-
-/** A glob path segment as an anchored regular expression. */
-function globSegment(segment) {
-  return new RegExp(
-    `^${segment
-      .replace(/[.+^${}()|\\]/g, '\\$&')
-      .replace(/\*/g, '.*')
-      .replace(/\?/g, '.')}$`
-  );
-}
-
-/**
- * Whether a glob can reach the key cache (#6003): its literal prefix (before the first wildcard
- * segment, `$NAME` expanded from this environment) is inside the cache, or is the temporary
- * directory or one of its ancestors and the rest of the pattern matches the path from there to
- * the cache directory's name. A glob under any other directory cannot, short of a symlink to the
- * cache planted there, which is accepted like any non-Codex reader.
- */
-function globReachesCache(pattern, cwd, temps, name) {
-  const expanded = pattern.replace(
-    /\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g,
-    (_, variable) => process.env[variable] ?? ''
-  );
-  const segments = expanded.split('/');
-  const first = segments.findIndex((segment) => /[*?[]/.test(segment));
-  if (first === -1) return false;
-  let prefix = path.resolve(
-    cwd,
-    segments.slice(0, first).join('/') || (expanded.startsWith('/') ? '/' : '.')
-  );
-  try {
-    prefix = realpathSync(prefix);
-  } catch {
-    // A prefix that does not exist is compared as written.
-  }
-  const rest = segments.slice(first).filter(Boolean);
-  for (const tmp of temps) {
-    const cache = path.join(tmp, name);
-    if (prefix === cache || prefix.startsWith(cache + path.sep)) return true;
-    if (prefix !== tmp && !tmp.startsWith(prefix === path.sep ? prefix : prefix + path.sep))
-      continue;
-    if (rest.includes('**')) return true;
-    const steps = path.relative(prefix, cache).split(path.sep);
-    if (
-      rest.length >= steps.length &&
-      steps.every((step, at) => globSegment(rest[at]).test(step))
-    ) {
-      return true;
-    }
-  }
-  return false;
-}
-
-const SELF = fileURLToPath(import.meta.url);
-
-/**
- * Whether the call names the key cache: by name, by a resolved path or symlink, or (in a shell
- * command only) by a temp-dir glob. This hook's own source, which names the cache to manage it, is the one script exempt.
- */
-function touchesCache(tool, input, command, scripts, cwd) {
-  const text = [
-    command,
-    ...scripts.filter((script) => script.file !== SELF).map((script) => script.content),
-  ];
-  if (text.some((part) => part.includes(CACHE_PREFIX))) return true;
-  const words = (
-    tool === 'Bash'
-      ? shellWords(command).words
-      : strings(input).flatMap((part) => part.split(/\s+/))
-  )
-    .filter(Boolean)
-    .slice(0, 256);
-  let tmp;
-  try {
-    tmp = realpathSync(os.tmpdir());
-  } catch {
-    tmp = os.tmpdir();
-  }
-  const temps = [...new Set([tmp, path.resolve(os.tmpdir())])];
-  const name = path.basename(cacheDir());
-  const dir = path.join(tmp, name);
-  for (const word of words) {
-    // Only a shell expands a glob; in any other tool's input `/**` is text, such as a JSDoc block.
-    if (tool === 'Bash' && /[*?[]/.test(word)) {
-      if (expandBraces(word).some((pattern) => globReachesCache(pattern, cwd, temps, name))) {
-        return true;
-      }
-      continue;
-    }
-    if (!word.includes('/')) continue;
-    try {
-      const real = realpathSync(path.resolve(cwd, word));
-      if (real === dir || real.startsWith(dir + path.sep)) return true;
-    } catch {
-      // A path that does not resolve cannot reach the cache.
-    }
-  }
-  return false;
-}
-
-function keychain() {
-  try {
-    const value = execFileSync('security', ['find-generic-password', '-s', KEYCHAIN_ITEM, '-w'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: KEY_MS,
-    }).replace(/\r?\n$/, '');
-    return value || null;
-  } catch {
-    return null;
-  }
-}
-
-function cachedKey() {
-  try {
-    const file = path.join(cacheDir(), 'key');
-    const stat = lstatSync(file);
-    if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o077) !== 0) return null;
-    return readFileSync(file, 'utf8') || null;
-  } catch {
-    return null;
-  }
-}
-
-function cacheKey(value) {
-  const dir = cacheDir();
-  const temp = path.join(dir, `key.${process.pid}`);
-  try {
-    mkdirSync(dir, { mode: 0o700 });
-  } catch {
-    // It exists; checked below.
-  }
-  try {
-    const stat = lstatSync(dir);
-    if (!stat.isDirectory() || stat.uid !== process.getuid()) return;
-    chmodSync(dir, 0o700);
-    writeFileSync(temp, value, { mode: 0o600, flag: 'wx' });
-    renameSync(temp, path.join(dir, 'key'));
-  } catch {
-    try {
-      unlinkSync(temp);
-    } catch {
-      // Nothing was written.
-    }
-  }
-}
-
-function dropCachedKey() {
-  try {
-    unlinkSync(path.join(cacheDir(), 'key'));
-  } catch {
-    // Already gone.
-  }
-}
-
-/** `{value, cached}`: the cached key, else the Keychain item (then cached); value null on failure. */
-function apiKey(fresh = false) {
-  const cached = fresh ? null : cachedKey();
-  if (cached) return { value: cached, cached: true };
-  const value = keychain();
-  if (value) cacheKey(value);
-  return { value, cached: false };
-}
-
-function post(url, secret, content, deadline) {
+function post(url, token, content, deadline) {
   return fetch(url, {
     method: 'POST',
     signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
     headers: {
       'content-type': 'application/json',
-      'x-api-key': secret,
+      authorization: `Bearer ${token}`,
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
@@ -1080,17 +894,11 @@ async function judge(content) {
   const deadline = Date.now() + JUDGE_MS;
   const url = judgeUrl();
   if (!url) return failOpen('untrusted judge url');
-  let secret = apiKey();
-  if (!secret.value) return failOpen('no key');
+  const token = await accessToken(deadline);
+  if (!token) return failOpen('no token');
   let response;
   try {
-    response = await post(url, secret.value, content, deadline);
-    if ((response.status === 401 || response.status === 403) && secret.cached) {
-      dropCachedKey();
-      secret = apiKey(true);
-      if (!secret.value) return failOpen('no key');
-      response = await post(url, secret.value, content, deadline);
-    }
+    response = await post(url, token, content, deadline);
   } catch (error) {
     return failOpen(error?.name === 'TimeoutError' ? 'timeout' : 'network');
   }
@@ -1115,6 +923,8 @@ async function judge(content) {
   if (verdict !== 'allow' && verdict !== 'deny') return failOpen('bad verdict', tokens);
   return { verdict, reason: String(reason ?? '').slice(0, 300), tokens };
 }
+
+const SELF = fileURLToPath(import.meta.url);
 
 /** Whether `cwd` is in the repository that holds this script (any of its worktrees). */
 function inRepository(cwd) {
@@ -1185,10 +995,6 @@ async function main() {
   const finish = (entry) => log({ ...base, ...entry, hookMs: Math.round(performance.now()) });
   if (process.env.TMT_WAIT_HOOK === 'off') return finish({ verdict: 'off' });
   const scripts = tool === 'Bash' ? readScripts(payload.cwd, command) : [];
-  if (touchesCache(tool, input, command, scripts, payload.cwd)) {
-    deny("The call names the wait guard's private key cache, which no agent may read.");
-    return finish({ verdict: 'deny', enforced: true, reason: 'key cache' });
-  }
   if (allowlisted(tool, command)) return finish({ verdict: 'skip' });
   if (tool === 'Bash' && runsTests(command)) return finish({ verdict: 'skip', reason: 'test' });
   if (tool === 'Bash' && startsCiWake(payload.cwd, command)) {
