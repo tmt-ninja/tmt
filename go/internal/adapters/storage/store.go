@@ -84,7 +84,9 @@ func prepareStorage(ctx context.Context, db *sql.DB, path string) error {
 	if err := migrateThrough(ctx, conn, SchemaVersion); err != nil {
 		return err
 	}
-	// NOT PORTED (#6938): native hook queue provisioning belongs to the hook adapter.
+	if err := provisionMissingHookQueue(ctx, conn, path); err != nil {
+		return err
+	}
 	return secureDatabaseFiles(path)
 }
 

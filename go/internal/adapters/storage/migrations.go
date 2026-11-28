@@ -93,7 +93,10 @@ func applyMigration(ctx context.Context, conn *sql.Conn, version int) (err error
 			if err := rebuildHostTables(ctx, tx); err != nil {
 				return err
 			}
-			// NOT PORTED (#6938): migration 84's separate hook queue database initialization.
+		case 84:
+			if err := provisionMigrationHookQueue(ctx, tx); err != nil {
+				return err
+			}
 		}
 		if _, err := tx.ExecContext(ctx, `INSERT INTO _migrations (version, name, applied_at)
 			VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`, version, migrationNames[version-1]); err != nil {
