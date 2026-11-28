@@ -20,6 +20,16 @@ var _ ports.Driver = Driver{}
 func (Driver) Name() string { return "codex" }
 
 func (d Driver) LaunchCommand(launch ports.AgentLaunch) (ports.ProcessSpec, error) {
+	return d.launchCommand(launch, true)
+}
+
+// ChannelLaunchCommand prepares the same invocation settings for enrollment.
+// The owned endpoint selects remote mode later, after it proves its identity.
+func (d Driver) ChannelLaunchCommand(launch ports.AgentLaunch) (ports.ProcessSpec, error) {
+	return d.launchCommand(launch, false)
+}
+
+func (d Driver) launchCommand(launch ports.AgentLaunch, embedded bool) (ports.ProcessSpec, error) {
 	var args []string
 	if launch.Resume != "" {
 		if !drivers.ExactSession(launch.Resume) {
@@ -42,7 +52,7 @@ func (d Driver) LaunchCommand(launch ports.AgentLaunch) (ports.ProcessSpec, erro
 	if launch.Resume != "" {
 		args = append(args, launch.Resume)
 	}
-	if embeddedByDefault(launch.Extra) {
+	if embedded && embeddedByDefault(launch.Extra) {
 		args = append(args, "--no-daemon")
 	}
 	// NOT PORTED (#6938): the managed write grant and settings-derived scope,

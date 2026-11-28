@@ -126,6 +126,8 @@ func PreflightClaude(ctx context.Context, runner ports.Process, root home.Root, 
 }
 
 // PreflightCodex accepts only the builds qualified by the channel contract.
+// NOT PORTED (#6938): optional folder-trust prediction from provider config.
+// The provider owns any trust prompt and this adapter uses launch flags only.
 func PreflightCodex(ctx context.Context, runner ports.Process, root home.Root, executable string) error {
 	if !filepath.IsAbs(root.Dir) {
 		return ErrEnrollment
