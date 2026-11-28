@@ -1,3 +1,5 @@
+//go:build !nativecompat
+
 package home
 
 import (

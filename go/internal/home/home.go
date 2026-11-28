@@ -10,14 +10,17 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/tmt-ninja/tmt/go/internal/flavor"
 )
 
-// EnvHome selects the tmt-go data root. tmt-go deliberately ignores TMT_HOME:
-// agent shells may export it for the native binary.
-const EnvHome = "TMT_GO_HOME"
+// EnvHome selects the data root. The isolated build deliberately ignores
+// TMT_HOME (agent shells may export it for the native binary); the
+// native-compatible build uses TMT_HOME exactly as native does.
+const EnvHome = flavor.EnvHome
 
-// DatabaseName is the tmt-go store file inside Root.Dir.
-const DatabaseName = "tmt-go.db"
+// DatabaseName is the store file inside Root.Dir.
+const DatabaseName = flavor.DatabaseName
 
 // nativeDatabaseNames are the native store files; their presence marks a native root.
 var nativeDatabaseNames = []string{"tmt.db", "tmux-team.db"}
@@ -35,11 +38,17 @@ var ErrNativeRoot = errors.New("tmt-go refuses a data root that overlaps the nat
 // Env is the process environment lookup; tests pass a map-backed function.
 type Env func(key string) (string, bool)
 
-// Resolve picks TMT_GO_HOME, else ~/.local/share/tmt-go, and applies Guard.
+// Resolve picks EnvHome, else the flavor's default root, and applies Guard.
+// The native-compatible build follows native: TMT_HOME, else
+// $XDG_CONFIG_HOME/tmt, else ~/.config/tmt.
 func Resolve(env Env, userHome string) (Root, error) {
 	dir, ok := env(EnvHome)
 	if !ok || dir == "" {
-		dir = filepath.Join(userHome, ".local", "share", "tmt-go")
+		if xdg, set := env("XDG_CONFIG_HOME"); flavor.NativeCompatible && set && xdg != "" {
+			dir = filepath.Join(xdg, "tmt")
+		} else {
+			dir = filepath.Join(append([]string{userHome}, flavor.DefaultRoot...)...)
+		}
 	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
@@ -86,6 +95,9 @@ func pinnedByCompanionEnv(env Env, dir string) bool {
 // root that already holds a native database file. A TMT_HOME pinned by
 // CompanionEnv is the tmt-go root itself, not a native root.
 func Guard(root Root, env Env, userHome string) error {
+	if flavor.NativeCompatible {
+		return nil // the native-compatible build is the native installation
+	}
 	dir := clean(root.Dir)
 	natives := NativeRoots(env, userHome)
 	if pinnedByCompanionEnv(env, dir) {
@@ -131,6 +143,9 @@ func CompanionEnv(env []string, root Root) []string {
 			continue
 		}
 		out = append(out, kv)
+	}
+	if flavor.NativeCompatible {
+		return append(out, "TMT_HOME="+root.Dir)
 	}
 	return append(out, "TMT_HOME="+root.Dir, EnvHome+"="+root.Dir, EnvCompanionRoot+"="+root.Dir)
 }

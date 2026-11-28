@@ -135,7 +135,7 @@ func TestLayerRules(t *testing.T) {
 					fail("pure leaves import only the standard library")
 				}
 			case under(f.pkg, "internal/core"):
-				if internal && !under(target, "internal/core") && !under(target, "internal/hostgrammar") {
+				if internal && !under(target, "internal/core") && !under(target, "internal/hostgrammar") && !under(target, "internal/flavor") {
 					fail("core imports only core and hostgrammar")
 				}
 				if !internal && !stdlib(imp) && !coreAllowedModule(imp) {
@@ -155,9 +155,13 @@ func TestLayerRules(t *testing.T) {
 				if !internal && !stdlib(imp) {
 					fail("ports imports only the standard library")
 				}
+			case under(f.pkg, "internal/flavor"):
+				if internal || !stdlib(imp) {
+					fail("flavor is a leaf with no imports")
+				}
 			case under(f.pkg, "internal/clistyle"), under(f.pkg, "internal/output"), under(f.pkg, "internal/invoke"), under(f.pkg, "internal/home"):
-				if internal && !under(target, "internal/output") && !under(target, f.pkg) && !(f.test && under(target, "test")) {
-					fail("leaf packages import no other TMT package except output")
+				if internal && !under(target, "internal/output") && !under(target, "internal/flavor") && !under(target, f.pkg) && !(f.test && under(target, "test")) {
+					fail("leaf packages import no other TMT package except output and flavor")
 				}
 			case under(f.pkg, "internal/adapters"):
 				if internal && (under(target, "internal/cli") || target == "cmd/tmt-go") {
