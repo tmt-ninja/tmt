@@ -139,7 +139,10 @@ func (app application) result(ctx context.Context, input string) output.Report {
 func responseServiceFailure(err error) *output.Failure {
 	var failure *core.RequestFailure
 	if errors.As(err, &failure) && failure != nil {
-		return &output.Failure{Code: failure.Code, Message: failure.Message, Status: failure.Status}
+		return &output.Failure{
+			Code: failure.Code, Message: failure.Message, Status: failure.Status,
+			Reason: failure.Reason, Stage: failure.Stage, Suggestion: failure.Suggestion,
+		}
 	}
 	return &output.Failure{Code: "RESPONSE_ERROR", Message: "Could not complete the response operation.", Status: 1}
 }

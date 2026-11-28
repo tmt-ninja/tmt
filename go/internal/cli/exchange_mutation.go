@@ -66,20 +66,8 @@ func (r exchangeWithdrawReport) Human(w io.Writer) error {
 	return err
 }
 
-func (app application) mutateExchange(ctx context.Context, inv invocation) output.Report {
-	if !inv.has("identity") {
-		// NOT PORTED (#6938): implicit verified caller selection for X.
-		return identityRequired()
-	}
-	me, _, failure := app.requestIdentities(ctx, inv.options["identity"], nil)
-	if failure != nil {
-		return failure
-	}
+func (app application) mutateExchange(ctx context.Context, inv invocation, me *core.Identity, direction core.XDirection) output.Report {
 	identity := identityJSON(me)
-	direction := core.XOutgoing
-	if inv.has("incoming") {
-		direction = core.XIncoming
-	}
 	switch inv.path[1] {
 	case "ack":
 		revision, _ := optionalDecimal(inv, "revision", 1, core.MaxJSSafeInteger)
