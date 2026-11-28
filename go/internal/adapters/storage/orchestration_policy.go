@@ -180,34 +180,15 @@ func decodeOrchFields(encoded []byte) (core.OrchPolicyFields, error) {
 }
 
 func readDigestOrchPolicy(r records, policy *core.OrchPolicySnapshot) error {
-	var encoded []byte
-	err := r.one("SELECT revision,settings FROM digest_receiving_settings WHERE id=1").Scan(&policy.DigestRevision, &encoded)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-	if err != nil {
+	revision, document, err := readDigestReceiving(r)
+	if err != nil || revision == 0 {
 		return err
 	}
-	var document struct {
-		Enabled          bool               `json:"enabled"`
-		DefaultReceiving core.OrchReceiving `json:"defaultReceiving"`
-		Members          []struct {
-			Identity  core.IdentityID    `json:"identityId"`
-			Receiving core.OrchReceiving `json:"receiving"`
-		} `json:"members"`
-	}
-	if err := json.Unmarshal(encoded, &document, json.RejectUnknownMembers(true)); err != nil ||
-		!validOrchReceiving(document.DefaultReceiving, true) || len(document.Members) > 256 {
-		return errInvalidOrchRow
-	}
+	policy.DigestRevision, policy.DigestEnabled = revision, document.Enabled
 	members := make(map[core.IdentityID]core.OrchReceiving, len(document.Members))
 	for _, member := range document.Members {
-		if _, exists := members[member.Identity]; exists || !core.ValidUUID(string(member.Identity)) || !validOrchReceiving(member.Receiving, true) {
-			return errInvalidOrchRow
-		}
-		members[member.Identity] = member.Receiving
+		members[member.IdentityID] = member.Receiving
 	}
-	policy.DigestEnabled = document.Enabled
 	for id := range policy.Identities {
 		receiving, ok := members[id]
 		if !ok {
