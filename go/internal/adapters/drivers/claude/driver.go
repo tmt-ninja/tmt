@@ -12,6 +12,9 @@ import (
 // Driver prepares interactive Claude Code launches.
 type Driver struct {
 	Executable string // explicit CLI path, or search PATH when empty
+	// HookExecutable opts in to per-launch lifecycle hooks once the caller
+	// has a tmt-go executable with the callback wired.
+	HookExecutable string
 }
 
 var _ ports.Driver = Driver{}
@@ -32,10 +35,17 @@ func (d Driver) LaunchCommand(launch ports.AgentLaunch) (ports.ProcessSpec, erro
 	if launch.Effort != "" {
 		args = append(args, "--effort", launch.Effort)
 	}
-	// NOT PORTED (#6938): invocation-scoped hooks and managed skill injection
-	// require hook callbacks and a qualified invocation plan. Native channel
-	// enrollment additionally needs a verified binding and launch owner.
-	return drivers.Command(d.Name(), d.Executable, launch, append(args, launch.Extra...))
+	args = append(args, launch.Extra...)
+	if d.HookExecutable != "" {
+		var err error
+		args, err = withHooks(args, d.HookExecutable)
+		if err != nil {
+			return ports.ProcessSpec{}, err
+		}
+	}
+	// NOT PORTED (#6938): Digest continuation, managed skill injection and
+	// native channel enrollment with a verified binding and launch owner.
+	return drivers.Command(d.Name(), d.Executable, launch, args)
 }
 
 var screenRules = drivers.ScreenRules{
