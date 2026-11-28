@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -47,22 +48,14 @@ func checkLines(inv invocation) (*uint64, string) {
 	return nil, ""
 }
 
-func checkDefaultLines(root home.Root) (uint64, error) {
+func (app application) check(ctx context.Context, root home.Root, inv invocation) (report output.Report) {
 	settings, err := loadSettings(root)
 	if err != nil {
-		return 0, err
+		return &output.Failure{Code: "CONFIG_ERROR", Message: "Could not read capture settings.", Status: 1}
 	}
-	return settings["captureLines"].value.(uint64), nil
-}
-
-func (app application) check(ctx context.Context, root home.Root, inv invocation) (report output.Report) {
-	lines, _ := checkLines(inv)
-	if lines == nil {
-		value, err := checkDefaultLines(root)
-		if err != nil {
-			return &output.Failure{Code: "CONFIG_ERROR", Message: "Could not read capture settings.", Status: 1}
-		}
-		lines = &value
+	lines := settings["captureLines"].value.(uint64)
+	if explicit, _ := checkLines(inv); explicit != nil {
+		lines = *explicit
 	}
 	if app.store == nil {
 		store, err := storage.Open(ctx, root)
@@ -82,19 +75,21 @@ func (app application) check(ctx context.Context, root home.Root, inv invocation
 	var identity *core.Identity
 	var binding *core.Binding
 	var direct bool
-	err := app.store.Read(ctx, func(tx ports.StoreTx) error {
+	expected, pinned := inv.options["expect-name"]
+	err = app.store.Read(ctx, func(tx ports.StoreTx) error {
 		var err error
 		records := tx.Identities()
-		if inv.has("expect-name") {
+		switch {
+		case pinned:
+			identity, err = readPinnedIdentity(records, core.IdentityID(target), expected)
+		case inv.has("capture-only") && core.IsCanonicalIdentityID(target):
 			identity, err = records.FindByID(core.IdentityID(target))
-		} else {
-			if !inv.has("capture-only") {
-				direct, err = core.AddressesPane(records, target)
-				if direct || err != nil {
-					return err
-				}
+		default:
+			direct, err = core.AddressesPane(records, target)
+			if direct || err != nil {
+				return err
 			}
-			identity, err = core.ResolveIdentity(records, target)
+			identity, err = records.FindByCanonicalName(core.NormalizeName(target))
 		}
 		if err != nil || identity == nil {
 			return err
@@ -103,16 +98,13 @@ func (app application) check(ctx context.Context, root home.Root, inv invocation
 		return err
 	})
 	if err != nil {
-		return &output.Failure{Code: "IDENTITY_ERROR", Message: "Could not read identity storage.", Status: 1}
+		return checkIdentityFailure(err)
 	}
 	if direct {
-		return app.checkDirect(ctx, target, *lines)
+		return app.checkDirect(ctx, target, lines)
 	}
 	if identity == nil {
 		return identityMissing(target)
-	}
-	if failure := checkIdentityPin(inv, identity); failure != nil {
-		return failure
 	}
 	if binding == nil {
 		return inactiveCheckTarget(target)
@@ -127,43 +119,39 @@ func (app application) check(ctx context.Context, root home.Root, inv invocation
 		return checkEndpointFailure()
 	}
 	state, observed := core.EvaluateBinding(*identity, binding, probe)
-	if state != core.BindingActive || observed == nil || binding.PaneIncarnation != nil && observed.Incarnation == nil {
-		return inactiveCheckTarget(target)
-	}
-	if inv.has("expect-name") {
+	if pinned {
 		var fresh *core.Identity
 		var freshBinding *core.Binding
 		err := app.store.Read(ctx, func(tx ports.StoreTx) error {
 			var err error
-			fresh, err = tx.Identities().FindByID(identity.ID)
-			if err != nil || fresh == nil {
+			fresh, err = readPinnedIdentity(tx.Identities(), identity.ID, expected)
+			if err != nil {
 				return err
 			}
 			freshBinding, err = tx.Bindings().FindByIdentity(identity.ID)
 			return err
 		})
 		if err != nil {
-			return &output.Failure{Code: "IDENTITY_ERROR", Message: "Could not read identity storage.", Status: 1}
+			return checkIdentityFailure(err)
 		}
-		if fresh == nil || !reflect.DeepEqual(freshBinding, binding) {
-			return &output.Failure{Code: "IDENTITY_CHANGED", Message: "The selected identity changed before capture.", Status: 5}
-		}
-		if failure := checkIdentityPin(inv, fresh); failure != nil {
-			return failure
+		if !reflect.DeepEqual(freshBinding, binding) {
+			return bindingFailure("IDENTITY_CHANGED", "The selected identity changed before capture.", 5)
 		}
 		identity = fresh
 	}
+	if state != core.BindingActive || observed == nil || binding.PaneIncarnation != nil && observed.Incarnation == nil {
+		return inactiveCheckTarget(target)
+	}
 	// NOT PORTED (CLI-20): Idle Digest checklist handoff.
-	return app.captureCheck(ctx, target, pane, *lines, identity)
+	return app.captureCheck(ctx, target, pane, lines, identity)
 }
 
-func checkIdentityPin(inv invocation, identity *core.Identity) *output.Failure {
-	if expected, ok := inv.options["expect-name"]; ok && core.NormalizeName(expected) != identity.CanonicalName {
-		return &output.Failure{
-			Code: "IDENTITY_CHANGED", Message: fmt.Sprintf("The identity %s is now named '%s', not '%s'.", identity.ID, identity.Name, expected), Status: 5,
-		}
+func checkIdentityFailure(err error) *output.Failure {
+	var failure *output.Failure
+	if errors.As(err, &failure) {
+		return failure
 	}
-	return nil
+	return bindingFailure("IDENTITY_ERROR", "Could not read identity storage.", 1)
 }
 
 func inactiveCheckTarget(target string) *output.Failure {

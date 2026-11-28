@@ -164,6 +164,11 @@ jobs:
                   ("test/native/api.test.ts", "ends an incomplete session frame after publishing only the preceding complete response"),
                   ("test/native/api.test.ts", "bounds incomplete and oversized input before opening storage"),
                   ("test/native/extension-command.test.ts", "executes the exact tail, preserves stdin/output/exit and exposes the invoking executable"),
+                  ("test/native/check.test.ts", "distinguishes renamed-away names from existing inactive identities with exit 3"),
+                  ("test/native/check.test.ts", "validates configuration before any tmux call or storage creation"),
+                  ("test/native/check.test.ts", "does not create unknown names or perform endpoint IO for lookup-only misses"),
+                  ("test/native/talk.test.ts", "rejects invalid config and timing before storage or endpoint effects"),
+                  ("test/native/talk.test.ts", "does not invent unknown targets or prepare exchanges on lookup misses"),
                   ("test/native/digest-delivery.test.ts", "advertises only digest operations and rejects the retired feature names without creating state"),
               ],
               "e2e": [

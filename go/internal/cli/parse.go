@@ -377,8 +377,27 @@ func validateOperands(parsed invocation) string {
 			return fmt.Sprintf("Invalid value '%s' for '<provider>'.", parsed.operands[0])
 		}
 	case "talk":
+		if parsed.has("remote") {
+			for _, option := range []string{"passthrough", "urgent", "no-preamble", "timeout", "delay", "room", "kind"} {
+				if parsed.has(option) {
+					return "--remote sends one request through Remote and returns at once; it takes no --passthrough, --urgent, --no-preamble, --timeout, --delay, --room or --kind."
+				}
+			}
+			target := parsed.operands[0]
+			uuid := core.ValidUUID(target) && target != "00000000-0000-0000-0000-000000000000"
+			if uuid != parsed.has("expect-name") {
+				return "A UUID target needs --expect-name <name>, and --expect-name is only for a UUID target."
+			}
+			return ""
+		}
+		if parsed.has("expect-name") {
+			return "--expect-name pins a UUID target on a Remote peer and needs --remote."
+		}
 		if parsed.has("timeout") && parsed.has("detach") {
 			return "Use either --timeout or --detach, not both."
+		}
+		if parsed.has("passthrough") && (parsed.has("timeout") || parsed.has("room") || parsed.has("no-preamble")) {
+			return "--passthrough sends the message as typed and returns at once; it takes no --timeout, --room or --no-preamble."
 		}
 		if kind := parsed.options["kind"]; parsed.has("kind") && !slices.Contains([]string{"decision", "review", "fyi"}, kind) {
 			return fmt.Sprintf("Invalid value '%s' for '--kind'.", kind)

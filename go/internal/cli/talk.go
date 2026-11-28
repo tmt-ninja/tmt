@@ -44,20 +44,12 @@ func (app application) prepareTalk(ctx context.Context, root home.Root, inv invo
 		target: inv.operands[0], message: inv.operands[1], detach: inv.has("detach"), urgent: inv.has("urgent"),
 		digestKind: core.DigestKind(inv.options["kind"]),
 	}
-	for _, option := range []string{"remote", "room", "passthrough", "expect-name"} {
+	for _, option := range []string{"remote", "room", "passthrough"} {
 		if inv.has(option) {
-			// NOT PORTED (CLI-15, CLI-16, CLI-17, CLI-18): Remote and room routes, passthrough and name pinning.
+			// NOT PORTED (CLI-15, CLI-16, CLI-17, CLI-18): Remote name pinning and delivery, room routes, and passthrough.
 			return plan, &output.Failure{Code: "NOT_PORTED", Message: fmt.Sprintf("Talk option '--%s' is not yet ported.", option), Status: 2}
 		}
 	}
-
-	settings, err := loadSettings(root)
-	if err != nil {
-		return plan, talkConfigFailure()
-	}
-	plan.timeout = timerSeconds(settings["timeout"].value.(float64))
-	plan.retention = settings["exchange.retentionDays"].value.(uint64)
-	plan.pasteDelay = timerSeconds(settings["pasteEnterDelayMs"].value.(float64) / 1000)
 
 	if inv.has("timeout") {
 		value, failure := durationSeconds(inv.options["timeout"])
@@ -69,8 +61,6 @@ func (app application) prepareTalk(ctx context.Context, root home.Root, inv invo
 		}
 		plan.timeout = timerSeconds(value)
 	}
-	// No observation interval needs to exceed the request's own deadline.
-	plan.poll = timerSeconds(min(settings["pollInterval"].value.(float64), plan.timeout.Seconds()))
 	if inv.has("delay") {
 		value, failure := durationSeconds(inv.options["delay"])
 		if failure != nil {
@@ -81,6 +71,18 @@ func (app application) prepareTalk(ctx context.Context, root home.Root, inv invo
 		}
 		plan.delay = timerSeconds(value)
 	}
+
+	settings, err := loadSettings(root)
+	if err != nil {
+		return plan, talkConfigFailure()
+	}
+	if !inv.has("timeout") {
+		plan.timeout = timerSeconds(settings["timeout"].value.(float64))
+	}
+	plan.retention = settings["exchange.retentionDays"].value.(uint64)
+	plan.pasteDelay = timerSeconds(settings["pasteEnterDelayMs"].value.(float64) / 1000)
+	// No observation interval needs to exceed the request's own deadline.
+	plan.poll = timerSeconds(min(settings["pollInterval"].value.(float64), plan.timeout.Seconds()))
 
 	if !utf8.ValidString(plan.message) {
 		return plan, &output.Failure{Code: "REQUEST_INPUT_INVALID", Message: "Original request is invalid.", Status: 1}
@@ -246,7 +248,10 @@ func (app application) talk(ctx context.Context, plan talkPlan) output.Report {
 			if plan.callerFailure != nil {
 				return plan.callerFailure
 			}
-			recipient, err = core.ResolveIdentity(records, plan.target)
+			recipient, err = core.FindIdentityByName(records, plan.target)
+			if errors.Is(err, core.ErrNameEmptyOrControl) || errors.Is(err, core.ErrNamePaneTarget) || errors.Is(err, core.ErrNameTooLong) {
+				return nil
+			}
 			if err != nil || recipient == nil {
 				return err
 			}

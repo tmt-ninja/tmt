@@ -230,3 +230,32 @@ func TestDigestHookGrammarRejectsInvalidSourcesAndBudgets(t *testing.T) {
 		reject("__digest-hook", "codex", "--discover-launch", "--worker", "--work-budget-ms="+budget)
 	}
 }
+
+// Port the Remote pin and passthrough constraints from parser/tests/messaging.rs.
+func TestTalkAdmissionMatchesNativeRemoteAndPassthroughOptions(t *testing.T) {
+	const id = "7f0c2f2e-2b1a-4c1e-9d2a-0a1b2c3d4e5f"
+	for _, args := range [][]string{
+		{"talk", "reviewer", "hello", "--remote", "bob", "--identity", "ben", "--detach"},
+		{"send", id, "hello", "--remote", "bob", "--expect-name", "reviewer"},
+		{"talk", "peer", "hello", "--passthrough", "--detach", "--urgent", "--identity", "ben"},
+	} {
+		if _, failure := parse(args); failure != nil {
+			t.Fatalf("%q: %v", args, failure)
+		}
+	}
+	reject := func(want string, args ...string) {
+		t.Helper()
+		if _, failure := parse(args); failure == nil || failure.Code != "USAGE_ERROR" || !strings.Contains(failure.Message, want) {
+			t.Fatalf("%q: %v, want usage diagnostic containing %q", args, failure, want)
+		}
+	}
+	reject("needs --remote", "talk", id, "hello", "--expect-name", "reviewer")
+	reject("A UUID target needs --expect-name", "talk", id, "hello", "--remote", "bob")
+	reject("--expect-name is only for a UUID", "talk", "reviewer", "hello", "--remote", "bob", "--expect-name", "reviewer")
+	for _, option := range [][]string{{"--passthrough"}, {"--urgent"}, {"--no-preamble"}, {"--timeout", "5"}, {"--delay", "5"}, {"--room", "design"}, {"--kind", "review"}} {
+		reject("--remote sends one request through Remote", append([]string{"talk", "reviewer", "hello", "--remote", "bob"}, option...)...)
+	}
+	for _, option := range [][]string{{"--timeout", "5"}, {"--room", "design"}, {"--no-preamble"}} {
+		reject("--passthrough sends the message as typed", append([]string{"talk", "peer", "hello", "--passthrough"}, option...)...)
+	}
+}

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"slices"
@@ -172,33 +173,44 @@ func createIdentity(ctx context.Context, store ports.Store, raw string) output.R
 	return report
 }
 
+func readPinnedIdentity(records ports.IdentityRepo, id core.IdentityID, expected string) (*core.Identity, error) {
+	identity, err := records.FindByID(id)
+	if err != nil {
+		return nil, err
+	}
+	if identity == nil {
+		retired, err := records.IsRetired(id)
+		if err != nil {
+			return nil, err
+		}
+		if retired {
+			return nil, bindingFailure("IDENTITY_CHANGED", fmt.Sprintf("The identity %s has been retired.", id), 5)
+		}
+		return nil, identityMissing(string(id))
+	}
+	if identity.CanonicalName != core.NormalizeName(expected) {
+		return nil, bindingFailure("IDENTITY_CHANGED", fmt.Sprintf("The identity %s is now named '%s', not '%s'.", id, identity.Name, expected), 5)
+	}
+	return identity, nil
+}
+
 func (app application) showPinnedIdentity(ctx context.Context, selector, expected string) output.Report {
 	var entry bindingEntry
-	var retired bool
 	err := app.store.Read(ctx, func(tx ports.StoreTx) error {
 		var err error
-		entry.identity, err = tx.Identities().FindByID(core.IdentityID(selector))
+		entry.identity, err = readPinnedIdentity(tx.Identities(), core.IdentityID(selector), expected)
 		if err != nil {
-			return err
-		}
-		if entry.identity == nil {
-			retired, err = tx.Identities().IsRetired(core.IdentityID(selector))
 			return err
 		}
 		entry.binding, err = tx.Bindings().FindByIdentity(entry.identity.ID)
 		return err
 	})
 	if err != nil {
-		return identityOperationFailure()
-	}
-	if entry.identity == nil {
-		if retired {
-			return bindingFailure("IDENTITY_CHANGED", fmt.Sprintf("The identity %s has been retired.", selector), 5)
+		var failure *output.Failure
+		if errors.As(err, &failure) {
+			return failure
 		}
-		return identityMissing(selector)
-	}
-	if entry.identity.CanonicalName != core.NormalizeName(expected) {
-		return bindingFailure("IDENTITY_CHANGED", fmt.Sprintf("The identity %s is now named '%s', not '%s'.", selector, entry.identity.Name, expected), 5)
+		return identityOperationFailure()
 	}
 	cli := newBindingCLI(app.store, app.caller.lookup)
 	return identityDetailReport{identity: *entry.identity, presence: cli.presence(ctx, entry).presence}

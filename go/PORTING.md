@@ -200,7 +200,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-15` Implement `talk --remote` through Remote delivery.
 - [ ] `CLI-16` Implement `talk --room` and its membership rules.
 - [ ] `CLI-17` Implement `talk --passthrough` through guarded raw paste.
-- [ ] `CLI-18` Implement `talk --expect-name` with exact identity pinning.
+- [ ] `CLI-18` Apply the validated `talk --expect-name` UUID/name pin on the Remote route (CLI-15).
 - [ ] `CLI-19` Send best-effort reply notifications after durable acceptance.
 - [ ] `CLI-20` Deliver the retained Digest checklist from ordinary idle `check`.
 - [ ] `CLI-21` Implement `x flow` with content-free exchange counts.
@@ -237,6 +237,9 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [x] `CLI-50` Fix intermittent parallel private-tmux deadlines via GO2-01 (8d7b740d72). `TestPrivateDiscoveryAndMarkedPaneWithoutMetadata` expired its 1 s process read in the old pane's exact Discover after re-marking. `TestDiscoverAndMarkedOnPrivateTmux` returned an empty, truncated initial inventory under load. `TestPrivateFocusAndSwapExactInvokingClient` reached the 12 s fixture limit in its last focus action. A separate adapter trace pinned the 4 s swap deadline in a post-swap batched `ps` read with 368 ms left, following reads up to 944 ms. `TestFocusSwapGeometryMatchesNative` reported generic reconciliation in left and right without identifying a stage. Native start observations and one ancestry snapshot per proof replace the repeated subprocess work. All original deadlines and exact pre/post checks remain, and all four fixtures passed uncached with package parallelism in both flavors.
 
 ### Native test mappings from merged main
+
+- `rust/crates/tmt-cli/src/parser/tests/messaging.rs` Remote UUID pin and passthrough-option constraints → `TestTalkAdmissionMatchesNativeRemoteAndPassthroughOptions`. The manifest runs two unchanged `test/native/talk.test.ts` preflight cases for timing/config and missing recipients against both executables.
+- `typescript/test/e2e/check-routing.e2e.test.ts` capture-only UUID pin, remapped name and retired UUID refusals → `TestCheckPinsCaptureToActiveUUIDBeforeHostAccess`; explicit line-count and capture-only pane routing → `TestCheckCapturesExplicitPrivatePaneWithPositionalLinePrecedence` and `TestCheckExplicitLinesStillValidatesConfigBeforeStorage`. The manifest runs three unchanged `test/native/check.test.ts` cases covering missing/inactive names, invalid config and read-only lookup misses.
 
 - `rust/crates/tmt-cli/src/parser/tests/setup.rs` hidden Digest callback, legacy baked argv, discover-launch and bounded worker budget assertions → `TestDigestHookGrammarMatchesNative`, `TestDigestHookGrammarRejectsInvalidSourcesAndBudgets` and `TestHiddenNamesAreReservedButAbsentFromHelp`.
 
