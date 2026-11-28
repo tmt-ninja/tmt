@@ -22,6 +22,38 @@ pub(super) fn shell_prefix(text: &str) -> Option<&str> {
         .or_else(|| text.strip_prefix('！'))?;
     Some(rest.strip_prefix(' ').unwrap_or(rest))
 }
+/// A Talk shell paste edits the underlying command, without adding a message fold.
+pub(super) fn paste_shell(editor: &mut Editor, pasted: &str) -> Option<Result<(), &'static str>> {
+    let draft = editor.as_str();
+    if shell_prefix(draft).is_none() && !(draft.is_empty() && shell_prefix(pasted).is_some()) {
+        return None;
+    }
+    let text = pasted
+        .strip_suffix("\r\n")
+        .or_else(|| pasted.strip_suffix('\n'))
+        .unwrap_or(pasted);
+    let selection = editor.selection();
+    let candidate = format!(
+        "{}{text}{}",
+        &draft[..selection.start],
+        &draft[selection.end..]
+    );
+    let command = shell_prefix(&candidate)?;
+    if command.len() > tmt_pty_protocol::COMMAND_LIMIT {
+        return Some(Err(
+            "Pasted command exceeds 4,096 bytes; the draft is unchanged.",
+        ));
+    }
+    if !tmt_pty_protocol::valid_command(command) {
+        return Some(Err(
+            "Paste one visible command line; the draft is unchanged.",
+        ));
+    }
+    let inserted = editor.insert(text, candidate.len());
+    debug_assert!(inserted, "the validated candidate bounds the edit");
+    Some(Ok(()))
+}
+
 static EMPTY_QUOTES: BTreeMap<u64, QuoteSource> = BTreeMap::new();
 #[derive(Clone, PartialEq, Eq)]
 pub(super) struct Draft {
