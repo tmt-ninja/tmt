@@ -36,6 +36,16 @@ type ClaudeServeRequest struct {
 	Build      string
 }
 
+// ParseClaudeServeRequest checks the coordinates carried in the per-launch
+// MCP config against the root already resolved by tmt-go.
+func ParseClaudeServeRequest(root home.Root, args []string, build string) (ClaudeServeRequest, error) {
+	if len(args) != 4 || args[0] != "claude" || args[3] != ClaudeDirectory(root) ||
+		!validClaudeDirectory(root) || !core.ValidUUID(args[1]) || !core.ValidUUID(args[2]) {
+		return ClaudeServeRequest{}, ErrEnrollment
+	}
+	return ClaudeServeRequest{Root: root, BindingID: args[1], Generation: args[2], Build: build}, nil
+}
+
 func ClaudeDirectory(root home.Root) string {
 	return filepath.Join(root.Dir, channelDirectory)
 }
