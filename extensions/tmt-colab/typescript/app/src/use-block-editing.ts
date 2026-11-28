@@ -144,6 +144,7 @@ export type BlockMenuAction =
   | (typeof BLOCK_MENU_ACTIONS)[number]
   | (typeof HEADING_MENU_ACTIONS)[number]
   | 'edit-question'
+  | 'comment'
   | 'turn-into'
   | 'turn-back'
   | `turn-${TurnInto}`;
@@ -155,6 +156,7 @@ const turnedAs = (block: { type: string; props: Record<string, unknown> }) =>
 export function blockMenuActions(
   block?: { type: string; props: Record<string, unknown> },
   list?: 'turn-into',
+  canComment = false,
 ): readonly BlockMenuAction[] {
   const retype = Boolean(block && (RETYPE_TYPES as readonly string[]).includes(block.type));
   if (list === 'turn-into' && block && retype)
@@ -164,18 +166,20 @@ export function blockMenuActions(
         (into) => `turn-${into}` as const,
       ),
     ];
-  if (block?.type === 'question')
-    return ['move-up', 'move-down', 'duplicate', 'edit-question', 'delete'];
-  // Turn into goes before Delete, which stays last of the block's own actions.
-  const own: readonly BlockMenuAction[] = retype
-    ? ['move-up', 'move-down', 'duplicate', 'turn-into', 'delete']
-    : BLOCK_MENU_ACTIONS;
-  if (block?.type !== 'heading') return own;
+  // Edit question and Turn into go before Delete, which stays last of the block's own actions.
+  const own: readonly BlockMenuAction[] =
+    block?.type === 'question'
+      ? ['move-up', 'move-down', 'duplicate', 'edit-question', 'delete']
+      : retype
+        ? ['move-up', 'move-down', 'duplicate', 'turn-into', 'delete']
+        : BLOCK_MENU_ACTIONS;
+  const actions: readonly BlockMenuAction[] = canComment ? ['comment', ...own] : own;
+  if (block?.type !== 'heading') return actions;
   const current =
     block.props.progress === 'done' || block.props.progress === 'off'
       ? `progress-${block.props.progress}`
       : 'progress-auto';
-  return [...own, ...HEADING_MENU_ACTIONS.filter((action) => action !== current)];
+  return [...actions, ...HEADING_MENU_ACTIONS.filter((action) => action !== current)];
 }
 
 /** How long the status line after a delete stays. */
@@ -370,6 +374,7 @@ export function useBlockEditing(
   /** The page takes no edits now (archived, ended): it is drawn as it holds, without this tab's
    * batches on their way, which land or fail once it takes edits again (#6820). */
   blocked = false,
+  canComment = false,
 ) {
   /** This tab's batches on their way: the page draws them at once and drops each when the page's
    * view shows it (`shownAt`: the view order of its commit), or when it was refused (#6249). A
@@ -1817,6 +1822,7 @@ export function useBlockEditing(
         setAuthoring(id);
         return;
       }
+      if (action === 'comment') return;
       if (action.startsWith('turn-')) {
         gesture(retypeBlock(tree, id, action.slice('turn-'.length) as TurnInto));
         setSelection(selectBlock(id));
@@ -1935,7 +1941,7 @@ export function useBlockEditing(
           setBlockMenu({
             ...menuOn,
             active: nextBlockMenuItem(
-              blockMenuActions(treeRef.current.get(menuOn.id), menuOn.list),
+              blockMenuActions(treeRef.current.get(menuOn.id), menuOn.list, canComment),
               menuOn.active,
               event.key,
             ),
@@ -2018,7 +2024,18 @@ export function useBlockEditing(
       }
       return false;
     },
-    [blockMenu, selection, replay, deleteIds, focus, focusCell, addRowTo, act, openBlockMenu],
+    [
+      blockMenu,
+      selection,
+      replay,
+      deleteIds,
+      focus,
+      focusCell,
+      addRowTo,
+      act,
+      openBlockMenu,
+      canComment,
+    ],
   );
   const selected = useMemo(() => selectedIds(tree, selection), [tree, selection]);
   useEffect(() => () => clearTimeout(toastTimer.current), []);

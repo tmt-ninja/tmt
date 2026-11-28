@@ -10,6 +10,7 @@ import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { until } from './harness/process.js';
 import { text } from '../src/strings.js';
 import { commentsClose } from '../test/comments-region.js';
+import { capturePath } from '../e2e/captures.js';
 import { backToPageList, showAllPages } from '../test/home-list.js';
 
 test.afterEach(disposeActiveWorlds);
@@ -1862,6 +1863,181 @@ test('a comment on a structured block survives reopening', async () => {
   });
 });
 
+test('whole-block comments open from the gutter and grip without selecting text', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'whole-block-comment');
+    world.linkExtensions();
+    const cli = (args: string[], input?: string) =>
+      JSON.parse(run(world, world.binaries.colab, [...args, '--json'], input));
+    const created = cli([
+      'page',
+      'create',
+      '--title',
+      'Release review',
+      '--structured',
+      '--no-open',
+    ]);
+    const paragraph = crypto.randomUUID();
+    const card = crypto.randomUUID();
+    const table = crypto.randomUUID();
+    const row = crypto.randomUUID();
+    cli(
+      ['block', 'batch', created.pageId, '--file', '-'],
+      JSON.stringify([
+        { op: 'insert', id: paragraph, type: 'paragraph', text: 'Review the release checklist.' },
+        { op: 'insert', id: card, type: 'card', props: { title: 'Release details' } },
+        {
+          op: 'insert',
+          id: table,
+          parent: card,
+          type: 'table',
+          props: { columns: [{ id: 'status', name: 'Status' }] },
+        },
+        { op: 'table', id: table, action: 'add-row', row, cells: { status: 'Ready' } },
+      ]),
+    );
+    const page = await browser.context.newPage();
+    await page.setViewportSize({ width: 1440, height: 960 });
+    await page.goto(new URL(created.path, door.origin).href);
+    await expect(page.getByText('Review the release checklist.')).toBeVisible();
+    const png = path.join(world.root, 'sketch.png');
+    fs.writeFileSync(
+      png,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAEklEQVR4nGP4z8DwnwEJMOAQBACsjQf5o4qoqgAAAABJRU5ErkJggg==',
+        'base64',
+      ),
+    );
+    const { attachment } = cli(['attachment', 'attach', created.pageId, png]);
+    const image = cli([
+      'block',
+      'insert',
+      created.pageId,
+      '--type',
+      'image',
+      '--props',
+      JSON.stringify({
+        layout: 'single',
+        images: [{ src: `colab-attachment:${attachment.attachmentId}`, alt: 'Release sketch' }],
+      }),
+    ]).blockIds[0] as string;
+    await expect(page.getByRole('img', { name: 'Release sketch' })).toBeVisible();
+
+    const block = (id: string) => page.locator(`[data-block-id="${id}"]`);
+    const action = (id: string) =>
+      block(id).getByRole('button', { name: 'Comment on block', exact: true });
+    const handle = (id: string) =>
+      block(id).getByRole('button', { name: 'Block actions', exact: true });
+    const menu = page.getByRole('menu', { name: 'Block actions' });
+    const comment = menu.getByRole('menuitem', { name: 'Comment', exact: true });
+    const composer = page.locator('.annotation-popover');
+    const shot = async (name: string) => {
+      if (process.env.COLAB_CAPTURE_DIR)
+        await page.screenshot({ path: capturePath(name), animations: 'disabled' });
+    };
+    const gutterPositions: number[] = [];
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme });
+      await page.mouse.move(0, 0);
+      await shot(`6917-resting-1440-${colorScheme}.png`);
+      for (const [kind, id] of [
+        ['paragraph', paragraph],
+        ['table', table],
+        ['image', image],
+      ] as const) {
+        const before = await block(id).boundingBox();
+        await block(id).hover();
+        const button = action(id);
+        await expect(button).toBeInViewport();
+        await expect(button.locator('xpath=../..')).toHaveCSS('opacity', '1');
+        const [body, control] = await Promise.all([block(id).boundingBox(), button.boundingBox()]);
+        expect(body?.width).toBe(before?.width);
+        expect(control!.x).toBeGreaterThanOrEqual(body!.x + body!.width - 1);
+        gutterPositions.push(control!.x);
+        if (kind === 'table') {
+          const cardSurface = await block(card).locator('[data-slot="card-block"]').boundingBox();
+          expect(control!.x).toBeGreaterThanOrEqual(cardSurface!.x + cardSurface!.width - 1);
+        }
+        await shot(`6917-${kind}-1440-${colorScheme}.png`);
+      }
+    }
+    expect(Math.max(...gutterPositions) - Math.min(...gutterPositions)).toBeLessThan(1);
+    async function send(body: string, id: string, ordinal: number) {
+      await expect(composer.getByText('Annotate the block', { exact: true })).toBeVisible();
+      await composer.getByRole('combobox', { name: 'Message' }).fill(body);
+      await composer.getByRole('button', { name: /^Send(?: · to .+)?$/, exact: true }).click();
+      await expect(
+        block(id).getByRole('button', { name: `Open comment ${ordinal}` }),
+      ).toBeAttached();
+      await page.keyboard.press('Escape');
+      await expect(composer).toHaveCount(0);
+    }
+
+    await block(paragraph).hover();
+    await handle(paragraph).click();
+    await comment.click();
+    await send('Paragraph review', paragraph, 1);
+
+    await selectBlockByFocus(block(table));
+    await page.keyboard.press('Shift+F10');
+    await page.keyboard.press('Home');
+    await expect(menu).toHaveAttribute('aria-activedescendant', 'block-action-comment');
+    await page.keyboard.press('Enter');
+    await send('Table review', table, 2);
+
+    // The otherwise visually hidden desktop button is keyboard reachable and opens the same path.
+    await page.mouse.move(0, 0);
+    await selectBlockByFocus(block(image));
+    await page.keyboard.press('Tab');
+    await expect(action(image)).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(composer.getByText('Annotate the block', { exact: true })).toBeVisible();
+    await composer.getByRole('button', { name: text.threadCollapse, exact: true }).click();
+    await expect(composer).toHaveCount(0);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(action(image)).toHaveCount(0);
+    for (const colorScheme of ['light', 'dark'] as const) {
+      await page.emulateMedia({ colorScheme });
+      await selectBlockByFocus(block(image));
+      await handle(image).click();
+      await expect(comment).toBeVisible();
+      await shot(`6917-menu-390-${colorScheme}.png`);
+      await comment.click();
+      await expect(composer.getByText('Annotate the block', { exact: true })).toBeVisible();
+      await shot(`6917-composer-390-${colorScheme}.png`);
+      if (colorScheme === 'dark') await send('Image review', image, 3);
+      else {
+        await composer.getByRole('button', { name: text.threadCollapse, exact: true }).click();
+        await expect(composer).toHaveCount(0);
+      }
+    }
+
+    const threads = cli(['threads', created.pageId]).threads as {
+      anchor: { block: string; quote?: { exact: string } };
+    }[];
+    expect(threads.map(({ anchor }) => [anchor.block, anchor.quote?.exact])).toEqual(
+      expect.arrayContaining([
+        [paragraph, 'Review the release checklist.'],
+        [table, undefined],
+        [image, undefined],
+      ]),
+    );
+    expect(threads).toHaveLength(3);
+    await page.reload();
+    for (const [id, ordinal] of [
+      [paragraph, 1],
+      [table, 2],
+      [image, 3],
+    ] as const) {
+      await expect(
+        block(id).getByRole('button', { name: `Open comment ${ordinal}` }),
+      ).toBeAttached();
+    }
+  });
+});
+
 // #6611: an agent's edit never moves a person's typing out of the Chat composer, even with a
 // block selected on the page before they moved there.
 test('an agent edit keeps focus in Chat and never moves it into the page', async () => {
@@ -3130,8 +3306,9 @@ test('a comment that asks an agent becomes a to-do the agent checks', async () =
     await page.goto(new URL(created.path, `${door.address}/`).href);
     const block = page.locator(`[data-block-id="${paragraph}"]`);
     await expect(block).toContainText('The mockup sits against the switcher.');
-    await page.getByRole('button', { name: 'Selection mode', exact: true }).click();
-    await block.click();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await block.hover();
+    await block.getByRole('button', { name: 'Comment on block', exact: true }).click();
     const annotation = page.locator('.annotation-popover');
     const input = annotation.getByRole('combobox', { name: 'Message' });
     await input.fill('@');
@@ -3143,6 +3320,7 @@ test('a comment that asks an agent becomes a to-do the agent checks', async () =
     await input.press('Enter');
     await until(() => agent.received().length === 1, 'one delivery to the agent');
     const message = String(agent.received()[0]!.message);
+    expect(message).toContain(`Block ${paragraph}: The mockup sits against the switcher.`);
     const check = /tmt colab block props ([0-9a-f-]{36}) ([0-9a-f-]{36}) --set checked=true/.exec(
       message,
     );

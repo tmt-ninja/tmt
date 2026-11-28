@@ -117,6 +117,8 @@ export const text = {
   blockActions: {
     label: 'Block actions',
     editQuestion: 'Edit question',
+    comment: 'Comment',
+    commentOnBlock: 'Comment on block',
     turnInto: 'Turn into',
     turnTypes: {
       paragraph: 'Paragraph',
