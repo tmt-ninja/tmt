@@ -12,7 +12,7 @@ import type { AskBinding, PageAsk } from '../src/ask-panel.js';
 import { AttachmentStaleError } from '../src/attachment-service.js';
 import type { PrepareResult } from '../src/attachment-draft.js';
 import type { AgentDestination } from '../src/live-ask.js';
-import type { Question } from '../src/questions.js';
+import { answerComment, type Question } from '../src/questions.js';
 import { StaleQuestionFormError } from '../src/question-form.js';
 import type { CommentView, DiscussionRef, ThreadView } from '../src/thread-records.js';
 import {
@@ -40,6 +40,12 @@ const question = (n: number, title: string): Question => ({
   label: null,
 });
 const questions = [question(1, 'Scope'), question(2, 'Owner'), question(3, 'Notes')];
+const otherQuestion: Question = {
+  ...questions[0],
+  kind: 'single',
+  choices: [{ label: 'Everything' }],
+  other: true,
+};
 const page: AdmittedQuestions = {
   questions,
   groups: [{ id: 'g1', title: 'Kickoff', questions: ['q1', 'q2', 'q3'] }],
@@ -111,20 +117,21 @@ const batchOf = (
 });
 
 it('a batch origin is the first answer’s thread, every comment ID sorted, and all answers in tab order', () => {
-  const list = threads();
-  const origin = commentsForAnswerBatch(list, batchOf(list), page, ME);
+  const admitted = { ...page, questions: [otherQuestion, ...questions.slice(1)] };
+  const list = [threadWith(1, otherQuestion, 'Other: Only the API'), ...threads().slice(1)];
+  const origin = commentsForAnswerBatch(list, batchOf(list), admitted, ME);
   expect(origin.thread).toBe(list[0].threadId);
   // Tab order is q1, q2, q3 while the comment IDs sort the other way round.
   expect(list.map((thread) => thread.comments[0].messageId)).toEqual([id(21), id(12), id(3)]);
   expect(origin.messageIds).toEqual([id(3), id(12), id(21)]);
   expect(origin.quote).toBe('Scope?');
   expect(origin.comment).toBe(
-    'Answers to 3 questions:\nScope: Only the API\nOwner: Ada\nNotes: Line one\nLine two',
+    'Answers to 3 questions:\nScope: Other: Only the API\nOwner: Ada\nNotes: Line one\nLine two',
   );
   // A subset of the group, still in tab order, is a batch too.
   const two = [list[0], list[2]];
-  expect(commentsForAnswerBatch(list, batchOf(two, ['q1', 'q3']), page, ME).comment).toBe(
-    'Answers to 2 questions:\nScope: Only the API\nNotes: Line one\nLine two',
+  expect(commentsForAnswerBatch(list, batchOf(two, ['q1', 'q3']), admitted, ME).comment).toBe(
+    'Answers to 2 questions:\nScope: Other: Only the API\nNotes: Line one\nLine two',
   );
 });
 
@@ -624,21 +631,26 @@ it('a page that moved under stored files sends the answer again later, with the 
 
 it('an Ask that fails afterwards uploads and publishes nothing again', async () => {
   const { calls, binding } = discussion();
-  const { binding: ask } = asker(() => 'uncertain');
+  const { prepared, binding: ask } = asker(() => 'uncertain');
   const withFiles = files({ ok: true, attach: attach('m1') });
+  const recorded = answerComment(otherQuestion, [], 'Only the API', true, 'Doc', '')!;
   const result = await sendAnswers(
     { discussion: binding, ask },
     {
       ...base,
-      answers: answers(threads())
-        .slice(0, 1)
-        .map((answer) => ({ ...answer, files: withFiles })),
+      answers: [
+        { ...answers(threads())[0], question: otherQuestion, body: recorded, files: withFiles },
+      ],
       recipients: recipients('alpha'),
     },
     [],
   );
   if ('refused' in result) throw new Error('unexpected refusal');
   expect(result.failures).toHaveLength(1);
+  expect(recorded).toBe('Answer to “Scope”: Other: Only the API\nPage: Doc');
+  expect(calls[0]?.body).toBe(recorded);
+  expect(prepared[0]?.comment).toBe(recorded);
+  expect(result.failures[0]?.input.comment).toBe(recorded);
   // The failure's retry is an Ask over the recorded comment: this Send's one upload and one comment stand.
   expect(withFiles.prepare).toHaveBeenCalledTimes(1);
   expect(calls).toHaveLength(1);

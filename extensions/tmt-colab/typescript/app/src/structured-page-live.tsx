@@ -506,7 +506,7 @@ export function LiveStructuredPage({
       selectionFocus={selectionFocus}
       selectionRequest={selectionRequest}
       onSelectBlock={write ? selectForKeyboard : undefined}
-      onPageKey={pageKey}
+      onPageKey={editable ? pageKey : undefined}
       toast={toast}
       onUndo={undo}
       blockMenu={blockMenu}

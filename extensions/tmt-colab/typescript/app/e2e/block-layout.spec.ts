@@ -136,7 +136,10 @@ for (const width of [1440, 390])
       q,
     );
     const send = await box(page, q, 'button');
-    expect(choices.length).toBe(3);
+    expect(choices.length).toBe(4);
+    await expect(page.locator(`${q} .tmt-block-question-choices > label`).last()).toContainText(
+      'Other…',
+    );
     const round = (n: number) => Math.round(n * 10) / 10;
     // Eyebrow to question 8, question to the choices 12 (no visible Choices legend between).
     expect(round(heading.top - eyebrow.bottom)).toBe(8);

@@ -143,6 +143,7 @@ export const TURN_INTO: readonly TurnInto[] = [
 export type BlockMenuAction =
   | (typeof BLOCK_MENU_ACTIONS)[number]
   | (typeof HEADING_MENU_ACTIONS)[number]
+  | 'edit-question'
   | 'turn-into'
   | 'turn-back'
   | `turn-${TurnInto}`;
@@ -163,6 +164,8 @@ export function blockMenuActions(
         (into) => `turn-${into}` as const,
       ),
     ];
+  if (block?.type === 'question')
+    return ['move-up', 'move-down', 'duplicate', 'edit-question', 'delete'];
   // Turn into goes before Delete, which stays last of the block's own actions.
   const own: readonly BlockMenuAction[] = retype
     ? ['move-up', 'move-down', 'duplicate', 'turn-into', 'delete']
@@ -1809,6 +1812,10 @@ export function useBlockEditing(
         return;
       }
       setBlockMenu(undefined);
+      if (action === 'edit-question') {
+        setAuthoring(id);
+        return;
+      }
       if (action.startsWith('turn-')) {
         gesture(retypeBlock(tree, id, action.slice('turn-'.length) as TurnInto));
         setSelection(selectBlock(id));
@@ -1910,6 +1917,17 @@ export function useBlockEditing(
   /** A key on the page outside a block's editor; true when taken. */
   const pageKey = useCallback(
     (event: KeyboardEvent): boolean => {
+      // Form fields own their keys before any page command can act on the selected block.
+      // The block text editor retains its own block-aware key handling.
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        (target.closest('input, textarea, select') ||
+          (target instanceof HTMLElement &&
+            target.isContentEditable &&
+            !target.closest('.tmt-block-editor-text')))
+      )
+        return false;
       const menuOn = blockMenu;
       if (menuOn) {
         if (['ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
@@ -1981,15 +1999,11 @@ export function useBlockEditing(
         if (treeRef.current.get(selection.focus)?.type === 'question') return false;
         // Events from the block's controls (including its menus and viewer) reach this handler
         // before their native activation. Enter on the block surface still enters its editor.
-        const target = event.target;
         if (
           target instanceof Element &&
-          (target.closest(
-            'button, a[href], input, textarea, select, summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="listbox"], [role="option"], [role="slider"], [role="spinbutton"], [role="tab"], [role="textbox"], [role="treeitem"]',
-          ) ||
-            (target instanceof HTMLElement &&
-              target.isContentEditable &&
-              !target.closest('.tmt-block-editor-text')))
+          target.closest(
+            'button, a[href], summary, [role="button"], [role="link"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="checkbox"], [role="radio"], [role="switch"], [role="combobox"], [role="listbox"], [role="option"], [role="slider"], [role="spinbutton"], [role="tab"], [role="textbox"], [role="treeitem"]',
+          )
         )
           return false;
         // A table is entered at its first cell, or by adding its first row.
