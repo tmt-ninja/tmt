@@ -1,3 +1,4 @@
+import { validTicketRepository } from './ticket-links.js';
 import { entryHash, entryMount, entryOpenTarget, publicEntry } from './entry.js';
 import {
   binary,
@@ -244,6 +245,7 @@ function todoWorkItem(value: unknown): void {
   );
 }
 export interface PageInfo extends ExpiryInfo {
+  ticketRepository?: string;
   state?: PageState | null;
   stateError?: 'page-unavailable';
   pageId: string;
@@ -534,6 +536,9 @@ export async function discover(
       'warnings',
       'projects',
       ...(page !== null && typeof page === 'object' && 'workNumber' in page ? ['workNumber'] : []),
+      ...(page !== null && typeof page === 'object' && 'ticketRepository' in page
+        ? ['ticketRepository']
+        : []),
       ...(page !== null && typeof page === 'object' && 'pinned' in page ? ['pinned'] : []),
       ...(page !== null && typeof page === 'object' && 'kind' in page ? ['kind'] : []),
       ...(page !== null && typeof page === 'object' && 'summary' in page ? ['summary'] : []),
@@ -550,6 +555,10 @@ export async function discover(
           PAGE_REVISION.test(page.revision) &&
           typeof page.contentRevision === 'string' &&
           CONTENT_REVISION.test(page.contentRevision),
+      );
+    if ('ticketRepository' in page)
+      requireValue(
+        typeof page.ticketRepository === 'string' && validTicketRepository(page.ticketRepository),
       );
     if ('workNumber' in page)
       requireValue(

@@ -1,4 +1,5 @@
-import { useEffect, useRef, type KeyboardEvent } from 'react';
+import { ticketLinks, type TicketLinks } from './ticket-links.js';
+import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react';
 import { LexicalExtensionComposer } from '@lexical/react/LexicalExtensionComposer';
 import { ReactExtension } from '@lexical/react/ReactExtension';
 import { ContentEditable } from '@lexical/react/LexicalContentEditable';
@@ -54,6 +55,18 @@ export function scalarOffset(text: string, utf16: number): number {
 }
 
 const $text = () => $getRoot().getTextContent();
+function pointerOffset(root: HTMLElement, text: string, x: number, y: number): number | undefined {
+  const doc = root.ownerDocument;
+  const position = doc.caretPositionFromPoint?.(x, y);
+  const range = position ? undefined : doc.caretRangeFromPoint?.(x, y);
+  const node = position?.offsetNode ?? range?.startContainer;
+  const at = position?.offset ?? range?.startOffset;
+  if (!node || at === undefined || !root.contains(node)) return undefined;
+  const before = doc.createRange();
+  before.setStart(root, 0);
+  before.setEnd(node, at);
+  return scalarOffset(text, before.toString().length);
+}
 /** The DOM selection in `root` as scalar offsets into `text`: where it starts and ends (the caret
  * is `at`, its anchor), or the text's end when there is none. */
 function domRange(root: HTMLElement, text: string): { at: number; from: number; to: number } {
@@ -216,6 +229,7 @@ export interface BlockTextEditorProps {
   onKey?(event: KeyboardEvent, text: string, caret: number, range: TextRange): boolean;
   /** ⌘-click (Ctrl-click) on linked text: the page opens the link through its trusted path. */
   onLink?(href: string): void;
+  references?: TicketLinks;
   /** A URL pasted over a selected range: the block may link the range instead of pasting. */
   onPasteUrl?(url: string, text: string, range: TextRange): boolean;
   /** Text or HTML pasted at `range`: true when the block made blocks of it instead (#6742). */
@@ -252,9 +266,29 @@ function Editor({
   onPasteUrl,
   onPasteStructure,
   onLink,
+  references,
   placeholder,
 }: BlockTextEditorProps) {
   const [editor] = useLexicalComposerContext();
+  const displayLinks = useMemo(
+    () => (references ? ticketLinks(text, marks, references.href) : []),
+    [text, marks, references],
+  );
+  const displayMarks = useMemo(
+    () =>
+      displayLinks.length
+        ? [
+            ...(marks ?? []),
+            ...displayLinks.map(({ from, to, href }) => ({
+              from,
+              to,
+              mark: 'link' as const,
+              value: href,
+            })),
+          ]
+        : marks,
+    [marks, displayLinks],
+  );
   const refused = useRef(false);
   const typed = useRef(onTyped);
   typed.current = onTyped;
@@ -264,8 +298,8 @@ function Editor({
    * after `from` are late only if it showed `from` (a new instance starts empty, which is not
    * typing). */
   const shownTexts = useRef<{ editor?: LexicalEditor; texts: Set<string> }>({ texts: new Set() });
-  const admission = useRef({ marks, maxBytes, onFull, textFits });
-  admission.current = { marks, maxBytes, onFull, textFits };
+  const admission = useRef({ marks: displayMarks, maxBytes, onFull, textFits });
+  admission.current = { marks: displayMarks, maxBytes, onFull, textFits };
   // Validate the pending tree before Lexical commits it. A native input can have
   // already changed the DOM; replacing the paragraph gives reconciliation fresh
   // nodes for both the displayed text and its selection.
@@ -329,7 +363,7 @@ function Editor({
       () =>
         late
           ? $replace(shown, undefined, caretThrough(now, shown, at))
-          : $replace(text, marks, caret),
+          : $replace(text, displayMarks, caret),
       { tag: [PAGE_TAG, HISTORY_MERGE_TAG] },
     );
     // Only a new text from the page moves the caret; the caret alone never does.
@@ -340,7 +374,7 @@ function Editor({
   useEffect(() => {
     if (editor.isComposing()) return;
     const [now, drawn] = editor.getEditorState().read(() => [$text(), $looks()]);
-    if (now !== text || drawn === looksOf(text, marks)) return;
+    if (now !== text || drawn === looksOf(text, displayMarks)) return;
     // The selection from the DOM: Lexical takes a caret move on the next `selectionchange`, so
     // its own selection can still be an earlier one, and the redraw would put the caret back.
     const root = editor.getRootElement();
@@ -351,11 +385,11 @@ function Editor({
         const { anchor, focus } = dom
           ? { anchor: dom.at, focus: dom.at === dom.from ? dom.to : dom.from }
           : $selected();
-        $replace(text, marks, anchor, focus);
+        $replace(text, displayMarks, anchor, focus);
       },
       { tag: [PAGE_TAG, HISTORY_MERGE_TAG] },
     );
-  }, [editor, marks, text]);
+  }, [editor, displayMarks, text]);
   useEffect(() => {
     const root = editor.getRootElement();
     if (!root) return;
@@ -390,13 +424,32 @@ function Editor({
             ),
           }
         : { placeholder: null })}
+      onPointerOver={(event) => {
+        const node = event.target;
+        if (
+          references &&
+          node instanceof HTMLElement &&
+          node.style.textDecoration.includes('underline')
+        )
+          node.title = '⌘/Ctrl-click to open in a new tab';
+      }}
       onClickCapture={(event) => {
-        if (!onLink || !(event.metaKey || event.ctrlKey)) return;
+        if (!(event.metaKey || event.ctrlKey)) return;
         const now = editor.getEditorState().read($text);
-        const { at } = domRange(event.currentTarget, now);
+        const at =
+          pointerOffset(event.currentTarget, now, event.clientX, event.clientY) ??
+          domRange(event.currentTarget, now).at;
+        const reference =
+          now === text && displayLinks.find((link) => link.from <= at && link.to > at);
+        if (reference && references) {
+          event.preventDefault();
+          event.stopPropagation();
+          references.open(reference.href, true);
+          return;
+        }
         const run = marks?.find((mark) => mark.mark === 'link' && mark.from <= at && mark.to > at);
         const href = linkHref(run?.value);
-        if (!href) return;
+        if (!href || !onLink) return;
         event.preventDefault();
         onLink(href);
       }}

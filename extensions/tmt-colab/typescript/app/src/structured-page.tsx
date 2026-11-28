@@ -1,3 +1,4 @@
+import { ticketLinks, type TicketLinks } from './ticket-links.js';
 // The parts draw on the design system's UI layer (buttons, selects, chips), as the router's do.
 import '@tmt/browser-ui/ui.css';
 import type { SectionSummary } from './bootstrap.js';
@@ -236,6 +237,7 @@ export interface StructuredPageProps {
   /** A link in a block was activated (a click at rest, ⌘-click while typing): the page's trusted
    * open path decides, as for any page link. */
   onLink?(href: string, newTab: boolean): void;
+  references?: TicketLinks;
   /** A URL pasted over a selected range of the focused block; true when the page linked it. */
   onPasteUrl?(id: string, url: string, text: string, range: TextRange): boolean;
   /** Text or HTML pasted into the focused block; true when the page made blocks of it (#6742). */
@@ -1414,6 +1416,7 @@ function Table({
   onAddRow,
   onRowAction,
   onColumnAction,
+  references,
 }: StructuredPageProps & { block: BlockRecord }) {
   const columns = tableColumns(block.props);
   const rows = tree.rows(block.id);
@@ -1564,6 +1567,7 @@ function Table({
               <BlockTextEditor
                 key={column.id}
                 textFits={textFits}
+                references={references}
                 maxBytes={BLOCK_CELL_BYTES}
                 onFull={() => onFull?.(true)}
                 label={strings.blockTable.cell(column.name, index + 1)}
@@ -1577,7 +1581,11 @@ function Table({
             ) : (
               // A line feed in a cell draws as a line break, as in a block's text and the export.
               <span key={column.id} data-cell-row={row.id} data-cell-column={column.id}>
-                <MarkedText text={value} />
+                <MarkedText
+                  text={value}
+                  derivedLinks={references && ticketLinks(value, undefined, references.href)}
+                  onDerivedLink={references?.open}
+                />
               </span>
             );
           }),
@@ -1634,12 +1642,14 @@ function Content({
       : block.type === 'heading'
         ? strings.blockText.heading
         : undefined;
+  const references = block.type === 'code' ? undefined : rest.references;
   const text = typing ? (
     <BlockTextEditor
       textFits={rest.textFits}
       onFull={() => rest.onFull?.()}
       label={blockLabel(block)}
       text={editing.text}
+      references={references}
       // Marks drawn for the text the page holds; for other text they wait until it does.
       marks={block.text === editing.text ? block.marks : undefined}
       caret={editing.caret}
@@ -1648,7 +1658,7 @@ function Content({
       placeholder={placeholder}
       onTyped={(value, caret) => onTyped?.(block.id, value, caret)}
       onKey={(event, value, caret, range) => onKey?.(block.id, event, value, caret, range) ?? false}
-      onLink={(href) => rest.onLink?.(href, false)}
+      onLink={(href) => rest.onLink?.(href, true)}
       onPasteUrl={(url, value, range) => rest.onPasteUrl?.(block.id, url, value, range) ?? false}
       onPasteStructure={(html, plain, value, range) =>
         rest.onPasteStructure?.(block.id, html, plain, value, range) ?? false
@@ -1659,6 +1669,8 @@ function Content({
     <MarkedText
       text={block.text}
       marks={block.marks}
+      derivedLinks={references && ticketLinks(block.text, block.marks, references.href)}
+      onDerivedLink={references?.open}
       blockHref={(id, page) => (page ? rest.blockPageHref?.(page, id) : `#block-${id}`)}
       onLink={rest.onLink}
     />

@@ -6661,6 +6661,15 @@ the page and its numbered to-dos. A project without one still uses explicit link
 settings, title observations and exclusions are owner-local and excluded from share reads,
 non-owner Remote views and standalone exports.
 
+A mounted owner catalog row may carry a bounded `ticketRepository` hint, the same canonical
+project repository used for Work. The trusted structured page UI uses it to resolve bare
+`#N` references without reading GitHub. Work numbers resolve against the admitted space list,
+and opening a target page requires the usual page admission. Links are derived display spans
+within one text run, outside code and existing links or mentions. They never become document
+marks. The drawer uses the admitted page in read-only mode, or the GitHub repository and
+number with an external link. Links to anchors, including cross-page block mentions, use
+the existing navigation. The hint is absent from share reads and exported documents.
+
 Title discovery shares the open-page reader, its single in-flight slot, cancellation and
 deadlines. It searches at most one work number per page per 60 seconds and one per serve-wide
 refresh interval. A validated repository and quoted work number are separate gh arguments.

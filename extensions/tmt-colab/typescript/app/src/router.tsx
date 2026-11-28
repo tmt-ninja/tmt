@@ -208,6 +208,9 @@ import { PageSizeSection, usePageSize } from './page-size.js';
 import { SourceDraft } from './use-page-editor.js';
 import { PageSource } from './page-source.js';
 import { usePagePanels } from './use-page-panels.js';
+import { useTicketLinks, type TicketTarget } from './use-ticket-links.js';
+import { TicketDrawer } from './ticket-drawer.js';
+import { mayContainWorkNumber } from './ticket-links.js';
 import { usePanelMode } from './panel-mode.js';
 import { useStructuredDiscussionLayout } from './structured-discussion-layout.js';
 import './panel-layout.css';
@@ -2707,6 +2710,57 @@ function OpenPage({
   // An image block reads its attachments as an HTML page's images do: this page's verified list and
   // its attachment binding (#6005 image step).
   const imageBinding = snapshot.binding?.files?.attachments;
+  const referencesEnabled =
+    !!space &&
+    !!transport.management &&
+    !embedded &&
+    !design &&
+    !liveError &&
+    view.pageType === 'blocks' &&
+    snapshot.binding?.canMetadata?.() === true;
+  const [reference, setReference] = useState<{
+    source: string;
+    binding: PageSnapshot['binding'];
+    target: TicketTarget;
+  }>();
+  const referenceBase = useCallback(() => (publicEntry() ? entryMount().href : location.href), []);
+  const previewReference = useCallback(
+    (target: TicketTarget) => {
+      setReference({ source: snapshot.id, binding: snapshot.binding, target });
+      show('reference');
+    },
+    [show, snapshot.id, snapshot.binding],
+  );
+  const needsWorkNumbers = useMemo(
+    () =>
+      referencesEnabled &&
+      Object.values(view.blocks ?? {}).some(
+        (block) =>
+          block.deleted === undefined &&
+          block.type !== 'code' &&
+          (mayContainWorkNumber(block.text?.s ?? '') ||
+            Object.values(block.cells ?? {}).some((cell) => mayContainWorkNumber(cell.s))),
+      ),
+    [referencesEnabled, view.blocks],
+  );
+  const referenceLinks = useTicketLinks({
+    enabled: referencesEnabled,
+    needsWorkNumbers,
+    transport,
+    space,
+    repository: snapshot.ticketRepository,
+    routing,
+    base: referenceBase,
+    preview: previewReference,
+  });
+  const activeReference =
+    referencesEnabled &&
+    panel === 'reference' &&
+    reference?.source === snapshot.id &&
+    reference.binding === snapshot.binding
+      ? reference.target
+      : undefined;
+
   const blockImageSource = useMemo(
     () => ({ binding: imageBinding, descriptors: view.attachments ?? [] }),
     [imageBinding, view.attachments],
@@ -4044,12 +4098,14 @@ function OpenPage({
                           ? { view, binding: snapshot.binding }
                           : undefined,
                     }}
-                    onLink={(href, newTab) =>
+                    references={referenceLinks.references}
+                    onLink={(href, newTab) => {
+                      if (referenceLinks.authored(href, newTab)) return;
                       requestPageLink(
                         { type: 'colab.render.link', renderId: crypto.randomUUID(), href, newTab },
                         true,
-                      )
-                    }
+                      );
+                    }}
                   />
                 </div>
               </Suspense>
@@ -4280,7 +4336,7 @@ function OpenPage({
             return !!last;
           }}
           discussionOpen={!!annotation}
-          panel={panel}
+          panel={panel === 'reference' ? null : panel}
           toggle={() => toggleSelectionMode.current()}
           chatUnread={notifications.chatUnread}
           chatButton={floatingChat}
@@ -4494,6 +4550,17 @@ function OpenPage({
           admitted={!!snapshot.binding && !liveError}
         />
       </BrowserDrawer>
+      {activeReference && (
+        <TicketDrawer
+          key={activeReference.href}
+          target={activeReference}
+          transport={transport}
+          current={{ ...snapshot, ...view }}
+          designSystem={designSystems}
+          onDismiss={close}
+          focusFallback={environment.focusFallback}
+        />
+      )}
       <AttachmentDropPanel key={`chat-drop:${snapshot.id}`} target="chat" active={panel === 'chat'}>
         <BrowserPanel
           keepMounted
