@@ -43,10 +43,13 @@ func (c Client) InvokerClient(ctx context.Context, claim TmuxCaller) (ClientView
 	if err != nil {
 		return ClientView{}, err
 	}
-	return c.readClient(ctx, claim.Socket, func(view ClientView) bool {
-		return view.SessionID == pane.SessionID && view.PaneID == pane.Pane.PaneID &&
-			view.WindowID == pane.WindowID
+	view, err := c.readClient(ctx, claim.Socket, func(view ClientView) bool {
+		return view.SessionID == pane.SessionID
 	})
+	if err != nil || view.PaneID != pane.Pane.PaneID || view.WindowID != pane.WindowID {
+		return ClientView{}, ErrInvokerClient
+	}
+	return view, nil
 }
 
 func (c Client) invokerPane(ctx context.Context, claim TmuxCaller) (PaneSnapshot, error) {
@@ -165,6 +168,9 @@ func (c Client) FocusPane(ctx context.Context, claim TmuxCaller, expected Client
 	if err != nil {
 		return ClientView{}, err
 	}
+	if err := c.verifyUnsharedFocus(ctx, expected, current.SessionID); err != nil {
+		return ClientView{}, err
+	}
 	id := current.Pane.PaneID
 	command := "switch-client -c " + tmuxCommandWord([]byte(expected.Name)) + " -t " + id +
 		" ; select-window -t " + id + " ; select-pane -t " + id
@@ -176,6 +182,35 @@ func (c Client) FocusPane(ctx context.Context, claim TmuxCaller, expected Client
 		return ClientView{}, ErrFocusChanged
 	}
 	return after, nil
+}
+
+// select-window and select-pane change shared session state. Recheck that
+// no other client can see those changes before issuing the command sequence.
+func (c Client) verifyUnsharedFocus(ctx context.Context, expected ClientView, targetSession string) error {
+	format := fields("session_id", "client_name", "client_pid")
+	text, err := c.run(ctx, expected.Socket, evidenceMaxBytes, nil, "list-clients", "-F", format)
+	if err != nil {
+		return err
+	}
+	found := false
+	for line := range strings.SplitSeq(strings.TrimSuffix(text, "\n"), "\n") {
+		row, valid := decodeRow(line, 3)
+		if !valid {
+			return ErrInvokerClient
+		}
+		if row[0] != expected.SessionID && row[0] != targetSession {
+			continue
+		}
+		if found || row[0] != expected.SessionID || row[1] != expected.Name ||
+			row[2] != strconv.FormatUint(expected.Process.PID, 10) {
+			return ErrInvokerClient
+		}
+		found = true
+	}
+	if !found {
+		return ErrInvokerClient
+	}
+	return nil
 }
 
 func (c Client) clientAfter(ctx context.Context, expected ClientView) (ClientView, error) {
@@ -253,6 +288,9 @@ func (c Client) SwapInto(ctx context.Context, claim TmuxCaller, expected ClientV
 		return ClientView{}, ErrFocusChanged
 	}
 	if _, err := c.checkFocus(ctx, claim, expected, current); err != nil {
+		return ClientView{}, err
+	}
+	if err := c.verifyUnsharedFocus(ctx, expected, current.SessionID); err != nil {
 		return ClientView{}, err
 	}
 	if err := c.runPaneAction(ctx, neighbour, "swap-pane -d -s "+current.Pane.PaneID+" -t "+next); err != nil {

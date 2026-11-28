@@ -17,6 +17,8 @@ import (
 	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
+	"github.com/tmt-ninja/tmt/go/internal/core"
+	"github.com/tmt-ninja/tmt/go/internal/ports"
 	"github.com/tmt-ninja/tmt/go/test/tmuxtest"
 )
 
@@ -174,6 +176,24 @@ func TestPrivateFocusHelper(t *testing.T) {
 	}
 	if err := os.Rename(pending, result); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestFocusRefusesASecondViewerInEitherAffectedSession(t *testing.T) {
+	expected := ClientView{Socket: "/tmp/unit-only-socket", Name: "/dev/ttys001", SessionID: "$1",
+		Process: core.ProcessIncarnation{PID: 123}}
+	for _, session := range []string{"$1", "$2", "$3"} {
+		c := Client{Path: "/unit/tmux", Process: runFunc(func(_ context.Context, spec ports.ProcessSpec) (ports.Bounded, error) {
+			if spec.Args[3] != "list-clients" {
+				t.Fatalf("unexpected tmux effect: %v", spec.Args)
+			}
+			rows := "$1\t/dev/ttys001\t123\n" + session + "\t/dev/ttys002\t456\n"
+			return ports.Bounded{Stdout: []byte(rows)}, nil
+		})}
+		err := c.verifyUnsharedFocus(t.Context(), expected, "$2")
+		if session == "$3" && err != nil || session != "$3" && !errors.Is(err, ErrInvokerClient) {
+			t.Errorf("second client in %s: %v", session, err)
+		}
 	}
 }
 
