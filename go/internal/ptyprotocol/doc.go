@@ -1,3 +1,3 @@
 // Package ptyprotocol ports rust/crates/tmt-pty-protocol: the built-in host
-// PTY frame protocol. Standard library only. Owner: core-agy.
+// PTY frame protocol. Standard library only. Owner: tmt-go-lead.
 package ptyprotocol
