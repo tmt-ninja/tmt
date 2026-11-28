@@ -227,13 +227,9 @@ const railShortcut = (page: Page) =>
     .evaluate(() => /Mac|iPhone|iPad|iPod/.test(navigator.platform))
     .then((command) => (command ? 'Meta+Backslash' : 'Control+Backslash'));
 
-// #6833: the wide screen's side menu collapses from its head, comes back from the bar, Cmd/Ctrl+\
-// toggles it, a pointer at the left edge floats it, and the device remembers the choice. A phone's
-// drawer is unchanged.
+// Without a usable gutter, the top-bar button is the wide screen's way back to the full rail.
 for (const renderer of ['react', 'native', 'hosted'])
-  test(`${renderer}: the side menu collapses, floats from the edge and is remembered`, async ({
-    page,
-  }) => {
+  test(`${renderer}: the side menu falls back to the bar and is remembered`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.goto(`/?frame=topbar&renderer=${renderer}`);
@@ -297,30 +293,10 @@ for (const renderer of ['react', 'native', 'hosted'])
       ),
     ).toEqual(new Set([0]));
 
-    // The pointer at the left edge floats the rail over the page; leaving it closes it.
+    // A collapsed rail cannot cover content when there is no gutter for the pill.
     await page.mouse.move(2, 450);
-    await expect(rail).toBeVisible();
-    await expect(rail).toHaveCSS('position', 'fixed');
-    await expect(shell).toHaveAttribute('data-rail', 'collapsed');
-    await page.mouse.move(900, 450);
     await expect(rail).toBeHidden();
-    // Focus inside the floating rail keeps it; Escape closes it and returns to ».
-    await page.mouse.move(2, 450);
-    await rail.locator('a[data-id="colab"]').focus();
-    await page.mouse.move(900, 450);
-    await expect(rail).toBeVisible();
-    await page.keyboard.press('Escape');
-    await expect(rail).toBeHidden();
-    await expect(expand).toBeFocused();
-    // The floating rail's own button keeps it open as a column.
-    await page.mouse.move(2, 450);
-    await rail.getByRole('button', { name: 'Expand side menu', exact: true }).click();
-    await expect(shell).toHaveAttribute('data-rail', 'expanded');
-    await expect(page.locator('.tmt-ui-shell[data-rail-peek]')).toHaveCount(0);
-    await expect(rail).toHaveCSS('position', 'sticky');
-    await expect(collapse).toBeFocused();
-    await collapse.click();
-    await expect(shell).toHaveAttribute('data-rail', 'collapsed');
+    await expect(expand).toBeVisible();
 
     // Cmd/Ctrl+\ expands it with focus on «, and collapses it again; Alt or Shift does nothing.
     const keys = await railShortcut(page);
@@ -338,6 +314,108 @@ for (const renderer of ['react', 'native', 'hosted'])
     await expect(collapse).toBeFocused();
     await expect(rail).toHaveCSS('position', 'sticky');
   });
+
+test('the rail moves with a stable content width and leaves its pill in a wide gutter', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('/?frame=topbar&renderer=native');
+  const shell = page.locator('.tmt-ui-shell[data-rail]');
+  const bar = page.locator('.tmt-ui-topbar');
+  const rail = shell.locator('nav.tmt-ui-rail');
+  const main = shell.locator('.tmt-ui-shell-main');
+  const column = main.locator('[data-shell-content-column]');
+  await main.evaluate((main) => {
+    const column = document.createElement('div');
+    column.setAttribute('data-shell-content-column', '');
+    column.style.cssText = 'width:min(100%, 960px);margin-inline:auto';
+    column.textContent = 'This line is the route content.';
+    main.append(column);
+  });
+  const expand = rail.getByRole('button', { name: 'Expand side menu', exact: true });
+  const fallback = bar.getByRole('button', { name: 'Expand side menu', exact: true });
+  const targets = await rail
+    .locator('a.tmt-ui-rail-item')
+    .evaluateAll((links) => links.map((link) => link.getAttribute('href')));
+  const measure = () =>
+    main.evaluate((node) => {
+      const { left, width } = node.getBoundingClientRect();
+      const rootLeft = node.closest('.tmt-ui-shell')!.getBoundingClientRect().left;
+      return { left: left - rootLeft, width };
+    });
+  const animate = async (activate: () => Promise<void>, destination: number) => {
+    const before = await measure();
+    await shell.evaluate((node) => {
+      const pause = (event: Event) => {
+        if ((event as TransitionEvent).propertyName !== '--tmt-ui-rail-progress') return;
+        const motion = node
+          .getAnimations()
+          .find(
+            (animation) =>
+              (animation as CSSTransition).transitionProperty === '--tmt-ui-rail-progress',
+          )!;
+        motion.pause();
+        motion.currentTime = 90;
+        node.removeEventListener('transitionrun', pause);
+      };
+      node.addEventListener('transitionrun', pause);
+    });
+    await activate();
+    await expect
+      .poll(async () => {
+        const { left } = await measure();
+        return left > 0 && left < 232;
+      })
+      .toBe(true);
+    const middle = await measure();
+    expect(middle.width).toBe(before.width + before.left - destination);
+    await shell.evaluate((node) =>
+      node
+        .getAnimations()
+        .find(
+          (animation) =>
+            (animation as CSSTransition).transitionProperty === '--tmt-ui-rail-progress',
+        )!
+        .finish(),
+    );
+    await expect.poll(async () => (await measure()).left).toBe(destination);
+    expect((await measure()).width).toBe(middle.width);
+  };
+
+  const collapse = rail.getByRole('button', { name: 'Collapse side menu', exact: true });
+  await animate(() => collapse.press('Enter'), 0);
+  await expect(shell).toHaveAttribute('data-rail-pill', '');
+  await expect(expand).toBeFocused();
+  await expect(fallback).toBeHidden();
+  expect(
+    await rail
+      .locator('a.tmt-ui-rail-item')
+      .evaluateAll((links) => links.map((link) => link.getAttribute('href'))),
+  ).toEqual(targets);
+  const [pill, content, header] = await Promise.all([
+    rail.boundingBox(),
+    column.boundingBox(),
+    bar.boundingBox(),
+  ]);
+  expect(pill!.x).toBeGreaterThanOrEqual(16);
+  expect(pill!.x + pill!.width + 16).toBeLessThanOrEqual(content!.x);
+  expect(pill!.y).toBeGreaterThanOrEqual(header!.y + header!.height);
+  expect(pill!.y + pill!.height / 2).toBeCloseTo((900 + header!.height) / 2, 0);
+  const search = rail.getByRole('button', { name: 'Search TMT' });
+  await search.hover();
+  await expect(page.getByRole('tooltip').filter({ hasText: /^Search$/ })).toBeVisible();
+  await animate(() => expand.press('Enter'), 232);
+
+  const expanded = await measure();
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await collapse.press('Enter');
+  await expect(shell).toHaveAttribute('data-rail-pill', '');
+  expect(await measure()).toEqual({ left: 0, width: expanded.left + expanded.width });
+  expect(await shell.evaluate((node) => node.getAnimations().length)).toBe(0);
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await expect(fallback).toBeFocused();
+  await expect(rail).toBeHidden();
+});
 
 test('a phone keeps its drawer whatever the side menu remembers; another tab follows', async ({
   page,

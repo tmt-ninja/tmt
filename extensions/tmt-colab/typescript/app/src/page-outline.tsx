@@ -254,6 +254,13 @@ export function PageOutline({
           if (event.pointerType !== 'touch' && !nav.current?.contains(document.activeElement))
             setFloating(false);
         }}
+        onFocus={(event) => {
+          if (
+            !nav.current?.contains(event.relatedTarget as Node | null) &&
+            stripButton.current?.matches(':focus-visible')
+          )
+            setFloating(true);
+        }}
         onBlur={(event) => {
           if (!nav.current?.contains(event.relatedTarget as Node | null)) setFloating(false);
         }}
@@ -275,12 +282,10 @@ export function PageOutline({
           onClick={(event) => setFloating(event.detail === 0 ? !floating : true)}
         >
           {headings.map((heading, index) => (
-            <span
+            <OutlineRing
               key={heading.id}
-              className="page-outline-bar"
-              data-level={heading.level >= 3 ? 3 : 2}
-              data-state={barState(bySection.get(heading.id))}
-              data-current={index === current ? '' : undefined}
+              section={bySection.get(heading.id)}
+              current={index === current}
             />
           ))}
         </button>
@@ -372,14 +377,41 @@ function OutlineRow({ title, section }: { title: string; section?: SectionSummar
   );
 }
 
-/** A strip bar's state (#6833): done filled, in progress half, needs you or blocked in their tone,
- * not started (or a plain heading) grey. */
-function barState(section?: SectionSummary): 'done' | 'half' | 'waiting' | 'blocked' | 'none' {
-  if (!section) return 'none';
-  const { state } = section;
-  if (state === 'done') return 'done';
-  if (state === 'needs-you') return 'waiting';
-  if (state === 'blocked') return 'blocked';
-  if (state === 'not-started' || state === 'unchecked') return 'none';
-  return 'half';
+/** The compact mark shares the full outline's section summary and keeps the actual done count. */
+function OutlineRing({ section, current }: { section?: SectionSummary; current: boolean }) {
+  const state = section?.total ? section.state : 'plain';
+  const progress = section?.total ? section.done / section.total : 0;
+  return (
+    <span
+      className="page-outline-ring"
+      data-state={state}
+      data-current={current ? '' : undefined}
+      aria-hidden="true"
+    >
+      <svg viewBox="0 0 20 20" focusable="false">
+        {state === 'plain' ? (
+          <circle className="page-outline-ring-dot" cx="10" cy="10" r="2" />
+        ) : (
+          <>
+            <circle className="page-outline-ring-track" cx="10" cy="10" r="7.5" />
+            {state === 'done' ? (
+              <path className="page-outline-ring-symbol" d="m7 10 2 2 4-4" />
+            ) : state === 'needs-you' ? (
+              <path className="page-outline-ring-symbol" d="M10 6.5v4M10 13v.5" />
+            ) : (
+              <circle
+                className="page-outline-ring-progress"
+                cx="10"
+                cy="10"
+                r="7.5"
+                pathLength="1"
+                strokeDasharray={`${progress} 1`}
+                transform="rotate(-90 10 10)"
+              />
+            )}
+          </>
+        )}
+      </svg>
+    </span>
+  );
 }

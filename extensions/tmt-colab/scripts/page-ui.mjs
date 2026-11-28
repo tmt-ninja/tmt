@@ -1,5 +1,5 @@
 // The design system a page frame carries (#5057) and a standalone export copies, built once so the two
-// cannot differ: the CSS (the leaf's whole static.css and the page host and base profiles, capped), the
+// cannot differ: the CSS (the leaf's author CSS and the page host and base profiles, capped), the
 // bounded Lucide icon nodes, and the `tmt-icon` element's script. The renderer inlines the CSS and the
 // icons as constants (generate-renderer-style.mjs); the runtime build writes the CSS and the script as
 // `assets/colab-page-ui.json` (`{style, script}`), which the export reads.
@@ -43,8 +43,7 @@ import { readFile } from 'node:fs/promises';
 export const PAGE_UI_LIMIT = 135_476;
 
 export async function buildPageUi() {
-  // The design system the frame injects into every page (#5057): the leaf's static.css, whole, in the
-  // `tmt-ui` layer, with the page host profile. The layer order is declared first, so the frame's own
+  // The author-facing part of the leaf is injected in the `tmt-ui` layer with the page host profile. The layer order is declared first, so the frame's own
   // rules win over the starter's, which win over the classes; an author's unlayered CSS beats all three.
   const compactCss = (css) =>
     css
@@ -52,10 +51,22 @@ export async function buildPageUi() {
       .replace(/\s+/g, ' ')
       .replace(/ ?([{};,]) ?/g, '$1')
       .trim();
-  const staticCss = await readFile(
+  const sharedCss = await readFile(
     new URL('../../../design/browser-ui/generated/static.css', import.meta.url),
     'utf8',
   );
+  const shellStart = '/* App shell rules */';
+  const shellEnd = '/* App shell end */';
+  const start = sharedCss.indexOf(shellStart);
+  const end = sharedCss.indexOf(shellEnd);
+  if (
+    start < 0 ||
+    end <= start ||
+    sharedCss.lastIndexOf(shellStart) !== start ||
+    sharedCss.lastIndexOf(shellEnd) !== end
+  )
+    throw new Error('static.css must delimit exactly one app shell fragment');
+  const staticCss = sharedCss.slice(0, start) + sharedCss.slice(end + shellEnd.length);
   // The editorial layer (#5794) sets an author page's own text: its `.tmt-ui-prose` container is the
   // painted page's body, in the starter's layer, so the classes and an author's CSS both win over it.
   const scopeMarker = '/* DS scope rules */';

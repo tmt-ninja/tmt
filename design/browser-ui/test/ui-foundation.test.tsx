@@ -17,6 +17,14 @@ it('retains the reviewed Browser source and static CSS baseline', () => {
       expect(source.endsWith(addition)).toBe(true);
       bytes = Buffer.from(source.slice(0, -addition.length));
     }
+    if (file === 'generated/static.css') {
+      // The suffix is app-only; hold every byte of the reviewed author baseline.
+      const source = bytes.toString('utf8');
+      const enhancement = source.indexOf('\n/* App shell rules */');
+      expect(enhancement).toBeGreaterThan(0);
+      expect(source.endsWith('/* App shell end */\n')).toBe(true);
+      bytes = Buffer.from(source.slice(0, enhancement));
+    }
     expect(createHash('sha256').update(bytes).digest('hex'), file).toBe(expected);
   }
 });

@@ -31,10 +31,10 @@
     },
     {
       "name": "browser",
-      "path": "assets/colab-runtime-browser-6b613e9c91236265.js",
-      "sha256": "6b613e9c912362658c0dd54b9607299f8bbb3d878bf9cb1ca5d87f901802592e",
-      "length": 124129,
-      "gzip": 37512
+      "path": "assets/colab-runtime-browser-53756a817a86dfb8.js",
+      "sha256": "53756a817a86dfb8b30245e235755846c498c743723ef15b7b865105c3934d2c",
+      "length": 125873,
+      "gzip": 38130
     },
     {
       "name": "blocks",
@@ -78,7 +78,7 @@
   },
   "binder": {
     "path": "assets/colab-standalone-binder.js",
-    "sha256": "0101d397f988fa08115acd01a32d91180075e6702a5fbf59e5110bccace5a4f2",
+    "sha256": "b4524522edee23bfc79fbfe155b226702924b3a4e9a0f33aaa596455ca3a67ab",
     "length": 82993
   }
 }

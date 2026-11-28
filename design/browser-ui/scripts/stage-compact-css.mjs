@@ -34,3 +34,13 @@ export function stageCompactCss(source) {
   if (!blocks.length) throw new Error('No width blocks in the stage stylesheets');
   return blocks.join('\n');
 }
+
+/** App-shell enhancements do not belong to the staged author component. */
+export function splitShellCss(source) {
+  const sections = source.match(
+    /^([\s\S]*)\/\* BEGIN app shell \*\/([\s\S]*)\/\* END app shell \*\/\s*$/,
+  );
+  if (!sections) throw new Error('Missing app shell stylesheet boundaries');
+  const [, authorShell, appShell] = sections;
+  return { authorShell, appShell };
+}

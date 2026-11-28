@@ -1,7 +1,32 @@
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { buildPageUi } from '../../../scripts/page-ui.mjs';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { fixture, input } from './export-input.js';
 import { UTILITIES_ONLY } from '../src/page-runtime.js';
+
+it('keeps app shell enhancements out of frame and export styles while styling authored Shells', async () => {
+  const { staticCss, pageUiStyle } = await buildPageUi();
+  const shared = readFileSync(
+    new URL('../../../../../design/browser-ui/generated/static.css', import.meta.url),
+    'utf8',
+  );
+  const { classes } = JSON.parse(
+    readFileSync(
+      new URL('../../../rust/tmt-colab/src/page_check/page_ui.json', import.meta.url),
+      'utf8',
+    ),
+  ) as { classes: string[] };
+  for (const selector of ['[data-rail-pill]', '--tmt-ui-rail-progress']) {
+    expect(shared).toContain(selector);
+    expect(staticCss).not.toContain(selector);
+    expect(pageUiStyle).not.toContain(selector);
+  }
+  for (const className of ['tmt-ui-rail', 'tmt-ui-shell', 'tmt-ui-topbar', 'tmt-ui-action']) {
+    expect(classes).toContain(className);
+    expect(pageUiStyle).toContain(`.${className}`);
+  }
+});
 
 // A React page's export carries its standalone copy with the whole runtime from the same base the
 // renderer frame uses, wherever the app runs (#1693); any other page the runtime's base (#6077); a

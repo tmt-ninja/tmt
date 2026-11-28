@@ -160,10 +160,10 @@ Search, common controls and responsive header ordering. Root bindings remain hos
   hairline. Rows truncate to one line with full labels on hover. Host-owned commands and
   the native/React model are defined in the [shared rail contract](browser-ui/README.md#shared-rail).
   Home sums needs-you counts only when every module reports one.
-- **Wide rail:** always the full 232 px, with the selected nested page visible. Older
-  collapse preferences are ignored; there is no collapse toggle or collapse shortcut.
-  The rail scrolls as one column, with only the brand sticky above a rule while scrolled.
-  Settings follows navigation in normal flow, pushed to the bottom when content fits.
+- **Wide rail:** expanded, the 232 px rail shows the selected module and its nested pages.
+  Collapsed, the shared rail presents its module icons in the available left gutter or puts
+  the expansion button at the start of the top bar. See the [shell rules](browser-ui/README.md#shared-rail)
+  for gutter fit, motion and placement.
 - **Module menu:** the active module's host-supplied child list nests under its module
   row on desktop and inside the phone drawer. The same tree and styles serve both.
 - **Header:** one continuous sticky row. Route-owned titles and actions use the

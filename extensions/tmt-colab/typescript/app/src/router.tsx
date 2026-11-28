@@ -4001,6 +4001,7 @@ function OpenPage({
                 />
                 <div
                   className="structured-page-stage"
+                  data-shell-content-column={!embedded || undefined}
                   ref={structuredStage}
                   onKeyDownCapture={(event) => {
                     // Selection mode: Tab moves from block to block, never into a block's own

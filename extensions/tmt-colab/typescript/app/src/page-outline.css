@@ -174,9 +174,8 @@
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 7px;
-  /* Its 40px column holds the longest bar (26px) and the inset to the window edge, so the floating
-     list beside it never covers a bar. */
+  gap: 4px;
+  /* The reading marker and its ring fit in the existing strip beside the floating list. */
   box-sizing: border-box;
   width: 40px;
   padding: var(--tmt-ui-space-s) 10px var(--tmt-ui-space-s) 4px;
@@ -185,31 +184,56 @@
   background: none;
   cursor: pointer;
 }
-.page-outline-bar {
+.page-outline-ring {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 20px;
+  color: var(--tmt-ui-color-text);
+}
+.page-outline-ring[data-state='needs-you'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.page-outline-ring[data-state='blocked'] {
+  color: var(--tmt-ui-color-blocked);
+}
+.page-outline-ring > svg {
   display: block;
-  width: 16px;
-  height: 3px;
+  width: 20px;
+  height: 20px;
+  fill: none;
+  stroke-width: 1.5;
+}
+.page-outline-ring-track {
+  stroke: var(--tmt-ui-surface-rule);
+}
+.page-outline-ring[data-state='blocked'] .page-outline-ring-track,
+.page-outline-ring-progress {
+  stroke: currentColor;
+}
+.page-outline-ring-progress {
+  stroke-width: 2.5;
+}
+.page-outline-ring:is([data-state='done'], [data-state='needs-you']) .page-outline-ring-track {
+  fill: currentColor;
+  stroke: currentColor;
+}
+.page-outline-ring-symbol {
+  stroke: var(--tmt-ui-surface-sheet);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.page-outline-ring-dot {
+  fill: var(--tmt-ui-color-secondary);
+}
+.page-outline-ring[data-current]::before {
+  position: absolute;
+  inset-inline-start: -7px;
+  width: 3px;
+  height: 16px;
   border-radius: 2px;
-  background: var(--tmt-ui-surface-rule);
-}
-.page-outline-bar[data-level='3'] {
-  width: 10px;
-}
-.page-outline-bar[data-state='done'] {
   background: var(--tmt-ui-color-text);
-}
-.page-outline-bar[data-state='half'] {
-  background: linear-gradient(90deg, var(--tmt-ui-surface-rule) 50%, var(--tmt-ui-color-text) 50%);
-}
-.page-outline-bar[data-state='waiting'] {
-  background: var(--tmt-ui-color-waiting);
-}
-.page-outline-bar[data-state='blocked'] {
-  background: var(--tmt-ui-color-blocked);
-}
-.page-outline-bar[data-current] {
-  width: 26px;
-  height: 4px;
+  content: '';
 }
 .page-outline-float {
   position: absolute;

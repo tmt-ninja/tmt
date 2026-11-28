@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { readFileSync } from 'node:fs';
 // @ts-expect-error The generator is a plain development script.
-import { stageCompactCss } from '../scripts/stage-compact-css.mjs';
+import { splitShellCss, stageCompactCss } from '../scripts/stage-compact-css.mjs';
 
 const tokens = JSON.parse(
   readFileSync(new URL('../../tokens/tokens.json', import.meta.url), 'utf8'),
@@ -42,7 +42,10 @@ const width = (condition: string) =>
  * shell and list rule, generated from their stylesheets as container queries on the stage. */
 describe('stage compact shell CSS', () => {
   const shell = ['shell', 'list']
-    .map((name) => readFileSync(new URL(`../src/${name}.css`, import.meta.url), 'utf8'))
+    .map((name) => {
+      const source = readFileSync(new URL(`../src/${name}.css`, import.meta.url), 'utf8');
+      return name === 'shell' ? splitShellCss(source).authorShell : source;
+    })
     .join('\n')
     .replaceAll('__compact-max-width__', tokens.header['compact-max-width']);
   const media = blocks(shell, /@media \(([^)]*width[^)]*)\) \{/g);
