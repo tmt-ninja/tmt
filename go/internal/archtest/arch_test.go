@@ -173,7 +173,7 @@ func TestLayerRules(t *testing.T) {
 }
 
 // Dependencies outside the standard library need the lead's OK; this list is the record.
-var allowedModules = []string{module, "modernc.org/", "golang.org/x/sys", "golang.org/x/term", "golang.org/x/text", "github.com/rivo/uniseg", "github.com/coder/websocket"}
+var allowedModules = []string{module, "modernc.org/", "golang.org/x/sys", "golang.org/x/term", "golang.org/x/text", "github.com/rivo/uniseg", "github.com/coder/websocket", "github.com/pelletier/go-toml/v2"}
 
 func TestApprovedDependencies(t *testing.T) {
 	for _, f := range load(t) {
