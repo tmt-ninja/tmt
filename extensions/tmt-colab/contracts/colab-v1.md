@@ -7038,7 +7038,9 @@ CLI's `ls`/`show`. A client treats it as untrusted text.
     input but carries no write authority. The parent derives the label, section and requested
     state from its saved source and requires a trusted activation to publish. The prompt receives
     focus before the save button so Enter on a forged nomination cannot publish. Other readers can
-    change their frame's display only. Work and the outline always use saved counts.
+    change their frame's display only. An owner frame that loses its connection keeps the
+    checkbox at the saved state until live admission returns. Work and the outline always use
+    saved counts.
     `html.checkbox` selects the zero-based native HTML input ordinal in the source fragment and
     sets its boolean `checked` state. The serve authenticates the owner device, requires the
     exact expected revision, verifies that the input is eligible and has an exact source tag,

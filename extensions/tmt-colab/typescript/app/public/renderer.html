@@ -494,6 +494,9 @@
         }
         function install(renderId, port, theme, layout, boundSource, withRuntime, taskCheckboxes) {
           let sourceDigest = renderId.split(':')[1];
+          // Once this frame offers saved tasks, a temporary loss of admission pauses them.
+          // A reader frame that has never offered saved tasks keeps ordinary native toggles.
+          let savedCheckboxes = taskCheckboxes;
           // Installed before the page runtime and removed when it registers. Author scripts run
           // afterwards and cannot impersonate a message from the private renderer port.
           let blockSink;
@@ -1042,7 +1045,7 @@
             (event) => {
               const input = event.target;
               if (
-                !taskCheckboxes ||
+                !savedCheckboxes ||
                 !event.isTrusted ||
                 event.defaultPrevented ||
                 !(input instanceof HTMLInputElement) ||
@@ -1075,6 +1078,8 @@
                 )
               )
                 return;
+              event.preventDefault();
+              if (!taskCheckboxes) return;
               const box = input.getBoundingClientRect();
               const label = [...(input.labels ?? [])].find((node) => node.getClientRects().length);
               let x = box.left;
@@ -1106,7 +1111,6 @@
               y = Math.max(0, y);
               const width = Math.min(right, document.documentElement.clientWidth) - x;
               const height = bottom - y;
-              event.preventDefault();
               parent.postMessage(
                 {
                   type: 'colab.render.task-checkbox',
@@ -2754,6 +2758,7 @@
               typeof v.enabled === 'boolean'
             ) {
               taskCheckboxes = v.enabled;
+              savedCheckboxes ||= taskCheckboxes;
               return;
             }
             if (

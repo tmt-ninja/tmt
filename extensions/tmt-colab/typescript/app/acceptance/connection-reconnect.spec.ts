@@ -55,9 +55,9 @@ test('an open owner page survives a Remote restart without a click or a reload',
     await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
     await expect(page.frameLocator('iframe').locator('#h')).toHaveText('Before');
     expect(await originalFrame()).toBe(true);
-    // An offline click is frame-local. It cannot start a saved checkbox operation.
+    // An offline owner click cannot change either the rendered checkbox or saved source.
     await checkbox.click();
-    await expect(checkbox).toBeChecked();
+    await expect(checkbox).not.toBeChecked();
     await expect(confirmation).toHaveCount(0);
     const saved = JSON.parse(
       run(world, world.binaries.colab, ['page', 'read', created.pageId, '--json']),
@@ -71,7 +71,7 @@ test('an open owner page survives a Remote restart without a click or a reload',
     });
     await expect(page.getByRole('button', { name: 'Reconnect', exact: true })).toHaveCount(0);
     expect(await originalFrame()).toBe(true);
-    await expect(checkbox).toBeChecked();
+    await expect(checkbox).not.toBeChecked();
     await checkbox.click();
     await expect(confirmation).toBeVisible();
     await page.keyboard.press('Escape');
