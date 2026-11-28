@@ -1,8 +1,10 @@
 package storage
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/ports"
@@ -139,5 +141,51 @@ func TestRequestRepositoryRoundTrip(t *testing.T) {
 	var prompt string
 	if err := store.db.QueryRowContext(ctx, "SELECT message_text FROM request_attempts").Scan(&prompt); err != nil || prompt != body {
 		t.Fatalf("stored prompt = %q, %v", prompt, err)
+	}
+}
+
+func TestReadSnapshotDoesNotBlockAnotherWriter(t *testing.T) {
+	ctx := t.Context()
+	root := testRoot(t)
+	reader, err := Open(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	writer, err := Open(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+
+	identity := core.Identity{ID: "writer", Name: "Writer", CanonicalName: "writer", Lifetime: core.LifetimeSaved}
+	if err := reader.Read(ctx, func(tx ports.StoreTx) error {
+		before, err := tx.Identities().FindByID(identity.ID)
+		if before != nil || err != nil {
+			t.Fatalf("original snapshot identity = %+v, %v", before, err)
+		}
+		writeCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		if err := writer.Write(writeCtx, func(tx ports.StoreTx) error {
+			return tx.Identities().Insert(identity, 1000)
+		}); err != nil {
+			return err
+		}
+		after, err := tx.Identities().FindByID(identity.ID)
+		if after != nil || err != nil {
+			t.Fatalf("read snapshot moved after another writer committed: %+v, %v", after, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("active read blocked another invocation's write: %v", err)
+	}
+	if err := reader.Read(ctx, func(tx ports.StoreTx) error {
+		got, err := tx.Identities().FindByID(identity.ID)
+		if got == nil || err != nil {
+			t.Fatalf("next snapshot did not observe the other commit: %+v, %v", got, err)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }

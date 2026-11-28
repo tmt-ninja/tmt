@@ -11,9 +11,7 @@ import (
 
 const migrationWriterSlice = 100 * time.Millisecond
 
-const createMigrationHistory = `CREATE TABLE IF NOT EXISTS _migrations (
-	version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL
-)`
+const createMigrationHistory = `CREATE TABLE IF NOT EXISTS _migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)`
 
 func migrateThrough(ctx context.Context, conn *sql.Conn, last int) error {
 	current, err := recordedThrough(ctx, conn)

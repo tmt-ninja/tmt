@@ -75,6 +75,9 @@ type XFinal struct {
 }
 
 type XItem struct {
+	Urgent               bool
+	DigestKind           string
+	Mode                 string
 	RequestID            RequestID
 	Kind                 XKind
 	Sender               *IdentityID
@@ -95,9 +98,10 @@ type XPage struct {
 }
 
 type XDetail struct {
-	Exchange XItem
-	Prompt   *string
-	Receipt  *Receipt
+	Exchange          XItem
+	Prompt            *string
+	PromptExpiresAtMs *uint64
+	Receipt           *Receipt
 }
 
 type AckResult struct {

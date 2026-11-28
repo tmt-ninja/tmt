@@ -32,6 +32,7 @@ func (s *Storage) Write(ctx context.Context, fn func(ports.StoreTx) error) error
 }
 
 func (s *Storage) transact(ctx context.Context, readOnly bool, fn func(records) error) error {
+	// modernc uses plain BEGIN for ReadOnly even with _txlock=immediate.
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: readOnly})
 	if err != nil {
 		return err
