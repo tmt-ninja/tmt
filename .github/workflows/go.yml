@@ -38,11 +38,14 @@ jobs:
           sh scripts/check-schema-copy.sh
           echo "check: $(( $(date +%s) - start ))s" >> "$GITHUB_STEP_SUMMARY"
 
+  # macOS runners are shared with every squad's release and CI. Members run
+  # the full suite on macOS locally before each push, so branch CI runs macOS
+  # only on workflow_dispatch (milestones), never on every push.
   test:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ fromJSON(github.event_name == 'workflow_dispatch' && '["ubuntu-latest","macos-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     env:
