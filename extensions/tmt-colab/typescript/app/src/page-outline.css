@@ -112,29 +112,40 @@
   .page-outline-count {
     display: inline;
   }
+  /* The title takes the room, so the count sits at the bar's end before the chevron (#6953). */
   .page-outline-phone {
+    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
   .page-outline-count {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--tmt-ui-space-s);
     color: var(--tmt-ui-color-secondary);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
     white-space: nowrap;
+  }
+  .page-outline-count [data-tone='waiting'] {
+    color: var(--tmt-ui-color-waiting);
+  }
+  .page-outline-count [data-tone='blocked'] {
+    color: var(--tmt-ui-color-blocked);
   }
   .page-outline-list {
     margin-block: 0 var(--tmt-ui-space-s);
   }
 }
 
-/* Sections are progress (#6619): a row is its mark, its title and its count. */
+/* Sections are progress (#6619), drawn as one bar language (#6953): a row is its title, the section's
+   pills and its count; a section that needs the reader or is blocked says so in that tone. */
 .page-outline-list button {
   display: flex;
   align-items: center;
   gap: var(--tmt-ui-space-s);
-}
-.page-outline-mark {
-  width: 10px;
-  height: 10px;
 }
 .page-outline-title {
   flex: 1;
@@ -147,25 +158,38 @@
   -webkit-line-clamp: 2;
   line-clamp: 2;
 }
-.page-outline-list:has(.page-outline-mark)
-  button:not(:has(.page-outline-mark))
-  .page-outline-title {
-  padding-inline-start: calc(10px + var(--tmt-ui-space-s));
-}
 .page-outline-section-count {
   flex: none;
   color: var(--tmt-ui-color-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.page-outline-section-count[data-tone='waiting'] {
+  color: var(--tmt-ui-color-waiting);
+}
+.page-outline-section-count[data-tone='blocked'] {
+  color: var(--tmt-ui-color-blocked);
+}
+/* The page's share of done sections, a thin meter under the title row. */
+.page-outline-meter {
+  flex: none;
+  height: 6px;
+  margin: 0 0 var(--tmt-ui-space-s);
+  border: 0;
+  background: color-mix(in srgb, var(--tmt-ui-color-secondary) 30%, transparent);
+}
+.page-outline-meter > .tmt-ui-meter-fill {
+  background: var(--tmt-ui-color-text);
+}
 .page-outline-progress {
   color: var(--tmt-ui-color-secondary);
   font-weight: 400;
 }
 
-/* With the wide screen's side menu collapsed (#6833), the outline is a strip of bars at the right
-   edge, one per heading: filled done, half in progress, the waiting tone needs you, grey not started,
-   the section being read the longest. A pointer over it floats the whole list beside it. */
+/* With the wide screen's side menu collapsed (#6833), the outline is a strip at the right edge: the
+   page's done sections over a short bar per heading (#6953), filled to its section's share in ink, in
+   the waiting or blocked tone when the section waits on the reader or is blocked, a thin rule for a
+   plain heading, the section being read marked beside it. A pointer over it floats the whole list. */
 .page-outline[data-strip] {
   align-items: flex-end;
   overflow: visible;
@@ -175,7 +199,6 @@
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
-  /* The reading marker and its ring fit in the existing strip beside the floating list. */
   box-sizing: border-box;
   width: 40px;
   padding: var(--tmt-ui-space-s) 10px var(--tmt-ui-space-s) 4px;
@@ -184,53 +207,48 @@
   background: none;
   cursor: pointer;
 }
-.page-outline-ring {
+/* Two digits a side ("12/14") take the lane's end padding too, so they never cross its start. */
+.page-outline-strip-total {
+  margin-block-end: 6px;
+  margin-inline-end: -8px;
+  white-space: nowrap;
+  color: var(--tmt-ui-color-secondary);
+  font: 500 var(--tmt-ui-caption-size) / 1 var(--tmt-ui-font-body);
+  font-variant-numeric: tabular-nums;
+}
+.page-outline-bar {
+  --page-outline-share: 0%;
   position: relative;
-  display: flex;
-  align-items: center;
-  height: 20px;
-  color: var(--tmt-ui-color-text);
-}
-.page-outline-ring[data-state='needs-you'] {
-  color: var(--tmt-ui-color-waiting);
-}
-.page-outline-ring[data-state='blocked'] {
-  color: var(--tmt-ui-color-blocked);
-}
-.page-outline-ring > svg {
   display: block;
   width: 20px;
-  height: 20px;
-  fill: none;
-  stroke-width: 1.5;
+  height: 4px;
+  margin-block: 6px;
+  border-radius: var(--tmt-ui-radius-pill);
+  background: linear-gradient(
+    90deg,
+    var(--tmt-ui-color-text) var(--page-outline-share),
+    color-mix(in srgb, var(--tmt-ui-color-secondary) 30%, transparent) 0
+  );
 }
-.page-outline-ring-track {
-  stroke: var(--tmt-ui-surface-rule);
+.page-outline-bar[data-level='3'] {
+  width: 14px;
 }
-.page-outline-ring[data-state='blocked'] .page-outline-ring-track,
-.page-outline-ring-progress {
-  stroke: currentColor;
+.page-outline-bar[data-plain] {
+  height: 2px;
+  background: var(--tmt-ui-surface-rule);
 }
-.page-outline-ring-progress {
-  stroke-width: 2.5;
+.page-outline-bar[data-tone='waiting'] {
+  background: var(--tmt-ui-color-waiting);
 }
-.page-outline-ring:is([data-state='done'], [data-state='needs-you']) .page-outline-ring-track {
-  fill: currentColor;
-  stroke: currentColor;
+.page-outline-bar[data-tone='blocked'] {
+  background: var(--tmt-ui-color-blocked);
 }
-.page-outline-ring-symbol {
-  stroke: var(--tmt-ui-surface-sheet);
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-.page-outline-ring-dot {
-  fill: var(--tmt-ui-color-secondary);
-}
-.page-outline-ring[data-current]::before {
+.page-outline-bar[data-current]::before {
   position: absolute;
-  inset-inline-start: -7px;
+  inset-inline-start: -8px;
+  top: -5px;
   width: 3px;
-  height: 16px;
+  height: 14px;
   border-radius: 2px;
   background: var(--tmt-ui-color-text);
   content: '';
@@ -242,7 +260,7 @@
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  width: 240px;
+  width: 272px;
   max-height: calc(100dvh - var(--page-bar-size) - 2 * var(--tmt-ui-space-l));
   padding: var(--tmt-ui-space-s) var(--tmt-ui-space-s) var(--tmt-ui-space-s) 0;
   border: var(--tmt-ui-rule-width) solid var(--tmt-ui-surface-rule);
@@ -259,4 +277,7 @@
 }
 .page-outline-float .page-outline-list {
   margin-top: 0;
+}
+.page-outline-float .page-outline-meter {
+  margin-inline-start: var(--tmt-ui-space-s);
 }

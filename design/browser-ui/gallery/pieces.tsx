@@ -431,6 +431,25 @@ export function StatusTileSection() {
                 />
               </div>
             </Cell>
+            <Cell label="segments, small (a list row beside its count, #6953)">
+              <div style={{ display: 'grid', gap: '0.6rem', justifyItems: 'start' }}>
+                {(
+                  [
+                    ['3/5', ['done', 'done', 'done', 'todo', 'todo']],
+                    ['Needs you', ['waiting', 'waiting']],
+                    ['1/3 · Blocked', ['done', 'blocked', 'blocked']],
+                  ] as const
+                ).map(([count, states]) => (
+                  <span
+                    key={count}
+                    style={{ display: 'inline-flex', gap: '0.5rem', alignItems: 'center' }}
+                  >
+                    <BrowserSegments size="s" states={states} />
+                    {count}
+                  </span>
+                ))}
+              </div>
+            </Cell>
             <Cell label="other tones">
               <div style={{ width: 'min(100%, 28rem)' }}>
                 <BrowserStatusTiles>

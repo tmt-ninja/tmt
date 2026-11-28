@@ -60,8 +60,10 @@ export function useStructuredDiscussionLayout(
         );
         return;
       }
-      // Keep the outline column and the centred stage's original starting edge.
-      const offset = strip ? column.left - stage.parentElement!.getBoundingClientRect().left : 0;
+      // Keep the outline column and the centred stage's original starting edge: the stage is centred
+      // whenever the strip's lane is held, with or without the strip drawn in it (#6951).
+      const centred = area.querySelector('.page-outline[data-strip]');
+      const offset = centred ? column.left - stage.parentElement!.getBoundingClientRect().left : 0;
       area.dataset.discussionSpace = 'beside';
       area.style.setProperty('--discussion-column-width', `${available}px`);
       area.style.setProperty('--discussion-column-start', `${offset}px`);

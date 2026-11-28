@@ -110,29 +110,20 @@ test('the mounted page bar uses the shell padding and the collapsed outline show
     await rail.getByRole('button', { name: 'Collapse side menu', exact: true }).press('Enter');
     await expect(rail.getByRole('button', { name: 'Expand side menu', exact: true })).toBeFocused();
     const strip = page.locator('.page-outline-strip');
-    const rings = strip.locator('.page-outline-ring');
-    await expect(rings).toHaveCount(5);
-    await expect(rings.nth(0)).toHaveAttribute('data-current', '');
-    await expect(rings.nth(0).locator('.page-outline-ring-progress')).toHaveAttribute(
-      'stroke-dasharray',
-      `${1 / 3} 1`,
-    );
-    await expect(rings.nth(1)).toHaveAttribute('data-state', 'done');
-    await expect(rings.nth(1).locator('.page-outline-ring-symbol')).toBeVisible();
-    await expect(rings.nth(2)).toHaveAttribute('data-state', 'plain');
-    await expect(rings.nth(2).locator('.page-outline-ring-dot')).toBeVisible();
-    await expect(rings.nth(3).locator('.page-outline-ring-progress')).toHaveAttribute(
-      'stroke-dasharray',
-      `${2 / 3} 1`,
-    );
-    await expect(rings.nth(3).locator('.page-outline-ring-progress')).toHaveCSS(
-      'stroke-width',
-      '2.5px',
-    );
-    await expect(rings.nth(3).locator('svg')).toHaveCSS('width', '20px');
-    await expect(rings.nth(4)).toHaveAttribute('data-state', 'needs-you');
-    await expect(rings.nth(4).locator('svg')).toBeVisible();
-    await expect(rings.nth(4).locator('.page-outline-ring-symbol')).toHaveCount(1);
+    // A short bar per heading, filled to its section's share (#6953): the waiting section in its
+    // tone, a plain heading a thin rule.
+    const bars = strip.locator('.page-outline-bar');
+    await expect(bars).toHaveCount(5);
+    const share = (at: number) =>
+      bars.nth(at).evaluate((node) => node.style.getPropertyValue('--page-outline-share'));
+    await expect(bars.nth(0)).toHaveAttribute('data-current', '');
+    expect(parseFloat(await share(0))).toBeCloseTo(100 / 3, 3);
+    expect(await share(1)).toBe('100%');
+    await expect(bars.nth(2)).toHaveAttribute('data-plain', '');
+    expect(parseFloat(await share(3))).toBeCloseTo(200 / 3, 3);
+    await expect(bars.nth(3)).toHaveCSS('width', '20px');
+    await expect(bars.nth(4)).toHaveAttribute('data-tone', 'waiting');
+    await expect(bars.nth(4)).toBeVisible();
     await strip.hover();
     const list = page.locator('.page-outline-float');
     await expect(list.getByRole('button', { name: /Complete/ })).toBeVisible();
@@ -141,7 +132,7 @@ test('the mounted page bar uses the shell padding and the collapsed outline show
     await strip.focus();
     await expect(list).toBeVisible();
     await list.getByRole('button', { name: /Waiting section/ }).press('Enter');
-    await expect(rings.nth(4)).toHaveAttribute('data-current', '');
+    await expect(bars.nth(4)).toHaveAttribute('data-current', '');
     await expect(stage.locator(`[data-block-id="${waiting}"]`)).toBeFocused();
     await expect(list).toBeHidden();
 
@@ -150,7 +141,7 @@ test('the mounted page bar uses the shell padding and the collapsed outline show
     await expect(bar.getByRole('button', { name: 'Expand side menu' })).toBeHidden();
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(bar.getByRole('button', { name: 'Open navigation' })).toBeVisible();
-    await expect(rings).toHaveCount(0);
+    await expect(bars).toHaveCount(0);
   });
 });
 
@@ -2083,6 +2074,14 @@ for (const width of [1440, 1280]) {
         );
         const owner = await pairBrowser(world, 'comment-pointer-owner');
         const page = await owner.context.newPage();
+        // A ResizeObserver loop is reported to the window's error event, never thrown.
+        await page.addInitScript(() => {
+          const loops: string[] = [];
+          (window as unknown as { resizeLoops: string[] }).resizeLoops = loops;
+          addEventListener('error', (event) => {
+            if (/ResizeObserver/.test(event.message)) loops.push(event.message);
+          });
+        });
         await page.setViewportSize({ width, height: 900 });
         await page.emulateMedia({ reducedMotion: 'reduce' });
         if (collapsed)
@@ -2110,11 +2109,26 @@ for (const width of [1440, 1280]) {
         const action = block.getByRole('button', { name: 'Comment on block', exact: true });
         const slot = block.locator('.structured-comment-action');
         await expect(slot).toHaveCSS('opacity', '1');
+        await expect(action).toBeVisible();
         const target = (await action.boundingBox())!;
         const row = (await block.boundingBox())!;
-        const gap = target.x - row.x - row.width;
-        expect.soft(gap, 'Comment button clears the highlighted row').toBeGreaterThanOrEqual(0);
-        expect.soft(gap, 'Comment button stays beside the highlighted row').toBeLessThanOrEqual(16);
+        // Beside an open outline at 1280 the gutter cannot hold the action, so it sits inside its
+        // row's end, which the row keeps free (#6957); elsewhere it stands beside the row.
+        const inside = width === 1280 && !collapsed;
+        if (inside) await expect(slot).toHaveAttribute('data-inside', '');
+        else await expect(slot).not.toHaveAttribute('data-inside');
+        if (inside) {
+          const end = row.x + row.width - target.x - target.width;
+          expect.soft(end, 'Comment button stays inside the row').toBeGreaterThanOrEqual(0);
+          expect.soft(end, 'Comment button keeps to the row end').toBeLessThanOrEqual(16);
+          await expect(block).toHaveCSS('padding-inline-end', '32px');
+        } else {
+          const gap = target.x - row.x - row.width;
+          expect.soft(gap, 'Comment button clears the highlighted row').toBeGreaterThanOrEqual(0);
+          expect
+            .soft(gap, 'Comment button stays beside the highlighted row')
+            .toBeLessThanOrEqual(16);
+        }
         if (process.env.COLAB_CAPTURE_DIR)
           await page.screenshot({
             path: capturePath(`6952-todo-${width}-${collapsed ? 'collapsed' : 'expanded'}.png`),
@@ -2132,6 +2146,36 @@ for (const width of [1440, 1280]) {
         await expect(
           page.locator('.annotation-popover').getByText('Annotate the block', { exact: true }),
         ).toBeVisible();
+        if (width !== 1280 || collapsed) return;
+        // The placement never feeds back into its own decision (#6957): from 900 to 1300px the
+        // row goes inside once and back beside once, steady over three frames at every width,
+        // with no ResizeObserver loop.
+        await page.keyboard.press('Escape');
+        const placements: string[] = [];
+        for (let at = 900; at <= 1300; at += 10) {
+          await page.setViewportSize({ width: at, height: 900 });
+          const frames = await slot.evaluate(async (node) => {
+            const seen: string[] = [];
+            for (let frame = 0; frame < 4; frame += 1) {
+              await new Promise(requestAnimationFrame);
+              seen.push(
+                node.hasAttribute('data-fits')
+                  ? node.hasAttribute('data-inside')
+                    ? 'inside'
+                    : 'beside'
+                  : 'none',
+              );
+            }
+            return seen.slice(1);
+          });
+          expect(new Set(frames).size, `steady at ${at}px: ${frames}`).toBe(1);
+          placements.push(frames[0]!);
+        }
+        const runs = placements.filter((value, index) => value !== placements[index - 1]);
+        expect(runs).toEqual(['none', 'inside', 'beside']);
+        expect(
+          await page.evaluate(() => (window as unknown as { resizeLoops: string[] }).resizeLoops),
+        ).toEqual([]);
       });
     });
   }
@@ -3783,21 +3827,21 @@ for (const task of ['heading actions', 'annotation'] as const)
           await expect(row(view, 'Details').locator('.page-outline-section-count')).toHaveText(
             /^Done/,
           );
-          await expect(row(view, 'Details').locator('.page-outline-mark')).toHaveAttribute(
-            'data-shape',
-            'dot',
-          );
+          // Every pill is done (#6953).
+          await expect(
+            row(view, 'Details').locator('.tmt-ui-segments > span:not([data-state="done"])'),
+          ).toHaveCount(0);
           await expect(view.locator('.page-outline-progress')).toContainText('1/2 done');
         }
         await page.getByRole('checkbox', { name: 'Send the summary' }).check();
         for (const view of [page, other]) {
           await expect(row(view, 'Decisions').locator('.page-outline-section-count')).toHaveText(
-            /^1\/1/,
+            'Done',
           );
           await expect(view.locator('.page-outline-progress')).toContainText('2/2 done');
           await expect(
             view.locator('.structured-section-heading').filter({ hasText: 'Decisions' }),
-          ).toContainText('1/1');
+          ).toContainText('Done');
         }
       } else {
         // A heading selected from the outline first: Selection mode does not draw it (#6675).

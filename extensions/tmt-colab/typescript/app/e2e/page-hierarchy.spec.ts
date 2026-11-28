@@ -73,44 +73,31 @@ for (const width of [1440, 1100, 800, 390])
       );
       await mount(page, 'work-fields');
     }
-    // Sections are progress (#6619): each counted heading has its mark and count beside it, the
-    // state word added when the count does not say it.
+    // Sections are progress (#6619), one line under each counted heading (#6953): a pill per to-do
+    // and the count, the state word added when the count does not say it.
     const sections = page.locator('.structured-section-heading');
     await expect(sections.locator('.structured-section-count')).toHaveText([
       '2/3',
       '0/1 · Needs you',
     ]);
-    await expect(sections.first().locator('.structured-section-mark')).toHaveAttribute(
-      'data-shape',
-      'half',
+    const pills = (at: number) =>
+      sections
+        .nth(at)
+        .locator('.tmt-ui-segments > span')
+        .evaluateAll((nodes) => nodes.map((node) => node.getAttribute('data-state')));
+    expect(await pills(0)).toEqual(['done', 'done', 'todo']);
+    expect(await pills(1)).toEqual(['waiting']);
+    await expect(sections.last().locator('.structured-section-count')).toHaveAttribute(
+      'data-tone',
+      'waiting',
     );
-    await expect(sections.last().locator('.structured-section-mark')).toHaveAttribute(
-      'data-shape',
-      'target',
-    );
-    // A heading that wraps keeps its mark and count on its first line (#6731): narrowed here so
-    // the heading takes three lines.
-    const lines = await sections.first().evaluate((node) => {
-      (node as HTMLElement).style.maxWidth = '160px';
-      const heading = node.querySelector('h2, h3')!;
-      const range = document.createRange();
-      range.selectNodeContents(heading);
-      const rects = [...range.getClientRects()];
-      const first = rects[0]!;
-      const middle = (box: DOMRect) => (box.top + box.bottom) / 2;
-      const mark = node.querySelector('.structured-section-mark')!.getBoundingClientRect();
-      const count = node.querySelector('.structured-section-count')!.getBoundingClientRect();
-      const box = heading.getBoundingClientRect();
-      return {
-        wrapped: box.height > first.height * 1.5,
-        mark: Math.abs(middle(mark) - (box.top + first.height / 2)),
-        count: middle(count) > box.top && middle(count) < box.top + first.height * 1.3,
-      };
+    // The line sits under the heading, never beside it, so a heading that wraps keeps its width.
+    const under = await sections.first().evaluate((node) => {
+      const heading = node.querySelector('h2, h3')!.getBoundingClientRect();
+      const line = node.querySelector('.structured-section-progress')!.getBoundingClientRect();
+      return line.top >= heading.bottom - 1 && Math.abs(line.left - heading.left) <= 1;
     });
-    expect(lines.wrapped).toBe(true);
-    expect(lines.mark).toBeLessThanOrEqual(2);
-    expect(lines.count).toBe(true);
-    await sections.first().evaluate((node) => ((node as HTMLElement).style.maxWidth = ''));
+    expect(under).toBe(true);
     const title = page.locator('.page-mobile-title:visible h1');
     expect((await title.boundingBox())!.width).toBeGreaterThan(40);
     const details = await openDetails(page);

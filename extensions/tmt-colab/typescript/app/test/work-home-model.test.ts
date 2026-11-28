@@ -16,6 +16,7 @@ import {
   htmlOutlineSections,
   liveSections,
   sectionMark,
+  sectionProgress,
   sectionTotals,
   segmentState,
   stuckSection,
@@ -144,6 +145,42 @@ it('carries the counted sections of a page as its one number, bar and stuck sect
     // A heading marked done by hand says Done until its to-dos agree (#6687).
     ['dot', 'Done'],
     ['ring', '0/2'],
+  ]);
+  // The page outline and headings draw the same sections as one bar language (#6953): a pill per
+  // to-do, the waiting tone for the rest of a section that needs you, all done when marked done by
+  // hand, and the count with its word only when the word says more.
+  const bars = (section: Parameters<typeof sectionProgress>[0]) => {
+    const view = sectionProgress(section);
+    return [view.pills.join(' '), view.short, view.count, view.share];
+  };
+  expect(item.sections!.map(bars)).toEqual([
+    ['done done done', 'Done', 'Done', 1],
+    ['done todo', '1/2', '1/2 · Waiting on a PR', 0.5],
+    ['waiting waiting waiting', 'Needs you', '0/3 · Needs you', 1],
+    ['done done done done', 'Done', 'Done', 1],
+    ['todo todo', '0/2', '0/2', 0],
+  ]);
+  const section = { id: 's', title: 'S', level: 2 };
+  // More than ten to-dos draw ten pills, each a tenth, and keep the exact count.
+  expect(bars({ ...section, done: 7, total: 23, state: 'working' })).toEqual([
+    'done done done todo todo todo todo todo todo todo',
+    '7/23',
+    '7/23',
+    7 / 23,
+  ]);
+  // A blocked section keeps its done pills; the rest and its word take the blocked tone.
+  expect(bars({ ...section, done: 1, total: 3, state: 'blocked' })).toEqual([
+    'done blocked blocked',
+    'Blocked',
+    '1/3 · Blocked',
+    1,
+  ]);
+  // A section with no to-dos draws no pills and says its word.
+  expect(bars({ ...section, done: 0, total: 0, state: 'waiting-release' })).toEqual([
+    '',
+    'Waiting for release',
+    'Waiting for release',
+    0,
   ]);
   expect(stuckSection(item.sections!)?.title).toBe('Ask');
   // An HTML page's sections take the frame's visible headings in order; one it hides is left out.

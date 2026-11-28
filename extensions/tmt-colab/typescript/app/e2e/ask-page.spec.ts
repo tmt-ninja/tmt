@@ -797,16 +797,19 @@ for (const gesture of ['drag', 'completed selection C'] as const)
     expect((await run(page, 'proof')).sends).toEqual([]);
   });
 
-for (const [width, theme, collapsed] of [
-  [1280, 'light', false],
-  [1440, 'light', false],
-  [1440, 'light', true],
-  [1440, 'dark', false],
-  [390, 'light', false],
-  [390, 'dark', false],
-  [2200, 'light', false],
+// A page with no heading draws no outline but keeps the strip's lane (#6951), so its centred column
+// stays put too.
+for (const [width, theme, collapsed, headings] of [
+  [1280, 'light', false, true],
+  [1440, 'light', false, true],
+  [1440, 'light', true, true],
+  [1280, 'light', true, false],
+  [1440, 'dark', false, true],
+  [390, 'light', false, true],
+  [390, 'dark', false, true],
+  [2200, 'light', false, true],
 ] as const)
-  test(`an open Discussion leaves the low block comment reachable at ${width} ${theme}${collapsed ? ' with the side menu collapsed' : ''}`, async ({
+  test(`an open Discussion leaves the low block comment reachable at ${width} ${theme}${collapsed ? ' with the side menu collapsed' : ''}${headings ? '' : ' and no heading'}`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -815,7 +818,11 @@ for (const [width, theme, collapsed] of [
       await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
     await page.goto('/');
     if (collapsed) await page.mouse.move(width / 2, 450);
-    await run(page, 'mount', { structuredOutline: true, commentOnly: true });
+    await run(page, 'mount', {
+      structuredOutline: true,
+      commentOnly: true,
+      headingless: !headings,
+    });
     await run(page, 'seedStructuredDiscussion');
     const stage = page.locator('.structured-page-stage');
     const first = stage.getByRole('button', { name: 'Open comment 1', exact: true });
@@ -825,7 +832,7 @@ for (const [width, theme, collapsed] of [
     const strip = page.locator('.page-outline[data-strip] .page-outline-strip');
     if (collapsed) {
       await expect(page.locator('.tmt-ui-shell')).toHaveAttribute('data-rail', 'collapsed');
-      await expect(strip).toBeVisible();
+      await expect(strip).toHaveCount(headings ? 1 : 0);
     }
     const before = (await stage.boundingBox())!;
     const naturalMarker = (await low.boundingBox())!;
@@ -841,8 +848,10 @@ for (const [width, theme, collapsed] of [
       expect(after.x).toBe(before.x);
       if (naturalMarker.x + naturalMarker.width + 8 <= card.x)
         expect(after.width).toBe(before.width);
-      const outlineStrip = (await strip.boundingBox())!;
-      expect(card.x + card.width).toBeLessThan(outlineStrip.x);
+      if (headings) {
+        const outlineStrip = (await strip.boundingBox())!;
+        expect(card.x + card.width).toBeLessThan(outlineStrip.x);
+      }
     }
     // On desktop the marker can stay vertically alongside the card. On the phone,
     // a reader scrolls the last marker into the exposed part of the page.
@@ -852,7 +861,7 @@ for (const [width, theme, collapsed] of [
       window.scrollBy({ top: box.top + box.height / 2 - y, behavior: 'instant' });
     }, target);
     await expect(low).toBeInViewport();
-    if (width === 1440 || width === 390) {
+    if ((width === 1440 || width === 390) && headings) {
       await page.screenshot({
         path: capturePath(`6832-discussion-${width}-${theme}${collapsed ? '-collapsed' : ''}.png`),
       });
@@ -896,12 +905,15 @@ for (const width of [1440, 390])
       // Sections are progress (#6619): each counted heading has its mark and count, and the title
       // row counts done sections.
       await expect(toggle).toContainText('Outline · 1/3 done');
+      // One bar language (#6953): each counted row has its pills and its count, the word when it
+      // says more.
       await expect(outline.locator('.page-outline-section-count')).toHaveText([
         '3/4, In progress',
-        '2/2, Done',
-        '0/1, Needs you',
+        'Done',
+        'Needs you',
       ]);
-      await expect(outline.locator('.page-outline-mark')).toHaveCount(3);
+      await expect(outline.locator('.page-outline-list .tmt-ui-segments')).toHaveCount(3);
+      await expect(outline.locator('.page-outline-meter')).toBeVisible();
       expect(Math.abs(control.y - title.y)).toBeLessThanOrEqual(4);
       expect(control.x + control.width).toBeLessThanOrEqual(title.x);
       // The page counts its sections from its own blocks (#6687): a to-do checked and a heading
@@ -909,11 +921,11 @@ for (const width of [1440, 390])
       const change = (block: number, props: Record<string, unknown>) =>
         run(page, 'setStructuredProps', { block, props });
       await change(901, { checked: true });
-      await expect(outline.locator('.page-outline-section-count').first()).toHaveText('4/4, Done');
+      await expect(outline.locator('.page-outline-section-count').first()).toHaveText('Done');
       await expect(toggle).toContainText('Outline · 2/3 done');
-      // A heading marked done by hand says Done, never 0/1 beside a done mark.
+      // A heading marked done by hand says Done, never 0/1 beside done pills.
       await change(105, { progress: 'done' });
-      await expect(outline.locator('.page-outline-section-count').last()).toHaveText('Done, Done');
+      await expect(outline.locator('.page-outline-section-count').last()).toHaveText('Done');
       await expect(toggle).toContainText('Outline · 3/3 done');
       await change(901, { checked: false });
       await change(105, { progress: null });
@@ -955,6 +967,9 @@ for (const width of [1440, 390])
     await outline.getByRole('button', { name: 'Details' }).click();
     if (width === 390) {
       await expect(toggle).toContainText('Details');
+      // The phone bar shows the current section's progress (#6953): Details has both to-dos done.
+      await expect(toggle.locator('.page-outline-count')).toHaveText('Done');
+      await expect(toggle.locator('.page-outline-count .tmt-ui-segments > span')).toHaveCount(2);
       const heading = page
         .locator('.structured-page-stage')
         .getByRole('heading', { name: 'Details' });
@@ -988,6 +1003,50 @@ for (const width of [1440, 390])
     }
     await run(page, 'mount', { structured: true });
     await expect(page.getByRole('navigation', { name: 'Page outline' })).toHaveCount(0);
+  });
+
+// A page of blocks keeps its outline's place (#6951): one heading shows the outline, and a page with
+// no heading keeps the place empty, so the block column and the title start where they do on a page
+// of three sections, with the side menu expanded (the outline open or closed, as the reader left it)
+// or collapsed to the strip's lane.
+for (const [rail, outline] of [
+  ['expanded', 'open'],
+  ['expanded', 'closed'],
+  ['collapsed', 'open'],
+] as const)
+  test(`a page of blocks keeps its column with one heading or none, menu ${rail}, outline ${outline}`, async ({
+    page,
+  }) => {
+    await page.addInitScript(
+      ([rail, outline]) => {
+        if (rail === 'collapsed') localStorage.setItem('tmt-shell-rail', 'collapsed');
+        localStorage.setItem('tmt:colab:outline', outline);
+      },
+      [rail, outline] as const,
+    );
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    const place = async (width: number, outlineSections: number, headingless = false) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/');
+      await page.mouse.move(width / 2, 450);
+      await run(page, 'mount', { structuredOutline: true, outlineSections, headingless });
+      const stage = page.locator('.structured-page-stage');
+      await expect(stage.getByText('Overview section.', { exact: false }).first()).toBeVisible();
+      const nav = page.getByRole('navigation', { name: 'Page outline' });
+      await expect(nav).toHaveCount(headingless ? 0 : 1);
+      // The outline's control: the strip with the menu collapsed, else the toggle, open or closed.
+      if (!headingless)
+        await expect(nav.locator('.page-outline-strip, .page-outline-toggle')).toBeVisible();
+      await expect(page.locator('.tmt-ui-shell')).toHaveAttribute('data-rail', rail);
+      const box = (await stage.boundingBox())!;
+      const title = (await page.locator('.page-mobile-title h1').boundingBox())!;
+      return { stage: [box.x, box.width], title: title.x };
+    };
+    for (const width of [1440, 1280]) {
+      const withOutline = await place(width, 3);
+      expect(await place(width, 1)).toEqual(withOutline);
+      expect(await place(width, 3, true)).toEqual(withOutline);
+    }
   });
 
 for (const width of [390, 1440])
@@ -1222,9 +1281,9 @@ test('HTML outline follows and jumps within the bounded inner-scroll fallback', 
   );
 });
 
-// The wide shell gives each outline section a ring. A phone keeps its outline bar.
+// The wide shell gives each outline section a short bar (#6953). A phone keeps its outline bar.
 for (const width of [1440, 390])
-  test(`with the side menu collapsed the outline uses progress rings on desktop at ${width}`, async ({
+  test(`with the side menu collapsed the outline uses progress bars on desktop at ${width}`, async ({
     page,
   }) => {
     await page.addInitScript(() => localStorage.setItem('tmt-shell-rail', 'collapsed'));
@@ -1251,19 +1310,18 @@ for (const width of [1440, 390])
       page.locator('.tmt-ui-topbar').getByRole('button', { name: 'Expand side menu', exact: true }),
     ).toBeHidden();
     await expect(strip).toHaveAttribute('aria-expanded', 'false');
-    // Overview has three of four complete, Details is complete, and Decisions waits for a person.
-    const rings = strip.locator('.page-outline-ring');
-    await expect(rings).toHaveCount(3);
-    await expect(rings.nth(0)).toHaveAttribute('data-state', 'working');
-    await expect(rings.nth(0)).toHaveAttribute('data-current', '');
-    await expect(rings.nth(0).locator('.page-outline-ring-progress')).toHaveAttribute(
-      'stroke-dasharray',
-      '0.75 1',
-    );
-    await expect(rings.nth(1)).toHaveAttribute('data-state', 'done');
-    await expect(rings.nth(1).locator('.page-outline-ring-symbol')).toBeVisible();
-    await expect(rings.nth(2)).toHaveAttribute('data-state', 'needs-you');
-    await expect(rings.nth(2).locator('.page-outline-ring-symbol')).toHaveCount(1);
+    // Overview has three of four complete, Details is complete, and Decisions waits for a person:
+    // each bar fills to its share, the waiting one in its tone, under the page's done sections.
+    await expect(strip.locator('.page-outline-strip-total')).toHaveText('1/3');
+    const bars = strip.locator('.page-outline-bar');
+    await expect(bars).toHaveCount(3);
+    const share = (at: number) =>
+      bars.nth(at).evaluate((node) => node.style.getPropertyValue('--page-outline-share'));
+    await expect(bars.nth(0)).toHaveAttribute('data-current', '');
+    expect(await share(0)).toBe('75%');
+    await expect(bars.nth(1)).not.toHaveAttribute('data-tone');
+    expect(await share(1)).toBe('100%');
+    await expect(bars.nth(2)).toHaveAttribute('data-tone', 'waiting');
     const stripBox = (await strip.boundingBox())!;
     expect(stripBox.x + stripBox.width).toBeGreaterThan(width - 60);
     // The page reads in a centred column, and the title starts where its text does.
@@ -1299,9 +1357,15 @@ for (const width of [1440, 390])
     await expect(
       page.locator('.structured-page-stage').getByRole('heading', { name: 'Details' }),
     ).toBeInViewport();
-    await expect(rings.nth(1)).toHaveAttribute('data-current', '');
+    await expect(bars.nth(1)).toHaveAttribute('data-current', '');
     // The last section is shorter than the window, so it never reaches the bar: at the end of the
-    // scroll, the last heading in view is current, and a jump to it marks its ring.
+    // scroll, the last heading in view is current, and a jump to it marks its bar. Its paragraph is
+    // cut to half so the section stays shorter than the window under its heading's progress line.
+    await run(page, 'setStructuredProps', {
+      block: 106,
+      props: {},
+      text: 'Decisions section. '.repeat(50),
+    });
     await strip.hover();
     await float.getByRole('button', { name: /^Decisions/ }).click();
     await expect(float).toBeHidden();
@@ -1322,8 +1386,8 @@ for (const width of [1440, 390])
           }),
       );
     await expect.poll(settled).toBe(true);
-    await expect(rings.nth(2)).toHaveAttribute('data-current', '');
-    await expect(rings.nth(1)).not.toHaveAttribute('data-current');
+    await expect(bars.nth(2)).toHaveAttribute('data-current', '');
+    await expect(bars.nth(1)).not.toHaveAttribute('data-current');
     // Leaving closes the list, and keyboard focus opens it again. Escape returns to the strip.
     await strip.hover();
     await expect(float).toBeVisible();
@@ -1337,6 +1401,19 @@ for (const width of [1440, 390])
     await page.keyboard.press('Escape');
     await expect(float).toBeHidden();
     await expect(strip).toBeFocused();
+    // Two-digit totals fit the 40px lane unclipped: 12 of 14 sections done.
+    await run(page, 'mount', { structuredOutline: true, outlineSections: 14, outlineTodos: true });
+    const total = page.locator('.page-outline-strip-total');
+    await expect(total).toHaveText('12/14');
+    const fits = await total.evaluate((node) => {
+      const lane = node.closest('.page-outline-strip')!.getBoundingClientRect();
+      const box = node.getBoundingClientRect();
+      return {
+        inside: box.left >= lane.left && box.right <= lane.right,
+        unclipped: node.scrollWidth <= node.clientWidth,
+      };
+    });
+    expect(fits).toEqual({ inside: true, unclipped: true });
   });
 
 test('a collapsed HTML page uses the outline strip when the right gutter fits', async ({
@@ -1372,6 +1449,8 @@ test('a collapsed HTML page uses the outline strip when the right gutter fits', 
   const strip = outline.getByRole('button', { name: 'Outline', exact: true });
   await expect(strip).toBeVisible();
   await expect.poll(async () => (await first.boundingBox())?.width).toBe(1280);
+  // Headings without sections are thin rules (#6953).
+  await expect(strip.locator('.page-outline-bar[data-plain]')).toHaveCount(3);
   const stripBox = (await strip.boundingBox())!;
   const frame = (await page.locator('#ask-page-fixture iframe').boundingBox())!;
   // It sits in the gutter, before the frame's 28px comment marker lane.

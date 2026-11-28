@@ -24,7 +24,7 @@
 }
 .workspace[data-discussion-space='beside']
   .canvas-structured
-  .structured-layout[data-outline]
+  .structured-layout
   > .structured-page-stage {
   width: var(--discussion-column-width);
   justify-self: start;
