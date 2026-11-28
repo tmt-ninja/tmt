@@ -19,9 +19,15 @@ type PasteHost interface {
 	Deliver(context.Context, ports.PaneRef, ports.DeliveryInput) (ports.DeliveryOutcome, error)
 }
 
-// PasteTarget optionally pins the durable binding the caller resolved. An
-// identity-less route still checks channel records attributed to the pane.
+// UnboundPasteFence pins the server and pane process before request preparation.
+type UnboundPasteFence struct {
+	Server  core.ServerEvidence
+	Process core.ProcessIncarnation
+}
+
+// PasteTarget carries the binding or exact unbound evidence selected by the caller.
 type PasteTarget struct {
+	Unbound  *UnboundPasteFence
 	Pane     ports.PaneRef
 	Binding  *core.Binding
 	Identity core.Identity
@@ -43,6 +49,10 @@ func GuardedPaste(ctx context.Context, host PasteHost, runner ports.Process, roo
 		return ports.DeliveryNotStarted, nil, errors.New("could not verify the exact pane before paste")
 	}
 	pane := probe.Panes[0]
+	if expected := target.Unbound; expected != nil && (target.Binding != nil || probe.Server != expected.Server ||
+		pane.PID != expected.Process.PID || *pane.Incarnation != expected.Process.StartIdentity || pane.Marker != nil) {
+		return ports.DeliveryNotStarted, nil, errors.New("unbound pane changed before paste")
+	}
 	var bindingID core.BindingID
 	if target.Binding != nil {
 		state, _ := core.EvaluateBinding(target.Identity, target.Binding, probe)

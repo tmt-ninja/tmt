@@ -134,3 +134,39 @@ func TestGuardedPasteFencesCodexAfterRebinding(t *testing.T) {
 		})
 	}
 }
+
+func TestGuardedPasteChecksExactUnboundEvidence(t *testing.T) {
+	server := core.ServerEvidence{Host: "tmux", ID: "server", Socket: "/tmp/fixture.sock", PID: 33, StartTime: "42"}
+	pane := ports.PaneRef{Server: server.Socket, PaneID: "%7"}
+	start := "ps-v1:Sat Jan 1 00:00:00 2000"
+	reused := "ps-v1:Sun Jan 2 00:00:00 2000"
+	for _, tc := range []struct {
+		name   string
+		change func(*core.EndpointProbe, *PasteTarget)
+	}{
+		{name: "exact"},
+		{name: "replaced server", change: func(p *core.EndpointProbe, _ *PasteTarget) { p.Server.StartTime = "43" }},
+		{name: "new pane pid", change: func(p *core.EndpointProbe, _ *PasteTarget) { p.Panes[0].PID++ }},
+		{name: "reused pane pid", change: func(p *core.EndpointProbe, _ *PasteTarget) { p.Panes[0].Incarnation = &reused }},
+		{name: "new marker", change: func(p *core.EndpointProbe, _ *PasteTarget) { p.Panes[0].Marker = &core.BindingMarker{BindingID: "new"} }},
+		{name: "mixed fences", change: func(_ *core.EndpointProbe, target *PasteTarget) { target.Binding = &core.Binding{} }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			host := &pasteHost{probe: core.EndpointProbe{State: core.EndpointProbeLive, Server: server,
+				Panes: []core.PaneObservation{{ID: pane.PaneID, PID: 1234, Incarnation: &start}}}}
+			target := PasteTarget{Pane: pane, Unbound: &UnboundPasteFence{Server: server,
+				Process: core.ProcessIncarnation{PID: 1234, StartIdentity: start}}}
+			if tc.change != nil {
+				tc.change(&host.probe, &target)
+			}
+			outcome, _, err := GuardedPaste(t.Context(), host, stoppedProcess{}, home.Root{Dir: t.TempDir()}, target, ports.DeliveryInput{Text: "one"})
+			if tc.change == nil {
+				if err != nil || outcome != ports.DeliveryDelivered || len(host.sent) != 1 {
+					t.Fatalf("exact target was not delivered: %v, %v, calls=%d", outcome, err, len(host.sent))
+				}
+			} else if err == nil || outcome != ports.DeliveryNotStarted || len(host.sent) != 0 {
+				t.Fatalf("changed target reached terminal: %v, %v, calls=%d", outcome, err, len(host.sent))
+			}
+		})
+	}
+}
