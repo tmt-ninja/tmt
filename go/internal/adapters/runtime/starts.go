@@ -49,3 +49,26 @@ func (o Observer) ObserveStarts(ctx context.Context, pids []int) (map[int]Incarn
 	}
 	return starts, nil
 }
+
+// InProcessTree reports a complete ancestry chain from child to ancestor.
+func (o Observer) InProcessTree(ctx context.Context, child, ancestor int) (bool, error) {
+	if !validPID(child) || !validPID(ancestor) {
+		return false, nil
+	}
+	got, err := o.queryPS(ctx, ancestryLimit, "-A", "-o", "pid=,ppid=,comm=")
+	if err != nil || got.ExitCode != 0 {
+		return false, err
+	}
+	rows := parseProcessRows(got.Stdout, false)
+	for pid, depth := child, 0; pid > 0 && depth < 128; depth++ {
+		row := rows[pid]
+		if row.command == "" {
+			return false, nil
+		}
+		if pid == ancestor {
+			return true, nil
+		}
+		pid = row.parent
+	}
+	return false, nil
+}

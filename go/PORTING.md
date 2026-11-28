@@ -55,7 +55,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO2-09: Enable Codex invocation hooks through the verified lifecycle and Digest callbacks.
 - [ ] GO2-10: Compose qualified Codex channel startup and emit the native preflight advisory.
 - [ ] GO2-11: Enforce the native 256 KiB Codex WebSocket inbound frame cap in addition to the 1 MiB message cap.
-- [ ] GO2-12: Exact invoking tmux client focus and directional pane swap.
+- [x] GO2-12: Exact invoking tmux client focus and directional pane swap. Ambiguous client claims refuse rather than using activity as an identity proof.
 - [x] GO2-13: Bounded discovery and exact marked-pane snapshots.
 - [ ] GO2-14: Built-in terminal attach over an admitted PTY connection.
 
