@@ -57,22 +57,24 @@ type codexControlReady struct {
 	Generation string `json:"generation"`
 }
 
-type codexSupervisor struct {
+// CodexLaunchLease owns the launcher side of an opt-in Codex enrollment.
+// The private supervisor alone owns the app-server child.
+type CodexLaunchLease struct {
 	control net.Conn
 	process *os.Process
 	lease   *codexLease
 }
 
-// startCodexSupervisor returns a launcher-side view. The helper process
-// alone owns the app-server child. No launcher descriptor reaches either
-// the app-server or the foreground.
-func startCodexSupervisor(ctx context.Context, runner ports.Process, req codexEnrollment, executable string) (*codexSupervisor, error) {
-	if !validLaunchPath(executable) {
+// EnrollCodex starts a private supervisor for a qualified plan. The returned
+// command may be started only by this invocation for the exact binding.
+func EnrollCodex(ctx context.Context, runner ports.Process, req CodexEnrollment) (*CodexLaunchLease, error) {
+	if !validLaunchPath(req.TMTExecutable) {
 		return nil, ErrEnrollment
 	}
 	ctx, cancel := context.WithTimeout(ctx, codexStartupBudget)
 	defer cancel()
-	start := codexControlStart{Path: req.plan.selected.Path, Args: req.plan.selected.Args, CWD: req.plan.baseCWD, Resume: req.plan.resume}
+	plan := req.Plan.plan
+	start := codexControlStart{Path: plan.selected.Path, Args: plan.selected.Args, CWD: plan.baseCWD, Resume: plan.resume}
 	payload, err := json.Marshal(start)
 	if err != nil || len(payload)+1 > codexControlLimit {
 		return nil, ErrEnrollment
@@ -81,12 +83,12 @@ func startCodexSupervisor(ctx context.Context, runner ports.Process, req codexEn
 	if err != nil {
 		return nil, err
 	}
-	coords := codexSupervisorRequest{executable: executable, binding: record.BindingID, generation: record.Generation, root: req.root, build: req.build}
-	supervisor, err := launchCodexSupervisor(ctx, coords, req.plan.selected.Env)
+	coords := codexSupervisorRequest{executable: req.TMTExecutable, binding: record.BindingID, generation: record.Generation, root: req.Root, build: req.ClientVersion}
+	supervisor, err := launchCodexSupervisor(ctx, coords, plan.selected.Env)
 	if err != nil {
 		cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), lockWait)
 		defer stop()
-		return nil, errors.Join(err, retireCodexRecord(cleanup, req.root, record))
+		return nil, errors.Join(err, retireCodexRecord(cleanup, req.Root, record))
 	}
 	if err := supervisor.initialize(ctx, req, record, observer, payload); err != nil {
 		return nil, errors.Join(err, supervisor.stop(true))
@@ -94,7 +96,7 @@ func startCodexSupervisor(ctx context.Context, runner ports.Process, req codexEn
 	return supervisor, nil
 }
 
-func launchCodexSupervisor(ctx context.Context, req codexSupervisorRequest, env []string) (*codexSupervisor, error) {
+func launchCodexSupervisor(ctx context.Context, req codexSupervisorRequest, env []string) (*CodexLaunchLease, error) {
 	launcher, child, err := sys.UnixSocketPair()
 	if err != nil {
 		return nil, err
@@ -120,10 +122,10 @@ func launchCodexSupervisor(ctx context.Context, req codexSupervisorRequest, env 
 		control.Close()
 		return nil, err
 	}
-	return &codexSupervisor{control: control, process: cmd.Process}, nil
+	return &CodexLaunchLease{control: control, process: cmd.Process}, nil
 }
 
-func (s *codexSupervisor) initialize(ctx context.Context, req codexEnrollment, record codexRecord, observer runtime.Observer, payload []byte) error {
+func (s *CodexLaunchLease) initialize(ctx context.Context, req CodexEnrollment, record codexRecord, observer runtime.Observer, payload []byte) error {
 	control := s.control
 	deadline, _ := ctx.Deadline()
 	beforeIO := func() bool { return ctx.Err() == nil && time.Now().Before(deadline) }
@@ -149,8 +151,9 @@ func (s *codexSupervisor) initialize(ctx context.Context, req codexEnrollment, r
 	return err
 }
 
-func codexLauncherLease(ctx context.Context, req codexEnrollment, record codexRecord, observer runtime.Observer) (*codexLease, error) {
-	dir, err := openCodexDir(req.root, false)
+func codexLauncherLease(ctx context.Context, req CodexEnrollment, record codexRecord, observer runtime.Observer) (*codexLease, error) {
+	plan := req.Plan.plan
+	dir, err := openCodexDir(req.Root, false)
 	if err != nil {
 		return nil, err
 	}
@@ -159,14 +162,14 @@ func codexLauncherLease(ctx context.Context, req codexEnrollment, record codexRe
 	if err != nil || stored == nil || !sameCodexLaunch(*stored, record) || stored.Foreground.Process != nil {
 		return nil, ErrEnrollmentChanged
 	}
-	cwd, err := filepath.EvalSymlinks(req.plan.cwd)
+	cwd, err := filepath.EvalSymlinks(plan.cwd)
 	if err != nil {
 		return nil, err
 	}
 	var endpoint processRecord
 	var port uint16
-	if req.plan.resume != "" {
-		if stored.Ready == nil || stored.Ready.Thread != req.plan.resume {
+	if plan.resume != "" {
+		if stored.Ready == nil || stored.Ready.Thread != plan.resume {
 			return nil, ErrEnrollmentChanged
 		}
 		endpoint, port = stored.Ready.Server, stored.Ready.Port
@@ -179,23 +182,51 @@ func codexLauncherLease(ctx context.Context, req codexEnrollment, record codexRe
 	if processState(ctx, observer, endpoint) != runtime.Alive || processState(ctx, observer, record.LaunchOwner) != runtime.Alive {
 		return nil, ErrEnrollment
 	}
-	transport, err := readCodexEndpoint(dir, filepath.Join(ClaudeDirectory(req.root), codexDirectory), record.Generation, port)
+	transport, err := readCodexEndpoint(dir, filepath.Join(ClaudeDirectory(req.Root), codexDirectory), record.Generation, port)
 	if err != nil {
 		return nil, err
 	}
-	command, err := req.plan.remoteForeground(transport.address, transport.token)
+	command, err := plan.remoteForeground(transport.address, transport.token)
 	if err != nil {
 		return nil, err
 	}
 	return &codexLease{
-		root: req.root, record: record, endpoint: transport, endpointProcess: endpoint, observer: observer,
-		cwd: cwd, command: command, build: req.build,
+		root: req.Root, record: record, endpoint: transport, endpointProcess: endpoint, observer: observer,
+		cwd: cwd, command: command, build: req.ClientVersion,
 	}, nil
 }
 
+// Command returns the remote foreground command and its child-only environment.
+func (s *CodexLaunchLease) Command() ports.ProcessSpec {
+	command := s.lease.command
+	command.Args = slices.Clone(command.Args)
+	command.Env = slices.Clone(command.Env)
+	return command
+}
+
+// ForegroundStarted records the caller-proved runtime and returns the verified
+// thread to attach to that exact foreground admission.
+func (s *CodexLaunchLease) ForegroundStarted(ctx context.Context, process core.ProcessIncarnation) (string, error) {
+	return s.lease.foregroundStarted(ctx, process)
+}
+
+// ForegroundAdmitted publishes readiness from the exact committed Running
+// binding and a fresh pane probe after the caller closes launch storage.
+func (s *CodexLaunchLease) ForegroundAdmitted(ctx context.Context, identity core.Identity, binding core.Binding, probe core.EndpointProbe) error {
+	return s.lease.foregroundAdmitted(ctx, identity, binding, probe)
+}
+
+// Withdraw retires the exact enrollment after proof that no foreground spawned
+// or that the exact foreground ended after the owned child was reaped.
+func (s *CodexLaunchLease) Withdraw() error { return s.stop(true) }
+
+// Close releases the supervisor while preserving enrollment evidence. Use it
+// whenever the caller cannot establish foreground exit.
+func (s *CodexLaunchLease) Close() error { return s.stop(false) }
+
 // stop closes the only launcher end. Withdrawal is explicit and may only be
 // requested after no foreground was spawned or the exact child was reaped.
-func (s *codexSupervisor) stop(withdraw bool) error {
+func (s *CodexLaunchLease) stop(withdraw bool) error {
 	if s.control == nil {
 		return nil
 	}

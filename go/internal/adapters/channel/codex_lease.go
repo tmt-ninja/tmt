@@ -15,14 +15,17 @@ import (
 	"github.com/tmt-ninja/tmt/go/internal/ports"
 )
 
-type codexEnrollment struct {
-	root     home.Root
-	identity core.Identity
-	binding  core.Binding
-	probe    core.EndpointProbe
-	owner    core.ProcessIncarnation
-	plan     CodexPlan
-	build    string
+// CodexEnrollment carries the proved launch binding and preflight result.
+// TMTExecutable names the selected binary for the private supervisor child.
+type CodexEnrollment struct {
+	Root          home.Root
+	Identity      core.Identity
+	Binding       core.Binding
+	Probe         core.EndpointProbe
+	LaunchOwner   core.ProcessIncarnation
+	Plan          QualifiedCodexPlan
+	TMTExecutable string
+	ClientVersion string
 }
 
 // codexLease tracks the original endpoint and immutable foreground candidate.
@@ -38,28 +41,18 @@ type codexLease struct {
 	build           string
 }
 
-func startCodexLease(ctx context.Context, runner ports.Process, req codexEnrollment) (*codexLease, error) {
-	ctx, cancel := context.WithTimeout(ctx, codexStartupBudget)
-	defer cancel()
-	record, observer, err := beginCodexLaunch(ctx, runner, req)
-	if err != nil {
-		return nil, err
-	}
-	return startCodexFromRecord(ctx, req.root, record, req.plan, req.build, observer)
-}
-
-func beginCodexLaunch(ctx context.Context, runner ports.Process, req codexEnrollment) (codexRecord, runtime.Observer, error) {
+func beginCodexLaunch(ctx context.Context, runner ports.Process, req CodexEnrollment) (codexRecord, runtime.Observer, error) {
 	observer := runtime.Observer{Process: runner}
-	state, pane := core.EvaluateBinding(req.identity, &req.binding, req.probe)
-	if state != core.BindingActive || pane == nil || pane.Incarnation == nil || req.binding.PaneIncarnation == nil ||
-		*pane.Incarnation != *req.binding.PaneIncarnation {
+	state, pane := core.EvaluateBinding(req.Identity, &req.Binding, req.Probe)
+	if state != core.BindingActive || pane == nil || pane.Incarnation == nil || req.Binding.PaneIncarnation == nil ||
+		*pane.Incarnation != *req.Binding.PaneIncarnation {
 		return codexRecord{}, observer, ErrEnrollment
 	}
-	if err := PreflightCodex(ctx, runner, req.root, req.plan.selected.Path); err != nil {
-		return codexRecord{}, observer, err
+	if req.Plan.root != req.Root.Dir || !validLaunchPath(req.Plan.plan.selected.Path) {
+		return codexRecord{}, observer, ErrEnrollment
 	}
-	record := newCodexRecord(req.identity, req.binding, req.owner)
-	return record, observer, beginCodexRecord(ctx, req.root, observer, record)
+	record := newCodexRecord(req.Identity, req.Binding, req.LaunchOwner)
+	return record, observer, beginCodexRecord(ctx, req.Root, observer, record)
 }
 
 func startCodexFromRecord(ctx context.Context, root home.Root, record codexRecord, plan CodexPlan, build string, observer runtime.Observer) (*codexLease, error) {
@@ -220,7 +213,7 @@ func (l *codexLease) foregroundAdmitted(ctx context.Context, identity core.Ident
 	session := binding.Session
 	if state != core.BindingActive || pane == nil || pane.Incarnation == nil || binding.PaneIncarnation == nil ||
 		*pane.Incarnation != *binding.PaneIncarnation || session.RuntimeState != "running" ||
-		session.Runtime == nil || session.LaunchOwner == nil || session.PlainProgram != nil ||
+		session.Runtime == nil || session.LaunchOwner == nil || session.ProviderSessionID == nil || session.PlainProgram != nil ||
 		string(binding.ID) != l.record.BindingID || storedProcess(*session.LaunchOwner) != l.record.LaunchOwner {
 		return ErrEnrollment
 	}
@@ -237,13 +230,13 @@ func (l *codexLease) foregroundAdmitted(ctx context.Context, identity core.Ident
 			return ErrEnrollmentChanged
 		}
 		if record.Ready != nil {
-			if session.ProviderSessionID != nil && *session.ProviderSessionID != record.Ready.Thread {
+			if record.Fresh != nil || *session.ProviderSessionID != record.Ready.Thread {
 				return ErrEnrollmentChanged
 			}
 			return nil
 		}
 		if record.Fresh == nil || record.Fresh.Thread == nil ||
-			session.ProviderSessionID != nil && *session.ProviderSessionID != *record.Fresh.Thread {
+			*session.ProviderSessionID != *record.Fresh.Thread {
 			return ErrEnrollmentChanged
 		}
 		record.Ready = &codexReady{Server: record.Fresh.Server, Port: record.Fresh.Port, Thread: *record.Fresh.Thread}

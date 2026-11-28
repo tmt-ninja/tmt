@@ -31,7 +31,11 @@ func TestCodexSupervisorEOFKeepsEnrollmentAndWithdrawalRetiresIt(t *testing.T) {
 			supervisor := startSupervisorFixture(t, root)
 			rec := supervisor.lease.record
 			endpoint := supervisor.lease.endpointProcess
-			if err := supervisor.stop(withdraw); err != nil {
+			end := supervisor.Close
+			if withdraw {
+				end = supervisor.Withdraw
+			}
+			if err := end(); err != nil {
 				t.Fatal(err)
 			}
 			assertSupervisorCleanup(t, root, rec.Generation, endpoint, withdraw)
@@ -56,7 +60,7 @@ func TestCodexSupervisorResolvesRelativeAndAbsoluteCDOnce(t *testing.T) {
 			if err != nil || supervisor.lease.cwd != resolved {
 				t.Fatalf("supervisor cwd = %q, want %q: %v", supervisor.lease.cwd, resolved, err)
 			}
-			command := supervisor.lease.command
+			command := supervisor.Command()
 			cd := slices.Index(command.Args, "-C")
 			if command.Dir != project || cd < 0 || cd+1 >= len(command.Args) || command.Args[cd+1] != project {
 				t.Fatal("foreground used a different working directory from the owned server")
@@ -73,7 +77,7 @@ func TestCodexSupervisorResolvesRelativeAndAbsoluteCDOnce(t *testing.T) {
 					t.Fatalf("foreground cwd from %q = %q, want %q: %v", spawn, got.Stdout, resolved, err)
 				}
 			}
-			if err := supervisor.stop(true); err != nil {
+			if err := supervisor.Withdraw(); err != nil {
 				t.Fatal(err)
 			}
 			assertSupervisorCleanup(t, root, supervisor.lease.record.Generation, supervisor.lease.endpointProcess, true)
@@ -159,7 +163,7 @@ func assertSupervisorCleanup(t *testing.T, root home.Root, generation string, en
 	}
 }
 
-func startSupervisorFixture(t *testing.T, root home.Root, args ...string) *codexSupervisor {
+func startSupervisorFixture(t *testing.T, root home.Root, args ...string) *CodexLaunchLease {
 	t.Helper()
 	fixture := fixtureEnrollment(t)
 	fixture.Root = root
@@ -179,29 +183,39 @@ func startSupervisorFixture(t *testing.T, root home.Root, args ...string) *codex
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Setenv("CODEX_HOME", filepath.Join(root.Dir, "fake-provider-home"))
+	qualified, _, err := PreflightCodexPlan(t.Context(), runner, root, plan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	supervisor, err := EnrollCodex(t.Context(), runner, CodexEnrollment{
+		Root: root, Identity: fixture.Identity, Binding: fixture.Binding, Probe: fixture.Probe,
+		LaunchOwner: core.ProcessIncarnation{PID: uint64(os.Getpid()), StartIdentity: owner.Incarnation.Start},
+		Plan:        qualified, ClientVersion: "fixture", TMTExecutable: codexSupervisorFixtureExecutable(t, root.Dir),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = supervisor.Close() })
+	if supervisor.lease.server != nil || supervisor.lease.endpointProcess.PID == uint64(supervisor.process.Pid) {
+		t.Fatal("launcher obtained the worker's app-server handle or wrong process proof")
+	}
+	return supervisor
+}
+
+func codexSupervisorFixtureExecutable(t *testing.T, root string) string {
+	t.Helper()
 	binary, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrapper := filepath.Join(root.Dir, "supervisor-fixture")
+	wrapper := filepath.Join(root, "supervisor-fixture")
 	quoted := "'" + strings.ReplaceAll(binary, "'", "'\\''") + "'"
 	script := "#!/bin/sh\nexec " + quoted + " -test.run='^TestCodexSupervisorFixtureProcess$' -- \"$@\"\n"
 	if err := os.WriteFile(wrapper, []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	supervisor, err := startCodexSupervisor(t.Context(), runner, codexEnrollment{
-		root: root, identity: fixture.Identity, binding: fixture.Binding, probe: fixture.Probe,
-		owner: core.ProcessIncarnation{PID: uint64(os.Getpid()), StartIdentity: owner.Incarnation.Start},
-		plan:  plan, build: "fixture",
-	}, wrapper)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = supervisor.stop(false) })
-	if supervisor.lease.server != nil || supervisor.lease.endpointProcess.PID == uint64(supervisor.process.Pid) {
-		t.Fatal("launcher obtained the worker's app-server handle or wrong process proof")
-	}
-	return supervisor
+	return wrapper
 }
 
 func TestCodexSupervisorFixtureProcess(t *testing.T) {

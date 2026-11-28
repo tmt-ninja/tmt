@@ -56,12 +56,19 @@ func TestCodexFreshLeasePinsOriginalChildAndThreadAfterAdmission(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 			defer cancel()
-			lease, err := startCodexLease(ctx, runner, codexEnrollment{
-				root: in.Root, identity: in.Identity, binding: in.Binding, probe: in.Probe, owner: in.LaunchOwner, plan: plan, build: "fixture",
+			t.Setenv("CODEX_HOME", filepath.Join(in.Root.Dir, "fake-provider-home"))
+			qualified, _, err := PreflightCodexPlan(ctx, runner, in.Root, plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			supervisor, err := EnrollCodex(ctx, runner, CodexEnrollment{
+				Root: in.Root, Identity: in.Identity, Binding: in.Binding, Probe: in.Probe,
+				LaunchOwner: in.LaunchOwner, Plan: qualified, ClientVersion: "fixture",
+				TMTExecutable: codexSupervisorFixtureExecutable(t, in.Root.Dir),
 			})
 			if mode == "wrong resume" {
-				if lease != nil || !errors.Is(err, ErrEnrollment) {
-					t.Fatalf("wrong resume = %t, %v", lease != nil, err)
+				if supervisor != nil || !errors.Is(err, ErrEnrollment) {
+					t.Fatalf("wrong resume = %t, %v", supervisor != nil, err)
 				}
 				dir, dirErr := openCodexDir(in.Root, false)
 				if dirErr != nil {
@@ -76,7 +83,8 @@ func TestCodexFreshLeasePinsOriginalChildAndThreadAfterAdmission(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Cleanup(func() { _ = lease.server.stop() })
+			t.Cleanup(func() { _ = supervisor.Close() })
+			lease := supervisor.lease
 			dir, err := openCodexDir(in.Root, false)
 			if err != nil {
 				t.Fatal(err)
@@ -89,9 +97,9 @@ func TestCodexFreshLeasePinsOriginalChildAndThreadAfterAdmission(t *testing.T) {
 				t.Fatalf("pre-spawn record = %+v, %v", pending, err)
 			}
 			raw, err := dir.readPrivate(testBinding+".json", codexRecordLimit)
-			if err != nil || bytes.Contains(raw, []byte(lease.server.endpoint.token)) ||
-				!slices.Contains(lease.command.Env, codexTokenEnv+"="+lease.server.endpoint.token) ||
-				slices.Contains(lease.command.Args, lease.server.endpoint.token) {
+			if err != nil || bytes.Contains(raw, []byte(lease.endpoint.token)) ||
+				!slices.Contains(supervisor.Command().Env, codexTokenEnv+"="+lease.endpoint.token) ||
+				slices.Contains(supervisor.Command().Args, lease.endpoint.token) {
 				t.Fatal("capability did not stay in the generation and child environment")
 			}
 			child := exec.Command("/bin/sleep", "30")
@@ -110,11 +118,11 @@ func TestCodexFreshLeasePinsOriginalChildAndThreadAfterAdmission(t *testing.T) {
 				t.Fatalf("foreground incarnation = %+v, %v", observed, err)
 			}
 			foreground := core.ProcessIncarnation{PID: uint64(child.Process.Pid), StartIdentity: observed.Incarnation.Start}
-			thread, err := lease.foregroundStarted(ctx, foreground)
+			thread, err := supervisor.ForegroundStarted(ctx, foreground)
 			if err != nil || thread != fixtureCodexThread {
 				t.Fatalf("foreground candidate = %q, %v", thread, err)
 			}
-			if err := lease.foregroundAdmitted(ctx, in.Identity, in.Binding, in.Probe); !errors.Is(err, ErrEnrollment) {
+			if err := supervisor.ForegroundAdmitted(ctx, in.Identity, in.Binding, in.Probe); !errors.Is(err, ErrEnrollment) {
 				t.Fatalf("uncommitted foreground got readiness: %v", err)
 			}
 			if resume == "" {
@@ -124,9 +132,22 @@ func TestCodexFreshLeasePinsOriginalChildAndThreadAfterAdmission(t *testing.T) {
 					t.Fatalf("candidate bypassed committed admission: %+v, %v", record, err)
 				}
 			}
-			in.Binding.Session = core.BindingSessionState{RuntimeState: "running", Runtime: &foreground, LaunchOwner: &in.LaunchOwner, ProviderSessionID: &thread}
-			if err := lease.foregroundAdmitted(ctx, in.Identity, in.Binding, in.Probe); err != nil {
+			in.Binding.Session = core.BindingSessionState{RuntimeState: "running", Runtime: &foreground, LaunchOwner: &in.LaunchOwner}
+			if err := supervisor.ForegroundAdmitted(ctx, in.Identity, in.Binding, in.Probe); !errors.Is(err, ErrEnrollment) {
+				t.Fatalf("sessionless admission published readiness: %v", err)
+			}
+			in.Binding.Session.ProviderSessionID = new("70000000-0000-4000-8000-000000000001")
+			if err := supervisor.ForegroundAdmitted(ctx, in.Identity, in.Binding, in.Probe); !errors.Is(err, ErrEnrollmentChanged) {
+				t.Fatalf("different session published readiness: %v", err)
+			}
+			in.Binding.Session.ProviderSessionID = &thread
+			if err := supervisor.ForegroundAdmitted(ctx, in.Identity, in.Binding, in.Probe); err != nil {
 				t.Fatal(err)
+			}
+			if resume == "" {
+				if err := supervisor.ForegroundAdmitted(ctx, in.Identity, in.Binding, in.Probe); !errors.Is(err, ErrEnrollmentChanged) {
+					t.Fatalf("fresh readiness published a second time: %v", err)
+				}
 			}
 			record, err := dir.readCodex(testBinding)
 			if err != nil || record == nil || record.Ready == nil || record.Ready.Thread != thread ||
@@ -166,13 +187,13 @@ func TestCodexFreshLeasePinsOriginalChildAndThreadAfterAdmission(t *testing.T) {
 			_ = child.Process.Kill()
 			_ = child.Wait()
 			reaped = true
-			if err := lease.withdraw(ctx); err != nil {
+			if err := supervisor.Withdraw(); err != nil {
 				t.Fatal(err)
 			}
 			if record, err := dir.readCodex(testBinding); err != nil || record != nil {
 				t.Fatalf("withdraw left a record: %+v, %v", record, err)
 			}
-			if _, err := os.Lstat(lease.server.files.path); !errors.Is(err, fs.ErrNotExist) {
+			if _, err := os.Lstat(filepath.Join(ClaudeDirectory(in.Root), codexDirectory, lease.record.Generation)); !errors.Is(err, fs.ErrNotExist) {
 				t.Fatalf("withdraw left the owned generation: %v", err)
 			}
 		})

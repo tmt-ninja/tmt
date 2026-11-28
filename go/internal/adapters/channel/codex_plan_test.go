@@ -132,8 +132,8 @@ func TestCodexPreflightTrustNoteUsesNativeCDAndOnlyReadsLocalSettings(t *testing
 	check := func(plan CodexPlan, version, want string, original string) {
 		t.Helper()
 		t.Setenv("CODEX_FIXTURE_VERSION", version)
-		got, err := PreflightCodexPlan(t.Context(), process.Runner{}, root, plan)
-		if err != nil || got != want {
+		qualified, got, err := PreflightCodexPlan(t.Context(), process.Runner{}, root, plan)
+		if err != nil || got != want || qualified.root != root.Dir || qualified.plan.cwd != plan.cwd {
 			t.Fatalf("version %s: advisory = %q, err = %v, want %q", version, got, err, want)
 		}
 		after, err := os.ReadFile(settings)

@@ -146,18 +146,25 @@ func PreflightCodex(ctx context.Context, runner ports.Process, root home.Root, e
 	}
 }
 
+// QualifiedCodexPlan pins the exact plan and root accepted by preflight.
+type QualifiedCodexPlan struct {
+	plan CodexPlan
+	root string
+}
+
 // PreflightCodexPlan qualifies a selected channel instance and returns the
 // native informational advisory for its effective working directory.
-func PreflightCodexPlan(ctx context.Context, runner ports.Process, root home.Root, plan CodexPlan) (string, error) {
+func PreflightCodexPlan(ctx context.Context, runner ports.Process, root home.Root, plan CodexPlan) (QualifiedCodexPlan, string, error) {
 	if err := PreflightCodex(ctx, runner, root, plan.selected.Path); err != nil {
-		return "", err
+		return QualifiedCodexPlan{}, "", err
 	}
+	qualified := QualifiedCodexPlan{plan: plan, root: root.Dir}
 	// Native only advises for the plain launch grammar. The generated
 	// exact-resume command is qualified but has no local trust advisory.
 	if plan.resume != "" {
-		return "", nil
+		return qualified, "", nil
 	}
-	return codex.FolderTrustAdvisory(plan.cwd), nil
+	return qualified, codex.FolderTrustAdvisory(plan.cwd), nil
 }
 
 func providerVersion(ctx context.Context, runner ports.Process, executable string) (string, error) {
