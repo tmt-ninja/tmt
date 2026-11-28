@@ -49,7 +49,13 @@ func ReadInputFile(path string, maximum int) ([]byte, error) {
 // maximum+1 bytes as soon as the body exceeds the caller's size limit. It
 // borrows the descriptor and leaves it open and its flags unchanged.
 func ReadInputStdin(file *os.File, maximum int) ([]byte, error) {
-	return readInputStdin(file, maximum, 5*time.Second, time.Now)
+	return ReadInputStdinFor(file, maximum, 5*time.Second)
+}
+
+// ReadInputStdinFor uses the same EOF and byte bounds with the caller's
+// remaining acquisition budget.
+func ReadInputStdinFor(file *os.File, maximum int, timeout time.Duration) ([]byte, error) {
+	return readInputStdin(file, maximum, timeout, time.Now)
 }
 
 func readInputStdin(file *os.File, maximum int, timeout time.Duration, now func() time.Time) ([]byte, error) {

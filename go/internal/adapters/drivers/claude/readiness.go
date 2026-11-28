@@ -85,6 +85,12 @@ type startup struct {
 	idle       bool
 }
 
+// IsStartupHook recognizes the primary startup or resume envelope before the
+// caller opens binding storage. It grants no authority.
+func IsStartupHook(input []byte) bool {
+	return decodeStartup(input).session != ""
+}
+
 func decodeStartup(input []byte) startup {
 	if len(input) > hookInputLimit || !utf8.Valid(input) {
 		return startup{}
