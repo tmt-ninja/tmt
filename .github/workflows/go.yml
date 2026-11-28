@@ -161,6 +161,8 @@ jobs:
           # One list selects the suite cases and defines the expected counts.
           cases = {
               "native": [
+                  ("test/native/room.test.ts", "retires without deleting the roster and rejects new routing or reusing the old UUID"),
+                  ("test/native/room.test.ts", "queues a frozen audience, safely replays, and distinguishes no-reply broadcasts"),
                   ("test/native/room.test.ts", "persists independent memberships and filters the existing identity listing"),
                   ("test/native/room.test.ts", "rejects ambiguous labels, missing identities and malformed commands without roster changes"),
                   ("test/native/binding.test.ts", "filters ls by lifetime and refuses --here outside tmux"),

@@ -259,7 +259,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-19` Send best-effort reply notifications after durable acceptance.
 - [ ] `CLI-20` Deliver the retained Digest checklist from ordinary idle `check`.
 - [ ] `CLI-21` Implement `x flow` with content-free exchange counts.
-- [ ] `CLI-22` Implement bounded `x listen` with incoming attention and room filtering. The native timeout and debounce options validate before execution.
+- [ ] `CLI-22` Resolve historical participant names in `x listen` after identity retirement. Bounded incoming listening and room filtering are ported.
 - [ ] `CLI-23` Compose launch enrollment and guarded channel routing, including `run --channel` and remembered channel choice.
 - [ ] `CLI-24` Implement `channel inspect` and `channel recover`.
 - [ ] `CLI-25` Launch through built-in and approved external hosts.
@@ -270,7 +270,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-29` Complete lifecycle callback activity, provider context and Digest continuation.
 - [ ] `CLI-30` Compose `api` over its stdio server and typed operations.
 - [ ] `CLI-31` Compose `mcp` with a pinned saved identity and canonical exchange and dispatch owners.
-- [ ] `CLI-32` Compose durable `room send` and `room broadcast`. Room creation, listing, historical show, retirement and membership are ported.
+- [x] `CLI-32` Compose durable `room send` and `room broadcast` over the frozen roster and immutable receipt.
 - [ ] `CLI-33` Compose `orch` jobs, plans, previews, lead and route mutations, retained talks and focus with go-4.
 - [ ] `CLI-34` Compose `workspace` save, inspect, listing, restore and removal with go-4.
 - [ ] `CLI-35` Compose `tick` runs, status and timer controls.
@@ -292,6 +292,8 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [x] `CLI-50` Fix intermittent parallel private-tmux deadlines via GO2-01 (8d7b740d72). `TestPrivateDiscoveryAndMarkedPaneWithoutMetadata` expired its 1 s process read in the old pane's exact Discover after re-marking. `TestDiscoverAndMarkedOnPrivateTmux` returned an empty, truncated initial inventory under load. `TestPrivateFocusAndSwapExactInvokingClient` reached the 12 s fixture limit in its last focus action. A separate adapter trace pinned the 4 s swap deadline in a post-swap batched `ps` read with 368 ms left, following reads up to 944 ms. `TestFocusSwapGeometryMatchesNative` reported generic reconciliation in left and right without identifying a stage. Native start observations and one ancestry snapshot per proof replace the repeated subprocess work. All original deadlines and exact pre/post checks remain, and all four fixtures passed uncached with package parallelism in both flavors.
 
 ### Native test mappings from merged main
+
+- Rust `exchange_command/listen.rs` newer revisions, trailing debounce, acknowledgement and hard deadline → `TestListenTimingMatchesNativeTrailingEdgeAndDeadline`. `TestRoomDispatchRetainsReceiptAndRoomScope` pins dispatch replay, conflict, announcement, room ID and historical room listening without acknowledgements. The manifest runs the unchanged Room retirement and frozen dispatch cases in both runtimes.
 
 - Rust `run_command/run.rs` waits on the original launcher and confirms a distinct foreground is gone before settling → `TestReapedLauncherSettlesOnlyAGoneForeground`. The Codex npm admission proof is mapped in GO2-16.
 

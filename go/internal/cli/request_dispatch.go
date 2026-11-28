@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
 	"time"
@@ -24,6 +23,7 @@ func (app application) runRequest(ctx context.Context, root home.Root, inv invoc
 	command := inv.path[0]
 	var talk talkPlan
 	var sendDelay time.Duration
+	var listenStarted time.Time
 	switch command {
 	case "talk":
 		var stop context.CancelFunc
@@ -49,9 +49,17 @@ func (app application) runRequest(ctx context.Context, root home.Root, inv invoc
 		sendDelay = timerSeconds(settings["pasteEnterDelayMs"].value.(float64) / 1000)
 
 	case "inbox", "answer", "x":
-		if command == "x" && len(inv.path) == 2 && (inv.path[1] == "flow" || inv.path[1] == "listen") {
-			// NOT PORTED (CLI-21, CLI-22): Content-free flow and inbox listening.
-			return &output.Failure{Code: "NOT_PORTED", Message: fmt.Sprintf("Command 'x %s' is not yet ported.", inv.path[1]), Status: 2}
+		if command == "x" && len(inv.path) == 2 {
+			switch inv.path[1] {
+			case "flow":
+				// NOT PORTED (CLI-21): Content-free exchange flow.
+				return &output.Failure{Code: "NOT_PORTED", Message: "Command 'x flow' is not yet ported.", Status: 2}
+			case "listen":
+				listenStarted = time.Now()
+				var stop context.CancelFunc
+				ctx, stop = signal.NotifyContext(ctx, os.Interrupt)
+				defer stop()
+			}
 		}
 		selected, failure = app.caller.selectIdentity(ctx, inv)
 		if failure != nil {
@@ -108,6 +116,9 @@ func (app application) runRequest(ctx context.Context, root home.Root, inv invoc
 	case "result":
 		return app.result(ctx, inv.operands[0])
 	case "x":
+		if !listenStarted.IsZero() {
+			return app.listenX(ctx, inv, selected, listenStarted)
+		}
 		return app.exchange(ctx, inv, selected)
 	default:
 		return app.incoming(ctx, inv, selected, body)

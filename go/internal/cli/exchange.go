@@ -24,6 +24,7 @@ type exchangeFinalDocument struct {
 
 type exchangeItemDocument struct {
 	RequestID            core.RequestID        `json:"requestId"`
+	RoomID               *core.RoomID          `json:"roomId,omitempty"`
 	Urgent               bool                  `json:"urgent"`
 	DigestKind           string                `json:"digestKind"`
 	Mode                 string                `json:"mode"`
@@ -57,7 +58,7 @@ func exchangeItemJSON(item core.XItem, detailed bool) exchangeItemDocument {
 		}
 	}
 	return exchangeItemDocument{
-		RequestID: item.RequestID, Urgent: item.Urgent, DigestKind: item.DigestKind, Mode: item.Mode,
+		RequestID: item.RequestID, RoomID: item.RoomID, Urgent: item.Urgent, DigestKind: item.DigestKind, Mode: item.Mode,
 		RecipientIdentityID: item.Recipient, PreparedAtMs: item.PreparedAtMs, Delivery: item.Delivery,
 		MessageState: deliveryJSON(item.MessageState), Final: final, Revision: item.Revision,
 		Acknowledged: item.Acknowledged, Settled: item.Settled, RetentionExpiresAtMs: item.RetentionExpiresAtMs,

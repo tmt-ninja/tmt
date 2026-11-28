@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -122,4 +123,81 @@ func TestRoomGrammarMatchesNative(t *testing.T) {
 			t.Fatalf("%q gave failure %+v, want USAGE_ERROR", args, failure)
 		}
 	}
+}
+
+func TestRoomDispatchRetainsReceiptAndRoomScope(t *testing.T) {
+	world := t.TempDir()
+	t.Setenv("HOME", filepath.Join(world, "home"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(world, "config"))
+	t.Setenv("TMT_HOME", filepath.Join(world, "native"))
+	t.Setenv(flavor.EnvHome, filepath.Join(world, "state"))
+	t.Chdir(world)
+	app := application{caller: callerSelector{lookup: func(string) (string, bool) {
+		t.Fatal("explicit Room sender attempted caller or host discovery")
+		return "", false
+	}}}
+	run := func(want int, args ...string) []byte {
+		t.Helper()
+		var out, diagnostic bytes.Buffer
+		if status := app.run(t.Context(), append(args, "--json"), &out, &diagnostic); status != want || diagnostic.Len() != 0 {
+			t.Fatalf("%q exit %d stdout=%q stderr=%q", args, status, &out, &diagnostic)
+		}
+		return out.Bytes()
+	}
+	for _, name := range []string{"Alice", "Bob"} {
+		run(0, "identity", "create", name)
+	}
+	var created struct{ Room roomDocument }
+	if err := json.Unmarshal(run(0, "room", "create", "Design"), &created); err != nil {
+		t.Fatal(err)
+	}
+	run(0, "room", "join", string(created.Room.ID), "--identity", "Alice")
+	const operation = "11111111-1111-4111-8111-111111111111"
+	first := run(0, "room", "send", "Design", "exact café", "--identity", "Bob", "--operation-id", operation)
+	repeat := run(0, "room", "send", "Design", "exact café", "--identity", "Bob", "--operation-id", operation)
+	if !bytes.Equal(first, repeat) {
+		t.Fatalf("receipt changed on replay: %s vs %s", first, repeat)
+	}
+	conflict := run(1, "room", "send", "Design", "changed", "--identity", "Bob", "--operation-id", operation)
+	if !bytes.Contains(conflict, []byte("DISPATCH_IDEMPOTENCY_CONFLICT")) || !bytes.Contains(conflict, []byte("Retain operation ID "+operation)) {
+		t.Fatalf("changed composition did not return recoverable conflict: %s", conflict)
+	}
+	for _, tc := range []struct {
+		raw          []byte
+		announcement bool
+	}{
+		{raw: first},
+		{raw: run(0, "room", "broadcast", "Design", "notice", "--identity", "Bob"), announcement: true},
+	} {
+		var receipt core.DispatchReceipt
+		if err := json.Unmarshal(tc.raw, &receipt); err != nil || !receipt.Valid() || len(receipt.Items) != 1 ||
+			receipt.Items[0].Acceptance != core.DispatchQueued {
+			t.Fatalf("invalid room receipt %s: %v", tc.raw, err)
+		}
+		var shown exchangeShowReport
+		detail := run(0, "x", "show", string(receipt.Items[0].RequestID), "--incoming", "--identity", "Alice")
+		if err := json.Unmarshal(detail, &shown); err != nil || shown.Exchange.RoomID == nil ||
+			*shown.Exchange.RoomID != created.Room.ID {
+			t.Fatalf("exchange lost room scope: %s, %v", detail, err)
+		}
+		if tc.announcement && (shown.Exchange.Final.Status != core.FinalNotRequired || shown.Exchange.Reply != nil) {
+			t.Fatalf("announcement accepted a reply: %s", detail)
+		}
+	}
+	run(0, "room", "rm", string(created.Room.ID))
+	listen := []string{"x", "listen", "--identity", "Alice", "--room", string(created.Room.ID), "--timeout", "100ms", "--debounce", "1ms"}
+	for i := 0; i < 2; i++ {
+		var result listenReport
+		raw := run(0, listen...)
+		if err := json.Unmarshal(raw, &result); err != nil || result.Reason != "messages" || len(result.Items) != 2 {
+			t.Fatalf("retired room still has two incoming items: %s, %v", raw, err)
+		}
+		for _, item := range result.Items {
+			if item.RoomID == nil || *item.RoomID != created.Room.ID || item.Acknowledged ||
+				item.Sender == nil || item.Sender.Name != "Bob" || item.Recipient == nil || item.Recipient.Name != "Alice" {
+				t.Fatalf("unexpected incoming item: %+v", item)
+			}
+		}
+	}
+
 }

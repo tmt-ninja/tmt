@@ -21,8 +21,7 @@ import (
 func (app application) runRoom(ctx context.Context, root home.Root, inv invocation) output.Report {
 	action := inv.path[1]
 	if action == "send" || action == "broadcast" {
-		// NOT PORTED (CLI-32): Durable room dispatch.
-		return bindingUnavailable("room " + action)
+		return app.runRoomDispatch(ctx, root, inv)
 	}
 	var selection identitySelection
 	if action == "join" || action == "leave" {

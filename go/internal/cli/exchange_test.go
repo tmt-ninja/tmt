@@ -6,6 +6,7 @@ import (
 	"maps"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/flavor"
@@ -100,5 +101,33 @@ func TestExchangePromptDistinguishesExpiredFromUnavailable(t *testing.T) {
 	}
 	if got := exchangePromptJSON(core.XDetail{}); got.Status != "unavailable" || got.ExpiresAtMs != nil {
 		t.Fatalf("unavailable prompt = %+v", got)
+	}
+}
+
+func TestListenTimingMatchesNativeTrailingEdgeAndDeadline(t *testing.T) {
+	type event struct {
+		at       time.Duration
+		revision uint64
+		finish   bool
+	}
+	for _, tc := range []struct {
+		name   string
+		timing listenTiming
+		steps  []event
+	}{
+		{name: "new revisions extend quiet time", timing: listenTiming{timeout: time.Minute, debounce: 10 * time.Second}, steps: []event{{0, 1, false}, {5 * time.Second, 1, false}, {5 * time.Second, 2, false},
+			{12 * time.Second, 3, false}, {21 * time.Second, 3, false}, {22 * time.Second, 3, true}}},
+		{name: "older revisions do not extend quiet time", timing: listenTiming{timeout: time.Minute, debounce: 10 * time.Second}, steps: []event{{0, 3, false}, {5 * time.Second, 2, false}, {10 * time.Second, 2, true}}},
+		{name: "hard deadline wins", timing: listenTiming{timeout: 5 * time.Second, debounce: 10 * time.Second}, steps: []event{{0, 1, false}, {5 * time.Second, 2, true}}},
+		{name: "no attention waits for the deadline", timing: listenTiming{timeout: 15 * time.Second, debounce: 10 * time.Second}, steps: []event{{10 * time.Second, 0, false}, {15 * time.Second, 0, true}}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, step := range tc.steps {
+				delay, finished := tc.timing.step(step.at, step.revision)
+				if finished != step.finish || !finished && delay != 250*time.Millisecond {
+					t.Fatalf("at %s revision %d: wait %s finished=%v, want finished=%v", step.at, step.revision, delay, finished, step.finish)
+				}
+			}
+		})
 	}
 }
