@@ -5,6 +5,7 @@ go 1.27
 toolchain go1.27.4
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/rivo/uniseg v0.4.7
 	golang.org/x/sys v0.50.0
 	golang.org/x/term v0.48.0
@@ -13,7 +14,6 @@ require (
 )
 
 require (
-	github.com/coder/websocket v1.8.15 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

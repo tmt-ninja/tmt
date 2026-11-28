@@ -199,6 +199,8 @@ func decodeClaudeRecord(data []byte, bindingID string) (*claudeRecord, error) {
 	return &record, nil
 }
 
+// strictObject rejects duplicate keys and trailing JSON. Supplying names also
+// rejects fields outside the named schema.
 func strictObject(data []byte, names ...string) (map[string]json.RawMessage, error) {
 	invalid := errors.New("invalid channel JSON object")
 	d := json.NewDecoder(bytes.NewReader(data))
@@ -209,7 +211,7 @@ func strictObject(data []byte, names ...string) (map[string]json.RawMessage, err
 	for d.More() {
 		token, err := d.Token()
 		key, ok := token.(string)
-		if err != nil || !ok || !slices.Contains(names, key) || values[key] != nil {
+		if err != nil || !ok || (len(names) != 0 && !slices.Contains(names, key)) || values[key] != nil {
 			return nil, invalid
 		}
 		var raw json.RawMessage
