@@ -25,7 +25,16 @@ func TestResumeForegroundUsesSavedCodexSession(t *testing.T) {
 	world := t.TempDir()
 	t.Setenv(home.EnvHome, filepath.Join(world, "state"))
 	binary := filepath.Join(world, "tmt-go")
-	fake := filepath.Join(world, "codex")
+	fakeBin := filepath.Join(world, "bin")
+	if err := os.Mkdir(fakeBin, 0700); err != nil {
+		t.Fatal(err)
+	}
+	fake := filepath.Join(fakeBin, "codex")
+	for _, provider := range []string{"claude", "gemini"} {
+		if err := os.WriteFile(filepath.Join(fakeBin, provider), []byte("#!/bin/sh\nexit 97\n"), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	defer cancel()
 	for _, spec := range [][2]string{{binary, "../../cmd/tmt-go"}, {fake, "../../test/fixtures/fakeprovider"}} {
@@ -38,7 +47,7 @@ func TestResumeForegroundUsesSavedCodexSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(tmuxExecutable, filepath.Join(world, "tmux")); err != nil {
+	if err := os.Symlink(tmuxExecutable, filepath.Join(fakeBin, "tmux")); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("HOME", world)
@@ -77,15 +86,22 @@ func TestResumeForegroundUsesSavedCodexSession(t *testing.T) {
 	diagnostics := filepath.Join(world, "diagnostic")
 	pane, err := host.Launch(ctx, ports.LaunchSpec{Server: server.Socket, Session: "t", Window: "resume-provider", Dir: world,
 		Command: ports.ProcessSpec{Path: "/bin/sh", Args: []string{"-c", `PATH="$5:/usr/bin:/bin"
-HOME="$5"
-CODEX_HOME="$5/fake-codex-home"
+HOME="$6"
+CODEX_HOME="$6/fake-codex-home"
 export PATH HOME CODEX_HOME
-[ "$(command -v codex)" = "$5/codex" ] || { printf 'fixture executable check failed\n' > "$4"; printf '98\n' > "$3"; exit; }
+for provider in claude codex gemini; do
+  expected="$5/$provider"
+  if [ "$(command -v "$provider")" != "$expected" ] || [ ! -f "$expected" ] || [ ! -x "$expected" ] || [ -L "$expected" ]; then
+    printf 'fixture executable check failed for %s\n' "$provider" > "$4"
+    printf '98\n' > "$3"
+    exit 98
+  fi
+done
 /bin/stty -echo || exit
 "$1" resume -- "$2" 2>"$4"
 printf '%s\n' "$?" > "$3"
-IFS= read -r ignored`, "fixture", binary, string(identity), statusPath, diagnostics, world},
-			Env: []string{"HOME=" + world, home.EnvHome + "=" + root.Dir, "PATH=" + world + ":/usr/bin:/bin"}}})
+IFS= read -r ignored`, "fixture", binary, string(identity), statusPath, diagnostics, fakeBin, world},
+			Env: []string{"HOME=" + world, home.EnvHome + "=" + root.Dir, "PATH=" + fakeBin + ":/usr/bin:/bin"}}})
 	if err != nil {
 		t.Fatal(err)
 	}
