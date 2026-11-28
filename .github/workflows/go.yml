@@ -168,6 +168,8 @@ jobs:
               "e2e": [
                   ("test/e2e/notes-path.e2e.test.ts", "uses the verified saved identity implicitly and remains available explicitly offline"),
                   ("test/e2e/cli-errors.e2e.test.ts", "preserves missing target and binding conflict exits without extra output"),
+                  ("test/e2e/marked-binding.e2e.test.ts", "fails clearly for no mark, invalid names, and inaccessible selected servers without fallback"),
+                  ("test/e2e/marked-binding.e2e.test.ts", "uses only the invocation-selected server when two private servers have marks"),
               ],
           }
           project = "/workspace/typescript"

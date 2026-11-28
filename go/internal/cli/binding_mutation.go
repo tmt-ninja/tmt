@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/runtime"
+	"github.com/tmt-ninja/tmt/go/internal/adapters/tmux"
 	"github.com/tmt-ninja/tmt/go/internal/clistyle"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/flavor"
@@ -28,6 +29,7 @@ type bindingSelection struct {
 	autoNamed  bool
 	renameAuto bool
 	resume     *core.ResumeSnapshot
+	frozen     *tmux.PaneSnapshot
 }
 
 func (b bindingCLI) bindCommand(ctx context.Context, inv invocation) output.Report {
@@ -47,8 +49,7 @@ func (b bindingCLI) bindCommand(ctx context.Context, inv invocation) output.Repo
 			return bindingUnavailable("--expect/--identity")
 		}
 		if len(inv.operands) < 2 {
-			// NOT PORTED (CLI-06): Exact marked-pane selection.
-			return bindingUnavailable("marked pane selection")
+			return bindingFailure("USAGE_ERROR", "Provide an explicit pane and name.", 1)
 		}
 		target := inv.operands[0]
 		rawName = inv.operands[1]
@@ -72,6 +73,10 @@ func (b bindingCLI) bindCommand(ctx context.Context, inv invocation) output.Repo
 	if failure != nil {
 		return failure
 	}
+	return bindingSuccess(entry)
+}
+
+func bindingSuccess(entry bindingEntry) output.Report {
 	return bindingReport{
 		document: boundIdentityJSON(entry.identity, entry.binding.PaneID),
 		render: func(w io.Writer) error {
@@ -87,6 +92,9 @@ func (b bindingCLI) bind(ctx context.Context, ref ports.PaneRef, callerPID uint6
 		return bindingEntry{}, bindingUnverified()
 	}
 	if b.host == nil || b.process == nil || b.paneDetails(ctx, ref) == nil {
+		if selected.frozen != nil {
+			return bindingEntry{}, bindingUnverified()
+		}
 		return bindingEntry{}, bindingPaneMissing(ref.PaneID)
 	}
 	serverID, err := b.host.EnsureServerID(ctx, ref.Server)
@@ -96,6 +104,9 @@ func (b bindingCLI) bind(ctx context.Context, ref ports.PaneRef, callerPID uint6
 	probe, err := b.host.ProbeBinding(ctx, ref)
 	pane := bindingPane(probe, ref)
 	if err != nil || pane == nil || probe.Server.ID != serverID || (callerPID != 0 && probe.Server.PID != callerPID) {
+		return bindingEntry{}, bindingUnverified()
+	}
+	if selected.frozen != nil && !b.stillFrozen(ctx, *selected.frozen, probe.Server, pane) {
 		return bindingEntry{}, bindingUnverified()
 	}
 	key := core.EndpointKey{Host: "tmux", ServerID: probe.Server.ID, PaneID: ref.PaneID}

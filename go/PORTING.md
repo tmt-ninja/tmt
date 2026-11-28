@@ -87,9 +87,9 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] `CLI-01` Complete resume with provider session presence checks, preset replay, Gemini, forget, retry, move, fresh start and driver switching.
 - [ ] `CLI-02` Extend send-now to verified provider-channel delivery and built-in and external hosts.
 - [ ] `CLI-03` Focus built-in and external hosts. Go tmux focus is covered by the focus parser cases from Rust parser/tests/identity.rs and the private Go equivalents of typescript/test/e2e/focus.e2e.test.ts: cross-session focus and back, unique/ambiguous key jobs, four-direction swap and already-beside, zoom and absent/stale/foreign refusals.
-- [ ] `CLI-04` Implement `discover` with bounded candidate evidence, classification and discovery digests.
+- [ ] `CLI-04` Port admitted external host discovery and additional native built-in driver aliases. The tmux inventory tests reuse the read-only scan and fresh binding assertions from `discovery.e2e.test.ts` and the native SHA-256 contract vectors from `contracts/discovery-v1.json`.
 - [ ] `CLI-05` Implement discovery-guarded `add --expect` and `--identity` against fresh evidence.
-- [ ] `CLI-06` Implement `marked` with a frozen mark and an exact binding check.
+- [ ] `CLI-06` Port the native optional pane badge. Tmux marked binding uses a frozen target; private fixtures reuse the missing mark, invalid name, no fallback, repeat/promotion/conflict, mark move and vanished pane assertions from `marked-binding.e2e.test.ts`.
 - [ ] `CLI-07` Implement interactive `attach` and `--detach-others` through the verified built-in terminal stream.
 - [ ] `CLI-08` Implement caller discovery from tmux process ancestry when environment claims are unavailable.
 - [ ] `CLI-09` Reconcile orphaned and legacy pane metadata during binding.

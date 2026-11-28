@@ -198,6 +198,8 @@ var grammar = commandSpec{
 			options: []string{"save", "model", "effort", "resume", "host", "channel", "no-channel"}},
 		{name: "ls", aliases: []string{"list"}, summary: "List global identities, lifetime and live presence",
 			operands: []operandSpec{optional("target")}, options: []string{"room", "saved", "temp", "here", "all", "detected", "host", "socket"}},
+		{name: "discover", summary: "Observe bounded candidate panes without changing state", options: []string{"host", "socket"}},
+		{name: "marked", summary: "Bind the pane explicitly marked in tmux; temporary unless saved", operands: []operandSpec{required("name")}, options: []string{"save"}},
 		{name: "add", summary: "Bind an explicit pane; temporary unless saved",
 			operands: []operandSpec{required("pane-target"), optional("name")}, options: []string{"save", "identity", "expect", "socket"}},
 		{name: "name", visibleAlias: "this", summary: "Bind this pane; temporary unless saved",
