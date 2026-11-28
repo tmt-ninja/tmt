@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/tmt-ninja/tmt/go/internal/core"
@@ -89,4 +90,74 @@ func TestEndLaunchRefusesSupersededRuntimeAndSettlesOnlyExactCapture(t *testing.
 		bindingOwnerID).Scan(&remembered, &channel); err != nil || remembered != "session" || !channel {
 		t.Fatalf("end changed session preferences: %q, %t, %v", remembered, channel, err)
 	}
+}
+
+func TestCanClosePaneRequiresExactEndedBindingWithoutLiveLaunch(t *testing.T) {
+	store := bindingFixture(t)
+	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
+	ctx := t.Context()
+	check := func(expected core.Binding, at uint64, want bool) {
+		t.Helper()
+		if err := store.Read(ctx, func(tx ports.StoreTx) error {
+			ok, err := tx.Bindings().CanClosePane(expected, at)
+			requireBindingChange(t, ok, err, want)
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check(binding, 3000, false)
+
+	var ended *core.Binding
+	if _, err := store.db.ExecContext(ctx, `UPDATE bindings SET runtime_state='ended',last_transition='ended',
+		runtime_pid=601,runtime_start_identity='old-runtime',launch_owner_pid=600,launch_owner_start_identity='old-owner'
+		WHERE id=?`, binding.ID); err != nil {
+		t.Fatal(err)
+	}
+	var closedRepo ports.BindingRepo
+	if err := store.Read(ctx, func(tx ports.StoreTx) error {
+		closedRepo = tx.Bindings()
+		var err error
+		ended, err = closedRepo.FindByIdentity(bindingOwnerID)
+		return err
+	}); err != nil || ended == nil {
+		t.Fatalf("settled binding = %+v, %v", ended, err)
+	}
+	if ok, err := closedRepo.CanClosePane(*ended, 3000); ok || err == nil {
+		t.Fatalf("closed SQLite transaction admitted close = %t, %v", ok, err)
+	}
+
+	check(*ended, 3000, true)
+	check(*ended, 0, false)
+	check(*ended, core.MaxJSSafeInteger+1, false)
+	wrong := *ended
+	reused := *wrong.Session.Runtime
+	reused.StartIdentity = "reused-runtime"
+	wrong.Session.Runtime = &reused
+	check(wrong, 3000, false)
+
+	intent := ports.LaunchIntent{
+		Expected: *ended, Owner: core.ProcessIncarnation{PID: 700, StartIdentity: "new-owner"},
+		Driver: core.DriverClaude, CreatedAtMs: 3100, ExpiresAtMs: 4100,
+	}
+	writeBindingTest(t, store, func(tx ports.StoreTx) error {
+		ok, err := tx.Bindings().CreateLaunchIntent(intent)
+		requireBindingChange(t, ok, err, true)
+		return err
+	})
+	check(*ended, 3200, false)
+	writeBindingTest(t, store, func(tx ports.StoreTx) error {
+		ok, err := tx.Bindings().ObserveLaunchActivity(ports.LaunchActivityObservation{
+			Expected: *ended, Owner: intent.Owner, Runtime: core.ProcessIncarnation{PID: 701, StartIdentity: "new-runtime"},
+			ProviderSession: "new-session", Transition: core.LaunchTransitionStarted, ObservedAtMs: 3300,
+		})
+		requireBindingChange(t, ok, err, true)
+		return err
+	})
+	if _, err := store.db.ExecContext(ctx, "UPDATE launch_observations SET preferences_fingerprint=? WHERE binding_id=?",
+		strings.Repeat("0", 64), binding.ID); err != nil {
+		t.Fatal(err)
+	}
+	check(*ended, 4099, false)
+	check(*ended, 4100, true)
 }

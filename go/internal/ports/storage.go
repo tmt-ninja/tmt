@@ -30,6 +30,9 @@ type BindingRepo interface {
 	CreateLaunchIntent(LaunchIntent) (bool, error)
 	AdmitLaunch(LaunchAdmission) (*core.Binding, error)
 	EndLaunch(LaunchEnd) (bool, error)
+	// CanClosePane checks the exact ended binding and outstanding launches in
+	// a read snapshot. Release the transaction before the verified host close.
+	CanClosePane(expected core.Binding, observedAtMs uint64) (bool, error)
 	ObserveLaunchActivity(LaunchActivityObservation) (bool, error)
 }
 
