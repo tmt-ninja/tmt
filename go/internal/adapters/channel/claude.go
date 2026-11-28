@@ -85,10 +85,10 @@ func EnrollClaude(ctx context.Context, runner ports.Process, in ClaudeEnrollment
 	if err := ctx.Err(); err != nil {
 		return nil, errors.Join(ErrEnrollment, err)
 	}
-	// NOT PORTED (#6938): bounded pruning of other bindings pending pane evidence and recovery.
 	if err := dir.writeClaude(record); err != nil {
 		return nil, errors.Join(ErrEnrollment, err)
 	}
+	dir.pruneEnded(ctx, observer, in.Root, record.BindingID)
 	return &ClaudeLease{root: in.Root, key: record, observer: observer, command: command}, nil
 }
 
