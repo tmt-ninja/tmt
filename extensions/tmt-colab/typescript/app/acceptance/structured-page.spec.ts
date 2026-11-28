@@ -4,6 +4,7 @@ import path from 'node:path';
 import { expect, test, type Locator } from '@playwright/test';
 import { pairBrowser, restartColab, startDoor } from './harness/browser.js';
 import { recordBlocksResults } from './harness/blocks-results.js';
+import { captureResponsive } from './harness/captures.js';
 import { freePort, openChat, pairedMachine, revokeMachine, run } from './harness/ask.js';
 import { disposeActiveWorlds, withWorld } from './harness/with-world.js';
 import { until } from './harness/process.js';
@@ -94,6 +95,97 @@ test('a phone block image viewer fits the viewport and its controls can be click
     await selectBlockByFocus(block);
     await opener.press('Enter');
     await expect(viewer).toBeVisible();
+  });
+});
+
+test('the Work crumb returns to the last active tab and defaults to Home', async () => {
+  await withWorld(async (world) => {
+    const door = await startDoor(world, await freePort());
+    const browser = await pairBrowser(world, 'work-crumb-owner');
+    const created = JSON.parse(
+      run(world, world.binaries.colab, [
+        'page',
+        'create',
+        '--title',
+        'Work crumb page',
+        '--no-open',
+        '--json',
+      ]),
+    ) as { pageId: string; path: string };
+    run(world, world.binaries.colab, ['project', 'add', created.pageId, 'Launch', '--json']);
+    const pageUrl = new URL(created.path, door.origin).href;
+    const homeUrl = new URL('/colab/work', door.origin).href;
+    const listUrl = new URL('/colab/work/list', door.origin).href;
+    const page = await browser.context.newPage();
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.goto(pageUrl);
+    const shell = page.locator('.tmt-ui-shell[data-rail]');
+    await page.getByRole('button', { name: 'Collapse side menu', exact: true }).click();
+    await expect(shell).toHaveAttribute('data-rail', 'collapsed');
+    const key = 'tmt-colab-work-tab';
+    await page.evaluate((name) => localStorage.removeItem(name), key);
+    await page.reload();
+
+    const preference = () => page.evaluate((name) => localStorage.getItem(name), key);
+    const crumb = page.getByRole('link', { name: 'Work', exact: true });
+    const project = page.locator('.colab-scope-crumb', { hasText: /^Launch$/ });
+    const tabs = page.getByRole('tablist', { name: 'Work', exact: true });
+    const tab = (name: string) => tabs.getByRole('tab', { name, exact: true });
+    const active = async (name: 'Home' | 'List') => {
+      await expect(tab(name)).toHaveAttribute('aria-selected', 'true');
+      await expect.poll(preference).toBe(name.toLowerCase());
+    };
+    await expect(crumb).toHaveAttribute('href', '/colab/work');
+    expect(await preference()).toBeNull();
+    await crumb.click();
+    await active('Home');
+    await captureResponsive(page, 'work-crumb-first-target');
+
+    await tab('List').click();
+    await active('List');
+    await page.goto(pageUrl);
+    await page.reload();
+    await expect(crumb).toHaveAttribute('href', '/colab/work/list');
+    await crumb.click();
+    await active('List');
+
+    await tab('Home').click();
+    await active('Home');
+    await page.goto(pageUrl);
+    await expect(project).toHaveAttribute('href', '/colab/work?project=Launch');
+    await project.click();
+    await active('Home');
+    await expect(page).toHaveURL(/\/colab\/work\?project=Launch/);
+
+    await page.goto(listUrl);
+    await active('List');
+    await page.goto(pageUrl);
+    await expect(crumb).toHaveAttribute('href', '/colab/work/list');
+    await page.goto(homeUrl);
+    await active('Home');
+    await page.goto(pageUrl);
+    await expect(crumb).toHaveAttribute('href', '/colab/work');
+
+    // Simulate storage that refuses this preference without disturbing device pairing.
+    await page.goto(listUrl);
+    await active('List');
+    await page.addInitScript((key) => {
+      const read = Storage.prototype.getItem;
+      const write = Storage.prototype.setItem;
+      Storage.prototype.getItem = function (name) {
+        if (name === key) throw new DOMException('Storage blocked', 'SecurityError');
+        return read.call(this, name);
+      };
+      Storage.prototype.setItem = function (name, value) {
+        if (name === key) throw new DOMException('Storage blocked', 'SecurityError');
+        write.call(this, name, value);
+      };
+    }, key);
+    await page.goto(pageUrl);
+    await expect(crumb).toHaveAttribute('href', '/colab/work');
+    await crumb.click();
+    await expect(tab('Home')).toHaveAttribute('aria-selected', 'true');
   });
 });
 

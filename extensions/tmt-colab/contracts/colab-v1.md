@@ -6658,7 +6658,10 @@ retained and never polled again for that filter. The reader requests only the ch
 No GitHub output is added to page HTML, and share readers receive none of these observations.
 
 Work has Home (`/colab/work`) and List (`/colab/work/list`). The sidebar All pages entry
-opens List. The bare `/colab/` route also renders List at that address. The explicit
+opens List. The page-header Work link returns to the last Work tab opened on this device,
+including direct visits, and defaults to Home without a usable preference. The project link
+keeps its project when returning. Only an active Work route updates the preference.
+The bare `/colab/` route also renders List at that address. The explicit
 `/colab/all` alias redirects to List with its validated search intact. The Colab submenu
 is available on List, including saved shortcuts and Manage shortcuts. The shell Work
 home records its view in the query string. `project`
