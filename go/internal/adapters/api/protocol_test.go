@@ -66,11 +66,12 @@ func TestServerDiscoveryAndVersionFaultCreateNoState(t *testing.T) {
 	input, responses := sessionFiles(t, []byte(
 		"{bad}\n"+
 			`{"version":1,"operation":"capabilities","input":{}}`+"\n"+
-			`{"version":1,"operation":"storage.root","input":{}}`+"\n"))
+			`{"version":1,"operation":"storage.root","input":{}}`+"\n"+
+			`{"version":1,"operation":"tick.status","input":{}}`+"\n"))
 	status, err = server.ServeSession(input, responses)
 	result, readErr := os.ReadFile(responses.Name())
 	lines := strings.Split(string(result), "\n")
-	if err != nil || readErr != nil || status != 0 || len(lines) != 4 || lines[3] != "" {
+	if err != nil || readErr != nil || status != 0 || len(lines) != 5 || lines[4] != "" {
 		t.Fatalf("session = %d, %v, %v; stdout = %q", status, err, readErr, result)
 	}
 	if !strings.Contains(lines[0], `"code":"API_INPUT_INVALID"`) {
@@ -80,13 +81,22 @@ func TestServerDiscoveryAndVersionFaultCreateNoState(t *testing.T) {
 		Operations []string
 		Limits     struct{ InputBytes, OutputBytes int }
 	}
-	if err := json.Unmarshal([]byte(lines[1]), &caps); err != nil || strings.Join(caps.Operations, ",") != strings.Join(append(append([]string{"capabilities", "storage.root", "digest.wake.step"}, digestOperations...), usageOperations...), ",") ||
+	if err := json.Unmarshal([]byte(lines[1]), &caps); err != nil || strings.Join(caps.Operations, ",") != strings.Join(append(append([]string{"capabilities", "storage.root", "tick.status", "digest.wake.step"}, digestOperations...), usageOperations...), ",") ||
 		caps.Limits.InputBytes != 6_299_648 || caps.Limits.OutputBytes != 12_648_448 {
 		t.Fatalf("capabilities = %s, %v", lines[1], err)
 	}
 	var data struct{ DataRoot string }
 	if err := json.Unmarshal([]byte(lines[2]), &data); err != nil || data.DataRoot != root {
 		t.Fatalf("storage root = %s, %v", lines[2], err)
+	}
+	var clock struct {
+		SchemaVersion int
+		State         string
+		Holder        json.RawMessage
+	}
+	if err := json.Unmarshal([]byte(lines[3]), &clock); err != nil || clock.SchemaVersion != 1 ||
+		clock.State != "stopped" || string(clock.Holder) != "null" {
+		t.Fatalf("tick status = %s, %v", lines[3], err)
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Fatalf("discovery created state: %v", err)

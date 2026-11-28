@@ -13,6 +13,7 @@ import (
 
 	"github.com/tmt-ninja/tmt/go/internal/adapters/process"
 	"github.com/tmt-ninja/tmt/go/internal/adapters/storage"
+	"github.com/tmt-ninja/tmt/go/internal/adapters/tick"
 	"github.com/tmt-ninja/tmt/go/internal/core"
 	"github.com/tmt-ninja/tmt/go/internal/home"
 )
@@ -195,6 +196,18 @@ func (s *requestSession) respond(body []byte) (SessionResponse, error) {
 		} else {
 			value = map[string]string{"dataRoot": s.root.Dir}
 		}
+	case "tick.status":
+		if !emptyObject(request.Input) {
+			return encodeFault(invalid())
+		}
+		status, err := tick.Status(s.root, now)
+		if errors.Is(err, tick.ErrInvalid) {
+			return encodeFault(&Fault{Code: "TICK_INPUT_INVALID", Message: tick.ErrInvalid.Error()})
+		}
+		if err != nil {
+			return encodeFault(&Fault{Code: "TICK_IO", Message: "Tick I/O failed: " + err.Error()})
+		}
+		value = status
 	case "digest.wake.step":
 		input, ok := decodeWake(request.Input)
 		if !ok {
@@ -285,7 +298,7 @@ func encodeFault(fault *Fault) (SessionResponse, error) {
 }
 
 func capabilities() any {
-	operations := append([]string{"capabilities", "storage.root", "digest.wake.step"}, digestOperations...)
+	operations := append([]string{"capabilities", "storage.root", "tick.status", "digest.wake.step"}, digestOperations...)
 	operations = append(operations, usageOperations...)
 	return map[string]any{
 		"version":    ProtocolVersion,
