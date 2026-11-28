@@ -54,8 +54,12 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
   - Native `storage/room/tests.rs::a_roster_post_reaches_only_the_addressed_members`
     maps to Go `TestSendNowProjectsExactRetainedThreadRoot` for the stored root
     ID and retained prompt. The same test pins the root ID when the prompt or
-    root retention expires, or the root row is absent. Shared frame rendering
-    and the Digest consumer remain in progress.
+    root retention expires, or the root row is absent.
+  - Native `storage/digest_hook.rs` uses the same request frame for live and
+    held deliveries. Go `TestDigestClaimSealsExactPrefixAndSettlesOnce` pins the
+    same root projection in both the claimable preview and exact claimed read.
+    It also checks ID-only fallback at expiry and content-free history. Shared
+    frame rendering remains in progress.
 
 - [x] GO1-24: Read existing discovery ownership without provisioning.
   - Native `storage/bindings/service_tests/discovery.rs::read_only_discovery_preserves_rows_and_distinguishes_known_stale_hook_only_and_duplicates`

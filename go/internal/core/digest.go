@@ -62,6 +62,7 @@ type DigestItem struct {
 	PromptExpiresAtMs *uint64
 	Final             XFinal
 	Reply             *DigestReplyProof
+	ThreadRoot        *RequestThreadRoot
 }
 type DigestReplyProof struct {
 	Route   RequestRoute

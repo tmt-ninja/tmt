@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -44,6 +45,23 @@ func TestDigestClaimSealsExactPrefixAndSettlesOnce(t *testing.T) {
 	binding := publishBindingFixture(t, store, reservationFixture(bindingID1, bindingOwnerID, "%1"))
 	first, receipt := seedDigestRequest(t, store, 1, false)
 	second, _ := seedDigestRequest(t, store, 2, true)
+	const rootText = "Review the saved sketch.\nDigest root fixture."
+	if _, err := store.db.ExecContext(ctx,
+		"UPDATE request_attempts SET message_text=?,message_bytes=?,message_expires_at_ms=12200 WHERE request_id=?",
+		rootText, len(rootText), second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx,
+		"UPDATE request_attempts SET thread_root_request_id=? WHERE request_id=?", second, first); err != nil {
+		t.Fatal(err)
+	}
+	assertRetainedRoot := func(item core.DigestItem) {
+		t.Helper()
+		root := item.ThreadRoot
+		if root == nil || root.RequestID != second || root.Text == nil || *root.Text != rootText {
+			t.Fatalf("retained Digest root = %+v, want %s with the exact retained prompt", root, second)
+		}
+	}
 	if _, err := store.db.ExecContext(ctx, "INSERT INTO identity_metadata VALUES (?,'user','true')", bindingOtherID); err != nil {
 		t.Fatal(err)
 	}
@@ -92,6 +110,7 @@ func TestDigestClaimSealsExactPrefixAndSettlesOnce(t *testing.T) {
 	if err != nil || len(preview.Items) != 1 || preview.Items[0].RequestID != first {
 		t.Fatalf("preview: %+v %v", preview, err)
 	}
+	assertRetainedRoot(preview.Items[0])
 
 	if _, err := store.db.ExecContext(ctx, `CREATE TRIGGER fail_digest_input BEFORE INSERT ON capture_entries
 		BEGIN SELECT RAISE(ABORT,'capture refused'); END`); err != nil {
@@ -114,8 +133,16 @@ func TestDigestClaimSealsExactPrefixAndSettlesOnce(t *testing.T) {
 	}
 	read.ChecklistID = &got.ID
 	list, err = store.ReadChecklist(ctx, read)
-	if err != nil || list.Total != 1 || list.Items[0].RequestID != first {
+	if err != nil || list.Total != 1 || len(list.Items) != 1 || list.Items[0].RequestID != first {
 		t.Fatalf("sealed membership: %+v %v", list, err)
+	}
+	assertRetainedRoot(list.Items[0])
+	expiredRead := read
+	expiredRead.NowMs = 12200
+	expired, err := store.ReadChecklist(ctx, expiredRead)
+	if err != nil || len(expired.Items) != 1 || expired.Items[0].ThreadRoot == nil ||
+		expired.Items[0].ThreadRoot.RequestID != second || expired.Items[0].ThreadRoot.Text != nil {
+		t.Fatalf("sealed root at prompt expiry: %+v %v", expired, err)
 	}
 	if repeat, err := store.Claim(ctx, claim); err != nil || repeat != nil {
 		t.Fatalf("replay granted transport: %+v %v", repeat, err)
@@ -137,6 +164,10 @@ func TestDigestClaimSealsExactPrefixAndSettlesOnce(t *testing.T) {
 	history, err := store.ReadHistory(ctx, read)
 	if err != nil || len(history.Checklists) != 1 || history.DeliveredDigests != 1 {
 		t.Fatalf("history: %+v %v", history, err)
+	}
+	encodedHistory, err := json.Marshal(history)
+	if err != nil || strings.Contains(string(encodedHistory), "Digest root fixture.") {
+		t.Fatalf("history exposed the root prompt: %s, %v", encodedHistory, err)
 	}
 	h := history.Checklists[0]
 	if h.Outcome != core.DigestStateDelivered || h.SealedCount == nil || *h.SealedCount != 1 || h.SettledAtMs == nil ||

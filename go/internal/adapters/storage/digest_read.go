@@ -88,8 +88,9 @@ func hydrateDigestItem(r records, item *core.DigestItem, now uint64) error {
 	}
 	if item.Source == core.DigestSourceIncoming && item.Prompt != nil && firstFinalRefusal(*attempt, policy.mode, now) == nil {
 		item.Reply = &core.DigestReplyProof{Route: attempt.Route, Receipt: core.EncodeReceipt(attempt.RequestID, attempt.AttemptID, attempt.Route)}
+		item.ThreadRoot, err = readRequestThreadRoot(r, item.RequestID, now)
 	}
-	return nil
+	return err
 }
 
 func validDigestPage(now, after, limit uint64) bool {
