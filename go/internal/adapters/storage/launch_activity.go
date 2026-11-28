@@ -56,8 +56,14 @@ func (r bindingRows) stageLaunchActivity(observation ports.LaunchActivityObserva
 		return false, err
 	}
 	digest, err := launchPreferencesFingerprint(r.records, binding)
-	if err != nil || digest != storedDigest {
+	if err != nil {
 		return false, err
+	}
+	if digest != storedDigest {
+		matches, err := r.matchingResumeObservation(observation, storedDigest)
+		if err != nil || !matches {
+			return false, err
+		}
 	}
 	encoded, version, err := initialActivityDocument(make(map[string]json.RawMessage), observation)
 	if err != nil {
@@ -69,7 +75,7 @@ func (r bindingRows) stageLaunchActivity(observation ports.LaunchActivityObserva
 		WHERE binding_id = ?8 AND owner_pid = ?9 AND owner_start = ?10 AND driver = ?11 AND status = 'intent'
 			AND preferences_fingerprint = ?12 AND created_at_ms <= ?4 AND expires_at_ms > ?4`,
 		observation.Runtime.PID, observation.Runtime.StartIdentity, observation.ProviderSession, now,
-		observation.Transition, encoded, version, binding, owner.PID, owner.StartIdentity, core.DriverClaude, digest))
+		observation.Transition, encoded, version, binding, owner.PID, owner.StartIdentity, core.DriverClaude, storedDigest))
 }
 
 // The fingerprint matches the native ordered JSON arrays of stored preference
@@ -95,8 +101,8 @@ func launchPreferencesFingerprint(r records, binding core.BindingID) (string, er
 	return hex.EncodeToString(digest[:]), nil
 }
 
-func fingerprintRows(r records, query string, binding core.BindingID) ([][]any, error) {
-	rows, err := r.query(query, binding)
+func fingerprintRows(r records, query string, id any) ([][]any, error) {
+	rows, err := r.query(query, id)
 	if err != nil {
 		return nil, err
 	}

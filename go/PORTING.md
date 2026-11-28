@@ -34,7 +34,7 @@ sockets); the native-root switch is one lead-owned change in `internal/home`.
 - [ ] GO1-14: Exact resume for Claude and Codex, including the read-only preset projection.
 - [ ] GO1-15: Resume forget, move, new, retry, driver switching and stale/pending settlement.
 - [ ] GO1-16: Gemini exact resume.
-- [ ] GO1-17: Resume launches that honor saved wrapper, model, effort and channel settings.
+- [ ] GO1-17: Resume with saved wrapper, model, effort and channel settings, plus the associated preset model refresh in --show.
 - [ ] GO1-18: Exact send-now release, guarded claim and settlement.
 - [ ] GO1-19: Reply and timeout notice production.
 - [ ] GO1-20: Selected Digest checklist snapshot and summary-only counts after settlement.

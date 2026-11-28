@@ -26,6 +26,11 @@ type BindingRepo interface {
 	FindByEndpoint(core.EndpointKey) (*core.Binding, error)
 	List() ([]core.Binding, error)
 
+	// ReadResume captures saved coordinates for the exact active UUID.
+	ReadResume(core.IdentityID) (*core.ResumeSnapshot, error)
+	// VerifyResume belongs to the same write transaction as the binding change.
+	VerifyResume(core.ResumeSnapshot) error
+
 	FindReservationByIdentity(core.IdentityID) (*core.BindingReservation, error)
 	FindReservationByEndpoint(core.EndpointKey) (*core.BindingReservation, error)
 	Reserve(reservation core.BindingReservation, expectedBinding *core.Binding) (bool, error)
@@ -75,6 +80,7 @@ type LaunchIntent struct {
 	Driver      core.DriverName
 	CreatedAtMs uint64
 	ExpiresAtMs uint64
+	Resume      *core.ResumeExpectation
 }
 
 // LaunchAdmission supplies live foreground runtime evidence obtained outside

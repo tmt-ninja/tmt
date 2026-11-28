@@ -58,7 +58,7 @@ func (r bindingRows) CreateLaunchIntent(intent ports.LaunchIntent) (bool, error)
 	if err != nil || !matchBinding(binding, &intent.Expected, false) || binding.Session.RuntimeState == "running" {
 		return false, err
 	}
-	digest, err := launchPreferencesFingerprint(r.records, binding.ID)
+	digest, err := r.launchIntentFingerprint(intent, *binding)
 	if err != nil {
 		return false, err
 	}
@@ -107,15 +107,24 @@ func (r bindingRows) AdmitLaunch(admission ports.LaunchAdmission) (*core.Binding
 	if stored.status != "intent" && stored.status != "pending" {
 		return nil, nil
 	}
-	digest, err := launchPreferencesFingerprint(r.records, binding.ID)
-	if err != nil || !stored.matches(intent, digest) {
+	digest, err := r.launchIntentFingerprint(intent, *binding)
+	if err != nil {
 		return nil, err
+	}
+	if !stored.matches(intent, digest) {
+		if intent.Resume != nil {
+			return nil, resumeDrift()
+		}
+		return nil, nil
 	}
 
 	transition := core.LaunchTransitionStarted
 	if stored.status == "pending" {
 		if !matchesPendingLaunch(*stored, runtime) {
 			return nil, nil
+		}
+		if intent.Resume != nil && *stored.session != intent.Resume.ProviderSession {
+			return nil, resumeDrift()
 		}
 		if err := r.rememberLaunch(binding.IdentityID, intent.Driver, *stored); err != nil {
 			return nil, err

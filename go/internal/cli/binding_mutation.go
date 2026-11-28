@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -25,6 +26,7 @@ type bindingSelection struct {
 	save       bool
 	autoNamed  bool
 	renameAuto bool
+	resume     *core.ResumeSnapshot
 }
 
 func (b bindingCLI) bindCommand(ctx context.Context, inv invocation) output.Report {
@@ -80,6 +82,9 @@ func (b bindingCLI) bindCommand(ctx context.Context, inv invocation) output.Repo
 // bind is shared by add/name and the run composition. The supplied reference
 // is an exact pane on an explicit socket. callerPID is set for a caller claim.
 func (b bindingCLI) bind(ctx context.Context, ref ports.PaneRef, callerPID uint64, selected bindingSelection) (bindingEntry, *output.Failure) {
+	if selected.resume != nil && (selected.id != selected.resume.Identity.ID || selected.save || selected.renameAuto || selected.autoNamed) {
+		return bindingEntry{}, bindingUnverified()
+	}
 	if b.host == nil || b.process == nil || b.paneDetails(ctx, ref) == nil {
 		return bindingEntry{}, bindingPaneMissing(ref.PaneID)
 	}
@@ -172,6 +177,9 @@ func (b bindingCLI) bind(ctx context.Context, ref ports.PaneRef, callerPID uint6
 	}
 	var identity *core.Identity
 	err = b.store.Write(ctx, func(tx ports.StoreTx) error {
+		if err := verifyBindingResume(tx, selected.resume); err != nil {
+			return err
+		}
 		current, err := readBindingSelection(tx, selected)
 		if err != nil {
 			return err
@@ -229,7 +237,20 @@ func (b bindingCLI) bind(ctx context.Context, ref ports.PaneRef, callerPID uint6
 	if err != nil {
 		return bindingEntry{}, bindingRejected(err)
 	}
-	return b.publishBinding(ctx, *identity, reservation, existing.binding)
+	return b.publishBinding(ctx, *identity, reservation, existing.binding, selected.resume)
+}
+
+func verifyBindingResume(tx ports.StoreTx, expected *core.ResumeSnapshot) error {
+	if expected == nil {
+		return nil
+	}
+	err := tx.Bindings().VerifyResume(*expected)
+	var failure *core.RequestFailure
+	if errors.As(err, &failure) {
+		return &output.Failure{Code: failure.Code, Message: failure.Message, Status: failure.Status,
+			Reason: failure.Reason, Stage: failure.Stage, Suggestion: failure.Suggestion}
+	}
+	return err
 }
 
 func readBindingSelection(tx ports.StoreTx, selected bindingSelection) (bindingEntry, error) {
@@ -251,7 +272,7 @@ func sameBindingEntryForCLI(a, b bindingEntry) bool {
 	return reflect.DeepEqual(a.identity, b.identity) && reflect.DeepEqual(a.binding, b.binding)
 }
 
-func (b bindingCLI) publishBinding(ctx context.Context, identity core.Identity, reservation core.BindingReservation, old *core.Binding) (bindingEntry, *output.Failure) {
+func (b bindingCLI) publishBinding(ctx context.Context, identity core.Identity, reservation core.BindingReservation, old *core.Binding, resume *core.ResumeSnapshot) (bindingEntry, *output.Failure) {
 	target := reservation.Target
 	published, err := b.host.PublishBinding(ctx, target, identity)
 	if err != nil || !published {
@@ -267,6 +288,9 @@ func (b bindingCLI) publishBinding(ctx context.Context, identity core.Identity, 
 	}
 	var result bindingEntry
 	err = b.store.Write(ctx, func(tx ports.StoreTx) error {
+		if err := verifyBindingResume(tx, resume); err != nil {
+			return err
+		}
 		fresh, err := tx.Identities().FindByID(identity.ID)
 		if err != nil {
 			return err
@@ -331,6 +355,9 @@ func (b bindingCLI) reuseBinding(ctx context.Context, observed bindingEntry, sel
 	identity := observed.identity
 	now := b.now()
 	err := b.store.Write(ctx, func(tx ports.StoreTx) error {
+		if err := verifyBindingResume(tx, selected.resume); err != nil {
+			return err
+		}
 		current, err := tx.Identities().FindByID(identity.ID)
 		if err != nil {
 			return err
